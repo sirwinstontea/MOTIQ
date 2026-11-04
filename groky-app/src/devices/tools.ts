@@ -62,7 +62,44 @@ const fromPrimitives = (list: Primitive[], device: DeviceId): Tool[] =>
 // Names map 1:1 to POST {bridge}/tools/{name}. Arm names are the UR5e primitives from the skill template.
 const dogTools: Tool[] = fromPrimitives(DOG_PRIMITIVES, 'dog');
 
+// High-level tasks run by robot_controller through the arm bridge (../bridge). The real arm only moves between
+// taught positions, so these are the tools that work on hardware; small step moves are simulator-only.
+export const ARM_TASK_TOOLS = new Set(['pick_and_place', 'pick', 'place', 'shake']);
+const objectParam = {
+  type: 'string',
+  description: 'object name ("red cube") or the number the vision server shows on it',
+};
+const destParam = { type: 'string', description: 'where to put it, e.g. "delivery zone" or "blue box"' };
+
 const armTools: Tool[] = [
+  {
+    name: 'pick_and_place',
+    description:
+      'Whole task on the real arm: find the object with the camera, pick it, optionally shake it, place it at the destination. Preferred way to move an object.',
+    parameters: params(
+      {
+        object: objectParam,
+        destination: destParam,
+        shake_cycles: { type: 'integer', minimum: 0, maximum: 3, description: 'gentle shakes before placing, default 0' },
+      },
+      ['object'],
+    ),
+  },
+  {
+    name: 'pick',
+    description: 'Find the object with the camera and pick it up (verifies the grip).',
+    parameters: params({ object: objectParam }, ['object']),
+  },
+  {
+    name: 'place',
+    description: 'Place the held object at a destination and release it.',
+    parameters: params({ destination: destParam }),
+  },
+  {
+    name: 'shake',
+    description: 'Gently shake the held object side to side.',
+    parameters: params({ cycles: { type: 'integer', minimum: 1, maximum: 3, description: 'default 2' } }),
+  },
   ...fromPrimitives(ARM_PRIMITIVES, 'arm'),
   {
     name: 'detect',

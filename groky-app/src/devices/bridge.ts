@@ -1,7 +1,7 @@
 import env from '../lib/config';
 import { armWorld, detect, resolveObject, runArm, verify } from '../robot/runtime';
 import { simInfo, simulate } from './sim';
-import { DeviceId, deviceIds, devices, splitToolName } from './tools';
+import { ARM_TASK_TOOLS, DeviceId, deviceIds, devices, splitToolName } from './tools';
 
 export type ToolResult = { ok: boolean; sim?: boolean; [k: string]: unknown };
 
@@ -77,6 +77,11 @@ async function runArmTool(name: string, args: Record<string, unknown>, url: stri
       };
     const d = await detect(id, !!url);
     return { ok: d.ok, sim: !url || undefined, object: id, seen: d.note, measured: d.measured, error: d.error };
+  }
+  if (ARM_TASK_TOOLS.has(name)) {
+    // whole tasks run in robot_controller; a pick can take a while in RoboDK, so wait up to 3 minutes
+    if (url) return post(`${url}/tools/${name}`, args, 180000);
+    return simulate('arm', name, args);
   }
   if (name === 'verify') {
     const v = await verify([String(args.expect ?? '')], !!url);

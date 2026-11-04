@@ -36,3 +36,13 @@ def test_live_status_and_dashboard(make_executor):
     assert snap["task_id"] == "live1" and snap["state"] == "COMPLETED"
     assert snap["progress"]["done"] == snap["progress"]["total"] == len(snap["steps"])
     assert snap["robot"]["tcp_m"] and len(snap["robot"]["joints_deg"]) == 6
+
+
+def test_operator_reset_clears_latched_cancel(make_executor):
+    ex = make_executor()
+    client = TestClient(create_app(ex))
+    ex.submit(demo_task("rst1"), wait=True)
+    ex.state = ex.state.__class__.CANCELLED          # as after a cancelled task
+    assert client.post("/operator/reset", json={"operator": ""}).status_code == 422
+    r = client.post("/operator/reset", json={"operator": "tester"})
+    assert r.status_code == 200 and r.json()["executor_state"] == "IDLE"

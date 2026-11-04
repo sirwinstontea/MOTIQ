@@ -74,4 +74,17 @@ def create_app(ex: TaskExecutor) -> FastAPI:
         ex.stop_robot()
         return {"requested": "controlled_stop", "note": "software stop request; NOT an emergency stop"}
 
+    @app.post("/operator/reset")
+    async def operator_reset(request: Request):
+        """Operator clears a latched FAULT/CANCELLED state. Same-PC only; not an AI tool,
+        and the LAN bridge never forwards it."""
+        if not request.client or request.client.host not in ("127.0.0.1", "::1", "testclient"):
+            raise HTTPException(403, "operator reset is only accepted from the robot PC itself")
+        try:
+            operator = str((await request.json()).get("operator", ""))
+        except Exception:
+            operator = ""
+        ex.reset_fault(operator=operator)
+        return {"reset": True, "operator": operator, "executor_state": ex.state.value}
+
     return app
