@@ -460,3 +460,40 @@ def test_tracker_keeps_id_on_weak_frame_and_drops_unconfirmed():
     frame = np.zeros((480, 640, 3), np.uint8)
     seen = [[o.id for o in t.process_frame(frame)] for _ in range(4)]
     assert seen == [[], [7], [7], [7]]
+
+
+def test_hands_stop_the_arm_and_are_never_sent_to_robot(tmp_path):
+    from vision.eyes.dog.telemetry import check_hand_safety_stop
+    from vision.grok.handoff import send_selection
+
+    hand = EyeObject(id=4, label="mano", conf=0.8, bbox=(0.4, 0.4, 0.2, 0.2))
+    robot = EyeObject(id=5, label="braccio", conf=0.9, bbox=(0.1, 0.1, 0.3, 0.6))
+    cap = EyeObject(id=6, label="tappo_bianco", conf=0.9, bbox=(0.6, 0.6, 0.1, 0.1))
+    assert check_hand_safety_stop([cap, hand])[0]
+    assert not check_hand_safety_stop([cap, robot])[0]                          # "braccio" può essere il robot
+    assert not check_hand_safety_stop([EyeObject(id=7, label="mano", conf=0.3, bbox=(0, 0, 0.1, 0.1))])[0]
+
+    path = tmp_path / "selection.json"
+    assert send_selection(path, hand.model_dump(), "prendi la mano") is None and not path.exists()
+    assert send_selection(path, cap.model_dump(), "prendi il tappo")["target"]["label"] == "tappo_bianco"
+
+
+def test_color_comes_from_class_name_not_pixels():
+    from vision.eyes.tracking.tracker import label_color
+    from vision.grok.local_resolver import display
+    from vision.grok.schemas import TrackedObject
+
+    assert label_color("vite_arancione") == "arancione" and label_color("mano") is None
+
+    t = ObjectTracker(conf_threshold=0.4, use_mock=False)
+    t._yolo_model = _FakeYolo([[([0.4, 0.4, 0.5, 0.5], 0.9, 1)]])
+    red = np.zeros((480, 640, 3), np.uint8)
+    red[:] = (0, 0, 255)                                                        # pixel rossi: la stima direbbe "rosso"
+    (obj,) = t.process_frame(red)
+    assert obj.color == "bianco"                                                # dal nome: tappo_bianco
+
+    def show(label, color):
+        return display(TrackedObject(id=1, label=label, conf=0.9, bbox=(0, 0, 0.1, 0.1), color=color))
+    assert show("secchio_blu", "blu") == "secchio blu"                          # niente "secchio_blu blu"
+    assert show("mano", None) == "mano"
+    assert show("cup", "rosso") == "cup rosso"                                  # classi senza colore: resta la stima

@@ -33,9 +33,21 @@ COCO_CLASSES = [
     "hair drier", "toothbrush"
 ]
 
-# Modello addestrato da noi sui pezzi della demo (tappo_bianco, anello_verde, vite_arancione, secchio_blu).
+# Modello addestrato da noi sui pezzi della demo (tappo_bianco, anello_verde, vite_arancione, secchio_blu)
+# e sulle parti del corpo (braccio, mano, polso: mai bersagli, mano e polso fermano il braccio).
 # Per tornare al COCO generico: YOLO_MODEL=data/models/yolov8n.onnx nel .env.
-DEFAULT_MODEL = Path(__file__).resolve().parents[3] / "data" / "models" / "oggetti_best.onnx"
+DEFAULT_MODEL = Path(__file__).resolve().parents[3] / "data" / "models" / "oggetti_mani.onnx"
+COLOR_WORDS = {"rosso", "arancione", "giallo", "verde", "blu", "viola", "bianco", "nero", "grigio"}
+NO_COLOR_LABELS = {"mano", "polso", "braccio"}  # pelle: il colore stimato esce "rosso" e non serve a niente
+
+
+def label_color(label: str) -> str | None:
+    """Colore scritto nel nome della classe ("vite_arancione" -> "arancione"): più affidabile della stima
+    dai pixel, che con poca luce legge l'arancione come rosso."""
+    last = label.lower().rsplit("_", 1)[-1]
+    return last if last in COLOR_WORDS else None
+
+
 TRACKER_CFG = Path(__file__).with_name("bytetrack_motiq.yaml")  # soglie di ByteTrack, da regolare sul tavolo
 TRACK_MIN_CONF = 0.1  # = track_low_thresh nel yaml
 
@@ -448,7 +460,10 @@ class ObjectTracker:
 
         eye_objects: list[EyeObject] = []
         for obj_id, label, conf, bbox in tracked_items:
-            detected_color = estimate_dominant_color_it(frame_bgr, bbox)
+            if label.lower() in NO_COLOR_LABELS:
+                detected_color = None
+            else:
+                detected_color = label_color(label) or estimate_dominant_color_it(frame_bgr, bbox)
             saved_name, saved_color = self._custom_names.get(obj_id, (None, None))
             coords_mm = None
             if apply_calibration and self.calibrator_fn is not None:

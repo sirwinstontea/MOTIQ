@@ -22,7 +22,7 @@ import numpy as np
 from .calibration.aruco_calib import ArmCalibrator
 from .capture.reader import SourceMode, VideoReader
 from .capture.realsense import RealSenseReader
-from .dog.telemetry import DogNavigator, check_person_safety_stop
+from .dog.telemetry import DogNavigator, check_hand_safety_stop, check_person_safety_stop
 from .marks.som import draw_marks
 from .schemas import EyeObject, FramePayload
 from .segmentation import MaskCache, TableBackground, attach_masks
@@ -183,6 +183,8 @@ class EyePipeline:
             dog_telemetry, safety_stop, safety_reason = node.dog_navigator.evaluate(objects)
         else:
             safety_stop, safety_reason = check_person_safety_stop(objects)
+            if not safety_stop and source == "arm":  # una mano dove lavora il braccio: fermo
+                safety_stop, safety_reason = check_hand_safety_stop(objects)
 
         marked = draw_marks(
             frame,

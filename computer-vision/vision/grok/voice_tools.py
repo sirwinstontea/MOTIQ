@@ -20,7 +20,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .handoff import send_selection
+from .handoff import HUMAN_LABELS, send_selection
 from .local_resolver import display
 from .marks import draw_marks
 from .schemas import Detections, parse_objects
@@ -120,8 +120,10 @@ def _select_object(source: str, description: str, state: VisionState) -> dict:
         return out | {"ok": False, "id": None, "ambiguous": True, "say": res.question}
     if res.target_id is None:
         return out | {"ok": False, "id": None, "say": f"Non lo trovo. {res.reason}".strip()}
-    ctx.update(last_selected_id=res.target_id, last_question=None)
     obj = next(o for o in parse_objects(objects) if o.id == res.target_id)
+    if obj.label.lower() in HUMAN_LABELS:
+        return out | {"ok": False, "id": None, "say": "Quella è una mano: non la faccio prendere al robot."}
+    ctx.update(last_selected_id=res.target_id, last_question=None)
     # come il click nel demo: la scelta va al braccio (formato in handoff.py)
     sent = send_selection(SELECTION_PATH, obj.model_dump(), description, res.action, res.destination_id, source)
     return out | {"ok": True, "id": res.target_id, "destination_id": res.destination_id, "action": res.action,

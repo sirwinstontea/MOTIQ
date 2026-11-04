@@ -11,11 +11,16 @@ import time
 from pathlib import Path
 
 TARGET_KEYS = ("id", "label", "name", "color", "tags", "conf", "bbox", "distance_m", "coords_mm")
+# Classi del modello oggetti_mani che sono parti di una persona: mai un bersaglio per il robot
+HUMAN_LABELS = {"mano", "polso", "braccio"}
 
 
 def send_selection(path: Path, obj: dict, command: str | None = None, action: str | None = None,
                    destination_id: int | None = None, source: str = "arm") -> dict | None:
-    """Scrive la selezione e restituisce il messaggio scritto. Restituisce None se il disco rifiuta la scrittura."""
+    """Scrive la selezione e restituisce il messaggio scritto. Restituisce None se il disco rifiuta la scrittura
+    o se l'oggetto è una parte del corpo (mano, polso, braccio): quella non si manda al robot."""
+    if str(obj.get("label", "")).lower() in HUMAN_LABELS:
+        return None
     msg = {"ts": round(time.time(), 3), "source": source, "command": command, "action": action or "none",
            "destination_id": destination_id, "target": {k: obj.get(k) for k in TARGET_KEYS}}
     path = Path(path)
