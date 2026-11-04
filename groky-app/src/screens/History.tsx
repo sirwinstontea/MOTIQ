@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { Ask } from '../hooks/useHistory';
-import { Colors, useStyles, useTheme } from '../theme';
+import { Button, IconButton, IconChip } from '../components/ui';
+import { Colors, radius, type, useStyles, useTheme } from '../theme';
 import { ago } from '../lib/time';
 
 type Props = {
@@ -17,6 +18,8 @@ export default function History({ items, onRun, onPin, onRemove, onClear }: Prop
   const { c } = useTheme();
   const s = useStyles(makeStyles);
   const [q, setQ] = useState('');
+  const [focused, setFocused] = useState(false);
+  const mobile = useWindowDimensions().width < 641;
 
   const list = useMemo(() => {
     const f = q.trim().toLowerCase();
@@ -31,20 +34,16 @@ export default function History({ items, onRun, onPin, onRemove, onClear }: Prop
     ]);
 
   return (
-    <View style={s.page}>
+    <View style={[s.page, mobile && { paddingHorizontal: 16 }]}>
       <View style={s.head}>
         <View style={{ flex: 1 }}>
           <Text style={s.title}>History</Text>
           <Text style={s.sub}>Everything you asked. Tap one to send it again.</Text>
         </View>
-        {items.length > 0 && (
-          <Pressable onPress={confirmClear} hitSlop={8}>
-            <Text style={s.clear}>Clear</Text>
-          </Pressable>
-        )}
+        {items.length > 0 && <Button label="Clear" variant="ghost" size="sm" onPress={confirmClear} />}
       </View>
 
-      <View style={s.search}>
+      <View style={[s.search, focused && { borderColor: c.accent }]}>
         <Ionicons name="search" size={16} color={c.faint} />
         <TextInput
           value={q}
@@ -52,40 +51,56 @@ export default function History({ items, onRun, onPin, onRemove, onClear }: Prop
           placeholder="Search"
           placeholderTextColor={c.faint}
           style={s.searchInput}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
         />
       </View>
 
       <FlatList
         data={list}
         keyExtractor={(i) => i.id}
-        contentContainerStyle={{ gap: 8, paddingBottom: 30 }}
-        ListEmptyComponent={
-          <Text style={s.empty}>{q ? 'No matches.' : 'Nothing yet. Things you say to Groky show up here.'}</Text>
-        }
-        renderItem={({ item }) => (
-          <Pressable onPress={() => onRun(item.text)} style={({ pressed }) => [s.row, pressed && { opacity: 0.6 }]}>
-            <Ionicons
-              name={item.via === 'voice' ? 'mic-outline' : 'chatbox-outline'}
-              size={18}
-              color={c.dim}
-              style={{ marginTop: 2 }}
-            />
-            <View style={{ flex: 1 }}>
-              <Text style={s.text}>{item.text}</Text>
+        style={{ flexGrow: 0 }}
+        contentContainerStyle={list.length ? s.list : undefined}
+        ListEmptyComponent={<Text style={s.empty}>{q ? 'No matches.' : 'Nothing yet.'}</Text>}
+        renderItem={({ item, index }) => (
+          <Pressable
+            onPress={() => onRun(item.text)}
+            style={({ pressed }) => [
+              s.row,
+              index === list.length - 1 && { borderBottomWidth: 0 },
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <IconChip icon={item.via === 'voice' ? 'mic-outline' : 'chatbox-outline'} color={c.dim} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={s.text} numberOfLines={2}>
+                {item.text}
+              </Text>
               <Text style={s.meta}>
                 {ago(item.at)}
                 {item.count > 1 && `  ·  asked ${item.count}x`}
+                {item.via === 'voice' ? '  ·  voice' : '  ·  typed'}
               </Text>
             </View>
-            <Pressable onPress={() => onPin(item.id)} hitSlop={8} style={s.icon}>
-              <Ionicons name={item.pinned ? 'star' : 'star-outline'} size={18} color={item.pinned ? c.warn : c.faint} />
-            </Pressable>
-            <Pressable onPress={() => onRemove(item.id)} hitSlop={8} style={s.icon}>
-              <Ionicons name="trash-outline" size={18} color={c.faint} />
-            </Pressable>
-            <View style={s.run}>
-              <Ionicons name="play" size={14} color={c.bg} />
-            </View>
+            <IconButton
+              icon={item.pinned ? 'star' : 'star-outline'}
+              plain
+              size={32}
+              color={item.pinned ? c.accent : c.faint}
+              onPress={() => onPin(item.id)}
+              label={item.pinned ? 'Unpin' : 'Pin'}
+            />
+            {!mobile && (
+              <IconButton
+                icon="trash-outline"
+                plain
+                size={32}
+                color={c.faint}
+                onPress={() => onRemove(item.id)}
+                label="Delete"
+              />
+            )}
+            <Button label={mobile ? 'Send' : 'Send again'} size="sm" onPress={() => onRun(item.text)} />
           </Pressable>
         )}
       />
@@ -95,44 +110,34 @@ export default function History({ items, onRun, onPin, onRemove, onClear }: Prop
 
 const makeStyles = (c: Colors) =>
   StyleSheet.create({
-    page: { flex: 1, padding: 24, paddingBottom: 0 },
+    page: { flex: 1, paddingHorizontal: 24, paddingTop: 8, paddingBottom: 16 },
     head: { flexDirection: 'row', alignItems: 'flex-start' },
-    title: { color: c.text, fontSize: 28, fontWeight: '700' },
-    sub: { color: c.dim, fontSize: 14, marginTop: 4 },
-    clear: { color: c.bad, fontSize: 14, fontWeight: '600', marginTop: 8 },
+    title: { ...type.title, color: c.text },
+    sub: { ...type.caption, fontSize: 12, color: c.faint, marginTop: 6 },
     search: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 8,
+      gap: 10,
       backgroundColor: c.panel,
-      borderRadius: 12,
-      paddingHorizontal: 12,
-      height: 42,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: c.lineStrong,
+      paddingHorizontal: 14,
+      height: 44,
       marginTop: 18,
-      marginBottom: 14,
+      marginBottom: 18,
     },
-    searchInput: { flex: 1, color: c.text, fontSize: 15 },
-    empty: { color: c.faint, textAlign: 'center', marginTop: 40 },
+    searchInput: { flex: 1, ...type.body, color: c.text, outlineStyle: 'none' } as any,
+    empty: { ...type.caption, fontSize: 12, color: c.faint, marginTop: 8 },
+    list: { backgroundColor: c.panel, borderRadius: radius.lg, paddingHorizontal: 16 },
     row: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 12,
-      backgroundColor: c.panel,
-      borderRadius: 14,
       paddingVertical: 12,
-      paddingHorizontal: 14,
-      borderWidth: 1,
-      borderColor: c.line,
+      borderBottomWidth: 1,
+      borderBottomColor: c.line,
     },
-    text: { color: c.text, fontSize: 15, lineHeight: 21 },
-    meta: { color: c.faint, fontSize: 12, marginTop: 3 },
-    icon: { padding: 4 },
-    run: {
-      width: 30,
-      height: 30,
-      borderRadius: 15,
-      backgroundColor: c.text,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
+    text: { ...type.label, color: c.text },
+    meta: { ...type.caption, color: c.faint, marginTop: 2 },
   });

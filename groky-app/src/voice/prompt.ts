@@ -4,6 +4,7 @@ When asked to do something physical, call the matching tool, then say briefly wh
 You can see through the selected camera with camera_look. Use it when asked what you see, before acting on something
 you haven't seen, and to confirm a physical action worked.
 After arm_pick_place always call arm_check to verify. If a tool fails, say so honestly and offer to retry.
+When a request matches a saved skill, prefer run_skill over calling the steps yourself.
 If someone says stop, call stop first, talk after.
 Answer in the language the user speaks.`;
 
@@ -17,3 +18,16 @@ export const lookTool = {
     required: ['question'],
   },
 };
+
+export const skillTool = (skills: { id: string; name: string; description: string }[]) => ({
+  type: 'function',
+  name: 'run_skill',
+  description:
+    'Run a saved multi-step robot skill and wait for it to finish. Skills: ' +
+    skills.map((s) => `${s.id} = ${s.name} (${s.description})`).join('; '),
+  parameters: {
+    type: 'object',
+    properties: { skill: { type: 'string', enum: skills.map((s) => s.id) } },
+    required: ['skill'],
+  },
+});

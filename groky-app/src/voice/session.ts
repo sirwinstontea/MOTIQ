@@ -2,9 +2,9 @@ import env, { SAMPLE_RATE } from '../lib/config';
 import { grokTools, runTool } from '../devices';
 import { fromBase64, toBase64 } from './pcm';
 import { Player } from './player';
-import { lookTool, PROMPT } from './prompt';
+import { lookTool, PROMPT, skillTool } from './prompt';
 import { getToken } from './token';
-import type { Line, Looker, Status, Trace } from './types';
+import type { Line, Looker, SkillRunner, Status, Trace } from './types';
 
 type Events = {
   status: (s: Status) => void;
@@ -29,6 +29,7 @@ export class VoiceSession {
   private speakingTrace: string | null = null;
   private turnStart = 0;
   private looker: Looker | null = null;
+  private skills: SkillRunner | null = null;
   private onAsked: ((text: string, via: 'voice' | 'typed') => void) | null = null;
 
   constructor(private on: Events) {
@@ -39,6 +40,20 @@ export class VoiceSession {
 
   setLooker(fn: Looker | null) {
     this.looker = fn;
+  }
+
+  setSkills(runner: SkillRunner | null) {
+    this.skills = runner;
+  }
+
+  // skills changed while connected: let Grok know about the new list
+  refreshTools() {
+    this.send({ type: 'session.update', session: { tools: this.tools() } });
+  }
+
+  private tools() {
+    const list = this.skills?.list() ?? [];
+    return [...grokTools(), lookTool, ...(list.length ? [skillTool(list)] : [])];
   }
 
   setAskedHandler(fn: ((text: string, via: 'voice' | 'typed') => void) | null) {
@@ -83,7 +98,7 @@ export class VoiceSession {
             input: { format: { type: 'audio/pcm', rate: SAMPLE_RATE } },
             output: { format: { type: 'audio/pcm', rate: SAMPLE_RATE } },
           },
-          tools: [...grokTools(), lookTool],
+          tools: this.tools(),
         },
       });
       this.set('listening');
@@ -253,6 +268,19 @@ export class VoiceSession {
         ms: Date.now() - t0,
       });
       delete res.image; // Grok gets the description, not the pixels
+    } else if (name === 'run_skill') {
+      const skill = this.skills?.list().find((s) => s.id === args.skill);
+      const label = skill?.name ?? String(args.skill);
+      this.trace({ id, kind: 'plan', title: `Running skill "${label}"`, detail: skill?.description });
+      res = this.skills ? await this.skills.run(String(args.skill)) : { ok: false, error: 'skills unavailable' };
+      this.trace({
+        id,
+        kind: 'tool',
+        title: `Skill "${label}" ${res.ok ? 'done' : 'failed'}`,
+        detail: res.ok ? undefined : String(res.error ?? res.state ?? ''),
+        ok: res.ok,
+        ms: Date.now() - t0,
+      });
     } else {
       this.trace({ id, kind: 'tool', title: `Running ${pretty(name)}` });
       res = await runTool(name, args);

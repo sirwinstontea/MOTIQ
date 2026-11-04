@@ -18,3 +18,8 @@ export type Trace = {
 };
 
 export type Looker = (question: string) => Promise<{ ok: boolean; source: string; answer: string; image?: string }>;
+
+export type SkillRunner = {
+  list: () => { id: string; name: string; description: string }[];
+  run: (id: string) => Promise<{ ok: boolean; [k: string]: unknown }>;
+};

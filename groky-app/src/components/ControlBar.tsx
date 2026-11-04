@@ -1,7 +1,8 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
-import { Colors, useStyles, useTheme } from '../theme';
+import { Colors, radius, shadowFloat, useStyles, useTheme } from '../theme';
+import { IconButton } from './ui';
 
 type Props = {
   live: boolean;
@@ -12,6 +13,7 @@ type Props = {
   onEnd: () => void;
 };
 
+// floating pill dock: transcript · accent mic · end session
 export default function ControlBar({ live, muted, logOpen, onLog, onMic, onEnd }: Props) {
   const { c } = useTheme();
   const s = useStyles(makeStyles);
@@ -21,48 +23,55 @@ export default function ControlBar({ live, muted, logOpen, onLog, onMic, onEnd }
   };
 
   const micIcon = !live ? 'mic-outline' : muted ? 'mic-off-outline' : 'mic';
+  const micOn = !muted;
 
   return (
-    <View style={s.bar}>
-      <Pressable onPress={tap(onLog)} style={s.btn} hitSlop={8}>
-        <Ionicons name="document-text-outline" size={25} color={logOpen ? c.text : c.dim} />
+    <View style={s.dock}>
+      <IconButton
+        icon={logOpen ? 'document-text' : 'document-text-outline'}
+        plain
+        color={logOpen ? c.accent : c.dim}
+        onPress={tap(onLog)}
+        label="Transcript"
+      />
+
+      <Pressable
+        onPress={tap(onMic)}
+        accessibilityLabel={!live ? 'Start talking' : muted ? 'Unmute' : 'Mute'}
+        style={({ pressed }) => [
+          s.mic,
+          { backgroundColor: micOn ? (pressed ? c.accentPress : c.accent) : c.hover },
+          live && micOn && { boxShadow: `0 0 0 6px ${c.accentSoft}` },
+        ]}
+      >
+        <Ionicons name={micIcon} size={22} color={micOn ? c.accentInk : c.text} />
       </Pressable>
 
-      <Pressable onPress={tap(onMic)} style={[s.mic, live && !muted && s.micLive]} hitSlop={8}>
-        <Ionicons name={micIcon} size={28} color={live && !muted ? c.bg : c.text} />
-      </Pressable>
-
-      <Pressable onPress={tap(onEnd)} style={s.btn} hitSlop={8} disabled={!live}>
-        <Ionicons name="close" size={28} color={live ? c.text : c.faint} />
-      </Pressable>
+      <IconButton
+        icon="close"
+        plain
+        color={live ? c.text : c.faint}
+        disabled={!live}
+        onPress={tap(onEnd)}
+        label="End session"
+      />
     </View>
   );
 }
 
 const makeStyles = (c: Colors) =>
   StyleSheet.create({
-    bar: {
+    dock: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
+      justifyContent: 'space-around',
       alignSelf: 'center',
-      width: '86%',
-      maxWidth: 420,
-      paddingHorizontal: 22,
-      height: 76,
-      borderRadius: 38,
-      backgroundColor: c.panel,
-      borderWidth: 1,
-      borderColor: c.line,
-    },
-    btn: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
-    mic: {
-      width: 56,
-      height: 56,
-      borderRadius: 28,
-      alignItems: 'center',
-      justifyContent: 'center',
+      width: '100%',
+      maxWidth: 320,
+      height: 64,
+      borderRadius: radius.pill,
       backgroundColor: c.panelHi,
+      boxShadow: shadowFloat,
     },
-    micLive: { backgroundColor: c.text },
+    mic: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   });
