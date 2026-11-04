@@ -20,12 +20,18 @@ Tutti i comandi si lanciano dalla cartella radice del progetto (`Grok_Hackaton`)
 
 ### 1. Generare tavola ArUco e calibrare il braccio
 ```bash
-# Genera una tavola ArUco di test e salva l'omografia in data/calibration/calibration_arm.json
-python -m vision.eyes.cli calibrate-arm --generate-board data/calibration/aruco_board.png --output data/calibration/calibration_arm.json
+# 1. Stampa il foglio A4 (al 100%) con i marker 0-3 e appoggialo sul tavolo
+python -m vision.eyes.cli calibrate-arm --generate-board logs/aruco_a4.png
 
-# Oppure calibra dal vivo dalla webcam 0:
-python -m vision.eyes.cli calibrate-arm --device 0 --output data/calibration/calibration_arm.json
+# 2. Misura dove sono i centri dei marker nel sistema del braccio (mm) e scrivili in
+#    data/calibration/markers_mm.json
+
+# 3. Calibra dalla camera (RealSense USB-C se c'è, se no webcam 0) -> data/calibration/calibration_arm.json
+python -m vision.eyes.cli calibrate-arm
+#    oppure, a demo aperto, inquadra i 4 marker e premi [A]
 ```
+La calibrazione vale per la risoluzione con cui è fatta (es. 640x480 in USB 2, 848x480 in USB 3):
+se cambia, le coordinate in mm si spengono finché non ricalibri. Controllo visivo: `logs/calibration_check.jpg`.
 
 ### 2. Generare un video MP4 per la modalità Replay
 ```bash

@@ -28,6 +28,16 @@ DEFAULT_MARKER_COORDS_MM: dict[int, tuple[float, float]] = {
 }
 
 
+def load_marker_coords(path: str | Path) -> dict[int, tuple[float, float]]:
+    """Posizioni reali dei marker in mm nel sistema del braccio, da JSON `{"0": [x, y], ...}`.
+    Le chiavi non numeriche (es. "_nota") si ignorano. File assente: le posizioni di default."""
+    p = Path(path)
+    if not p.exists():
+        return dict(DEFAULT_MARKER_COORDS_MM)
+    data = json.loads(p.read_text(encoding="utf-8"))
+    return {int(k): (float(v[0]), float(v[1])) for k, v in data.items() if str(k).isdigit()}
+
+
 def _get_aruco_dict(dict_name: str = "DICT_4X4_50"):
     dict_id = getattr(cv2.aruco, dict_name, cv2.aruco.DICT_4X4_50)
     return cv2.aruco.getPredefinedDictionary(dict_id)
@@ -142,8 +152,14 @@ class ArmCalibrator:
         self,
         homography: np.ndarray | None = None,
         dict_name: str = "DICT_4X4_50",
+        image_size: tuple[int, int] | None = None,
     ):
         self.dict_name = dict_name
+        # (larghezza, altezza) del frame su cui è stata calcolata: l'omografia è in pixel e a un'altra
+        # risoluzione (es. RealSense 848x480 in USB 3 contro 640x480 in USB 2) darebbe millimetri sbagliati
+        self.image_size = tuple(image_size) if image_size else None
+        self.markers_mm: dict[int, tuple[float, float]] | None = None
+        self._size_warned = False
         self._H: np.ndarray | None = None
         self._H_inv: np.ndarray | None = None
         if homography is not None:
@@ -198,6 +214,9 @@ class ArmCalibrator:
         px_pts = [detected[m_id] for m_id in common_ids]
         mm_pts = [ref_mm[m_id] for m_id in common_ids]
         self.calibrate_from_points(px_pts, mm_pts)
+        self.image_size = (int(frame_bgr.shape[1]), int(frame_bgr.shape[0]))
+        self.markers_mm = {m_id: ref_mm[m_id] for m_id in common_ids}
+        self._size_warned = False
         return True, detected
 
     def pixel_to_mm(self, px: float, py: float) -> tuple[float, float]:
@@ -225,6 +244,12 @@ class ArmCalibrator:
         if not self.is_calibrated:
             return None
         h_img, w_img = frame_bgr.shape[:2]
+        if self.image_size and (w_img, h_img) != self.image_size:
+            if not self._size_warned:
+                self._size_warned = True
+                print(f"[Calibrazione] fatta a {self.image_size[0]}x{self.image_size[1]}, il frame è {w_img}x{h_img}: "
+                      "coordinate in mm disattivate, ricalibra (tasto A nel demo)")
+            return None
         nx, ny, nw, nh = bbox_norm
         cx_px = (nx + nw / 2.0) * w_img
         cy_px = (ny + nh / 2.0) * h_img
@@ -241,6 +266,8 @@ class ArmCalibrator:
         payload = {
             "dict_name": self.dict_name,
             "homography": self._H.tolist(),
+            "image_size": list(self.image_size) if self.image_size else None,
+            "markers_mm": {str(k): list(v) for k, v in self.markers_mm.items()} if self.markers_mm else None,
         }
         out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         return out
@@ -253,4 +280,5 @@ class ArmCalibrator:
         return cls(
             homography=np.array(data["homography"], dtype=np.float64),
             dict_name=data.get("dict_name", "DICT_4X4_50"),
+            image_size=data.get("image_size"),
         )

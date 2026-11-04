@@ -3,7 +3,8 @@
 Esempi d'uso:
   python -m vision.eyes.cli inspect --mode synthetic
   python -m vision.eyes.cli generate-replay --output data/replays/sample_arm.mp4
-  python -m vision.eyes.cli calibrate-arm --generate-board data/calibration/aruco_board.png --output data/calibration/calibration_arm.json
+  python -m vision.eyes.cli calibrate-arm --generate-board logs/aruco_a4.png   # foglio da stampare
+  python -m vision.eyes.cli calibrate-arm      # dalla camera (RealSense se c'è), marker in data/calibration/markers_mm.json
   python -m vision.eyes.cli run --port 8000                  # RealSense USB-C, se no webcam del PC
   python -m vision.eyes.cli run --mode synthetic --port 8000
 """
@@ -11,12 +12,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 
 import cv2
 import uvicorn
 
-from .calibration.aruco_calib import ArmCalibrator, render_aruco_workspace
+from .calibration.aruco_calib import ArmCalibrator, load_marker_coords, render_aruco_workspace
 from .capture.reader import generate_sample_video
 from .capture.realsense import default_camera
 from .pipeline import EyePipeline
@@ -59,34 +61,55 @@ def _cmd_generate_replay(args: argparse.Namespace) -> int:
 
 
 def _cmd_calibrate_arm(args: argparse.Namespace) -> int:
-    if args.generate_board:
-        board_img, _ = render_aruco_workspace()
+    if args.generate_board:  # foglio A4 orizzontale a 300 dpi da stampare: non calibra niente
+        dpi = 300
+        board_img, centers_px = render_aruco_workspace(width=3508, height=2480, marker_size_px=600, margin_px=150)
         board_path = Path(args.generate_board)
         board_path.parent.mkdir(parents=True, exist_ok=True)
         cv2.imwrite(str(board_path), board_img)
-        print(f"Tavola ArUco generata in: {board_path}")
-        frame = board_img
-    elif args.image:
+        print(f"Foglio ArUco (A4, stampa al 100%) in: {board_path}. Centri dei marker sul foglio, in mm:")
+        for m_id, (cx, cy) in sorted(centers_px.items()):
+            print(f"  ID {m_id}: x={cx / dpi * 25.4:.1f}  y={cy / dpi * 25.4:.1f}")
+        print(f"Misurate dove finiscono rispetto al braccio e scrivetelo in {args.markers}")
+        return 0
+
+    markers = load_marker_coords(args.markers)
+    calibrator = ArmCalibrator()
+    if args.image:
         frame = cv2.imread(args.image)
         if frame is None:
             print(f"Errore: impossibile leggere l'immagine {args.image}")
             return 1
-    else:
-        cap = cv2.VideoCapture(int(args.device))
-        ok, frame = cap.read()
-        cap.release()
-        if not ok or frame is None:
-            print(f"Errore: impossibile catturare frame dal dispositivo {args.device}")
-            return 1
+        ok, centers = calibrator.calibrate_from_aruco(frame, markers)
+    else:  # camera dal vivo: la RealSense se c'è; si riprova per qualche secondo (esposizione, riflessi)
+        mode, target = ("webcam", int(args.device)) if args.device is not None else default_camera(0)
+        node = EyePipeline().add_source("arm", mode=mode, target=target, use_mock_tracker=True)
+        node.reader.start_background()
+        ok, centers, frame = False, {}, None
+        try:
+            deadline = time.time() + args.seconds
+            while not ok and time.time() < deadline:
+                time.sleep(0.2)
+                _, frame, _, _ = node.reader.get_latest()
+                ok, centers = calibrator.calibrate_from_aruco(frame, markers)
+        finally:
+            node.reader.stop()
 
-    calibrator = ArmCalibrator()
-    ok, centers = calibrator.calibrate_from_aruco(frame)
+    if frame is not None:  # immagine di controllo: dove ha visto i marker
+        check = frame.copy()
+        for m_id, (cx, cy) in centers.items():
+            cv2.circle(check, (int(cx), int(cy)), 8, (0, 255, 0) if m_id in markers else (0, 0, 255), -1)
+            cv2.putText(check, str(m_id), (int(cx) + 10, int(cy) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        Path("logs").mkdir(exist_ok=True)
+        cv2.imwrite("logs/calibration_check.jpg", check)
     if not ok:
-        print(f"Calibrazione fallita: rilevati solo {len(centers)} marker ArUco (servono 4: ID 0,1,2,3).")
+        print(f"Calibrazione fallita: visti i marker {sorted(centers)} (servono 0,1,2,3). "
+              "Controllo in logs/calibration_check.jpg")
         return 1
 
     saved = calibrator.save(args.output)
-    print(f"Calibrazione completata ({len(centers)} marker rilevati). Salvata in: {saved}")
+    w, h = calibrator.image_size
+    print(f"Calibrazione completata a {w}x{h} (marker {sorted(centers)}). Salvata in: {saved}")
     return 0
 
 
@@ -146,9 +169,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     # calibrate-arm
     p_cal = sub.add_parser("calibrate-arm", help="Calibra l'omografia ArUco del braccio")
-    p_cal.add_argument("--device", default="0")
+    p_cal.add_argument("--device", default=None, help="Indice webcam; senza: RealSense USB-C se c'è, se no webcam 0")
     p_cal.add_argument("--image", default=None, help="Immagine con i 4 marker ArUco")
-    p_cal.add_argument("--generate-board", default=None, help="Genera e calibra su una tavola ArUco sintetica")
+    p_cal.add_argument("--generate-board", default=None, help="Salva un foglio A4 con i marker 0-3 da stampare ed esce")
+    p_cal.add_argument("--markers", default="data/calibration/markers_mm.json",
+                       help="Posizioni reali dei marker in mm nel sistema del braccio")
+    p_cal.add_argument("--seconds", type=float, default=5.0, help="Per quanto riprovare dalla camera")
     p_cal.add_argument("--output", default="data/calibration/calibration_arm.json")
     p_cal.set_defaults(func=_cmd_calibrate_arm)
 

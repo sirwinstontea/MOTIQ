@@ -1,0 +1,13 @@
+# ByteTrack per il nostro modello (oggetti_best.onnx), al posto del bytetrack.yaml di ultralytics.
+# Obiettivo: ID stabili ("prendi il numero 3" deve restare il 3) e pochi falsi oggetti.
+# Manopole da regolare sul tavolo vero:
+#   oggetti veri che non compaiono      -> abbassa new_track_thresh
+#   falsi oggetti che compaiono         -> alza new_track_thresh
+#   ID che cambiano dopo un'occlusione  -> alza track_buffer (frame; a 15 fps 60 = 4 s)
+tracker_type: bytetrack
+track_high_thresh: 0.5   # prima associazione: solo rilevazioni sicure
+track_low_thresh: 0.1    # seconda associazione: le deboli continuano tracce già esistenti
+new_track_thresh: 0.6    # un ID nuovo nasce solo da una rilevazione sicura
+track_buffer: 60         # frame in cui una traccia persa può essere ripresa con lo stesso ID
+match_thresh: 0.8
+fuse_score: True

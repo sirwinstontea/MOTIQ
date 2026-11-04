@@ -1,0 +1,7 @@
+{
+  "_nota": "Centro di ogni marker ArUco (DICT_4X4_50, ID 0-3) in mm nel sistema del braccio. Questi valori sono le posizioni sul foglio A4 stampato al 100% (calibrate-arm --generate-board), misurate dall'angolo in alto a sinistra del foglio: aggiungete a x e y dove si trova quell'angolo rispetto al braccio (e invertite gli assi se il braccio li ha al contrario).",
+  "0": [38.1, 38.1],
+  "1": [258.9, 38.1],
+  "2": [258.9, 171.8],
+  "3": [38.1, 171.8]
+}
