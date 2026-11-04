@@ -40,6 +40,14 @@ No camera? Try it anyway with a fake scene: `python computer-vision-to-app/run.p
   the bridge, so no extra vision entry is added for that robot.
 - "Show Motion" and Live view send the annotated frame to Grok, so it can refer to objects by their numbers.
 
+## Learning a skill from the camera
+
+**Skills → Learn from camera** (shown when `EXPO_PUBLIC_VISION_SERVER` is set): press Start, do the task by hand in
+front of the arm camera, press Stop. The app polls `/state/arm`, works out which objects moved and where they ended
+up (grouped by name + colour, so a hand hiding an object doesn't split it), shows that summary, and Grok writes a
+skill from it (`groky-app/src/skills/fromVision.ts`). The draft opens in the skill editor, marked as a draft needing
+review, with `skill.source.type = "vision"`. Nothing is saved or run until you save and approve it.
+
 ## Using a phone / tablet / another computer
 
 Use the network address (what `run.py env` writes by default, e.g. `http://192.168.1.50:8000`), on the same Wi-Fi.

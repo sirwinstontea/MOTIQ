@@ -4,6 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import SkillEditor from '../components/SkillEditor';
 import SkillPreview from '../components/SkillPreview';
+import TeachFromCamera from '../components/TeachFromCamera';
+import { visionReady } from '../skills/fromVision';
 import { Button, IconButton, IconChip, Pill, Segmented } from '../components/ui';
 import { DeviceId, devices } from '../devices';
 import { useDevices } from '../hooks/useDevices';
@@ -35,6 +37,7 @@ export default function Skills({ skills }: { skills: SkillsApi }) {
   const mobile = width < 641;
   const [filter, setFilter] = useState<Filter>('all');
   const [editing, setEditing] = useState<Editing>(null);
+  const [teaching, setTeaching] = useState(false);
 
   const list = skills.skills.filter((k) => filter === 'all' || deviceOf(k) === filter);
   const filters: { id: Filter; label: string }[] = [
@@ -64,6 +67,9 @@ export default function Skills({ skills }: { skills: SkillsApi }) {
             icon="download-outline"
             onPress={() => setEditing({ doc: newSkill('arm'), json: true })}
           />
+          {visionReady() && (
+            <Button label="Learn from camera" icon="eye-outline" onPress={() => setTeaching(true)} />
+          )}
           <Button
             label="New skill"
             icon="add"
@@ -84,6 +90,16 @@ export default function Skills({ skills }: { skills: SkillsApi }) {
           ))}
         </View>
       </ScrollView>
+
+      {teaching && (
+        <TeachFromCamera
+          onClose={() => setTeaching(false)}
+          onDraft={(doc) => {
+            setTeaching(false);
+            setEditing({ doc });
+          }}
+        />
+      )}
 
       {editing && (
         <SkillEditor
