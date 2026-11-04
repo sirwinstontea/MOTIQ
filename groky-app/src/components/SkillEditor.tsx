@@ -23,6 +23,8 @@ import {
   Primitive,
   PrimitiveCall,
   primitivesOf,
+  realArmConnected,
+  realArmProblems,
   SkillDoc,
   skillIcons,
   SkillStep,
@@ -30,6 +32,7 @@ import {
   validateSkill,
 } from '../skills';
 import { dryRun } from '../skills/dryrun';
+import { generateSkill } from '../skills/generate';
 import { Colors, fonts, radius, shadowFloat, type, useStyles, useTheme } from '../theme';
 import SkillPreview from './SkillPreview';
 import { Button, IconButton, Segmented } from './ui';
@@ -178,8 +181,42 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
   const [jsonError, setJsonError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState(false);
+  const [ask, setAsk] = useState('');
+  const [asking, setAsking] = useState(false);
+  const [askNote, setAskNote] = useState<{ ok: boolean; text: string } | null>(null);
 
   const device = deviceOf(doc);
+
+  // Grok drafts (or refines) the skill from plain language; defaults come from makeSkill, nothing is saved yet
+  const generate = async () => {
+    const prompt = ask.trim();
+    if (!prompt || asking) return;
+    setAsking(true);
+    setAskNote(null);
+    setError(null);
+    try {
+      const refine = doc.steps.length > 0;
+      const out = await generateSkill(prompt, clean(doc));
+      setDoc(out.doc);
+      setPreview(true);
+      setAsk('');
+      const unc = out.doc.interpretation?.uncertainties?.length ?? 0;
+      setAskNote(
+        out.problems.length
+          ? { ok: false, text: `Draft has problems Grok couldn't fix: ${out.problems[0]} Edit it below.` }
+          : {
+              ok: true,
+              text: `${refine ? 'Updated' : 'Drafted'} ${out.doc.steps.length} steps${
+                unc ? `, ${unc} thing${unc === 1 ? '' : 's'} to check (see Checks)` : ''
+              }. Review, watch the preview, then save.`,
+            },
+      );
+    } catch (e: any) {
+      setAskNote({ ok: false, text: String(e?.message ?? e) });
+    } finally {
+      setAsking(false);
+    }
+  };
   const prims = primitivesOf(doc).filter((p) => p.id !== 'STOP');
   const objectIds = doc.environment.objects.map((o) => o.id);
 
@@ -187,6 +224,7 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
   const check = useMemo(() => {
     const d = clean(JSON.parse(key));
     const v = validateSkill(d);
+    if (realArmConnected()) v.warnings.unshift(...realArmProblems(d));
     const run = v.errors.length ? null : dryRun(d);
     return { v, run };
   }, [key]);
@@ -294,6 +332,45 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
               </View>
             ) : (
               <ScrollView contentContainerStyle={{ paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
+                <View style={s.grok}>
+                  <View style={s.grokHead}>
+                    <Ionicons name="sparkles-outline" size={15} color={c.accent} />
+                    <Text style={s.grokTitle}>
+                      {doc.steps.length ? 'Ask Grok to change it' : 'Describe it to Grok'}
+                    </Text>
+                  </View>
+                  <TextInput
+                    value={ask}
+                    onChangeText={setAsk}
+                    placeholder={
+                      doc.steps.length
+                        ? 'e.g. shake it twice before placing, and go slower'
+                        : 'e.g. pick up the red cube, put it in the blue box and go home'
+                    }
+                    placeholderTextColor={c.faint}
+                    style={[s.input, s.multi]}
+                    multiline
+                    editable={!asking}
+                    onSubmitEditing={generate}
+                  />
+                  <View style={s.grokFoot}>
+                    <Text style={[s.hint, { flex: 1, marginBottom: 0 }]}>
+                      Grok fills the steps; safety and limits stay on their defaults.
+                    </Text>
+                    <Button
+                      label={asking ? 'Thinking…' : doc.steps.length ? 'Update' : 'Generate'}
+                      icon="sparkles"
+                      size="sm"
+                      variant="primary"
+                      disabled={asking || !ask.trim()}
+                      onPress={generate}
+                    />
+                  </View>
+                  {askNote && (
+                    <Text style={[s.hint, { marginBottom: 0, color: askNote.ok ? c.dim : c.bad }]}>{askNote.text}</Text>
+                  )}
+                </View>
+
                 <Text style={s.label}>Name</Text>
                 <TextInput
                   value={doc.skill.name}
@@ -764,6 +841,10 @@ const makeStyles = (c: Colors) =>
       boxShadow: shadowFloat,
     },
     head: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
+    grok: { backgroundColor: c.panelHi, borderRadius: radius.md, padding: 12, gap: 8, marginTop: 12 },
+    grokHead: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    grokTitle: { ...type.label, color: c.text },
+    grokFoot: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     title: { ...type.h2, color: c.text, flex: 1 },
     label: { ...type.overline, color: c.faint, marginTop: 20, marginBottom: 8 },
     hint: { ...type.caption, fontSize: 12, color: c.faint, marginBottom: 6 },

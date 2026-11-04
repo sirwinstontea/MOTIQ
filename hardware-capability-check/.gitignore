@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# development-only validation material (not published)
+validation/
+*.log
+scratch/
+
+# official PDFs are not redistributed; see docs/SOURCES.md for URLs + SHA-256 (text extracts in docs/text are kept)
+docs/sources/*.pdf

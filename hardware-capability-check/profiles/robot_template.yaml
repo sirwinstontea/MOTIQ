@@ -1,0 +1,62 @@
+# ============================================================================
+# ROBOT PROFILE TEMPLATE - copy this file, fill in every value from YOUR robot's documentation, then run:
+#     python -m hardware_capability_check skill.json --robot path/to/my_robot.yaml
+# (a file in the current folder or an absolute path is used as is; a bare name is looked up in profiles/)
+#
+# Supported robots today: UR-style arms = 6 rotary joints with a spherical wrist and the UR DH layout
+# (UR3e, UR5e, UR10e, UR16e, UR20, UR30 and look-alikes). The values below are the UR5e's as an example of
+# the expected shape. For any other kinematic structure see README "Using another robot".
+# Plain values are fine; `src` quotes (see ur5e.yaml) are optional and only used by --verify-profiles.
+# Put values you cannot find as `null` ONLY where noted; the others are required.
+# ============================================================================
+schema: robot_profile/1
+
+robot:
+  id: my_robot                    # short id, also matched against `robot.model` in the skill file
+  name: My Robot Model            # human name
+  manufacturer: Maker
+  type: serial_arm_6dof
+
+kinematics:
+  family: ur                      # only "ur" is supported
+  # DH of the arm (UR convention T_i = Rz(theta_i) Tz(d_i) Tx(a_i) Rx(alpha_i)), metres / radians. 6 entries each.
+  d_m:       [0.1625, 0.0, 0.0, 0.1333, 0.0997, 0.0996]
+  a_m:       [0.0, -0.425, -0.3922, 0.0, 0.0, 0.0]
+  alpha_rad: [1.5707963267948966, 0.0, 0.0, 1.5707963267948966, -1.5707963267948966, 0.0]
+  link_masses_kg: [3.761, 8.058, 2.846, 1.37, 1.3, 0.365]
+  link_com_m:                     # centre of mass of link i in DH frame i
+    - [0.0, -0.02561, 0.00193]
+    - [0.2125, 0.0, 0.11336]
+    - [0.15, 0.0, 0.0265]
+    - [0.0, -0.0018, 0.01634]
+    - [0.0, 0.0018, 0.01634]
+    - [0.0, 0.0, -0.001159]
+
+limits:
+  payload_rated_kg: 5.0
+  payload_vs_cog_offset:          # rated payload vs distance flange -> payload centre of gravity (manual figure/table)
+    points_mm_kg: [[0, 5.0], [350, 5.0], [600, 3.2]]   # sorted by distance
+  reach_m: 0.85
+  degrees_of_freedom: 6
+  joint_position_deg: [[-360, 360], [-360, 360], [-160, 160], [-360, 360], [-360, 360], [-360, 360]]   # [min, max] per joint
+  joint_speed_max_deg_s: 180
+  tcp_speed_max_m_s: 4.0
+  pose_repeatability_mm: 0.03
+  joint_torque_max_nm: [150, 150, 150, 28, 28, 28]
+  torque_usable_fraction: 0.8     # engineering margin: share of the joint torque rating allowed for static load
+  acceleration_limits: null       # optional; null = not published
+  force_torque_sensor:            # built-in or fitted sensor; use range 0 / huge accuracy if there is none
+    range_n: 50.0
+    accuracy_n: 4.0
+
+physical:
+  footprint_diameter_m: 0.151
+  collision_model:                # approximate link radii only used to keep the arm above the table plane
+    segment_radius_m: [0.0755, 0.060, 0.050, 0.045, 0.045, 0.040]
+    table_clearance_margin_m: 0.005
+
+tool_interface:                   # what the flange offers to a tool (digital/analog I/O, power)
+  io: {digital_in: 2, digital_out: 2, analog_in: 2, rs485: true}
+  power: {voltages_v: [0, 12, 24], current_a_dual_pin: 1.5, current_a_single_pin: 1.0}
+
+conflicts: []                     # optional: list documents that disagree and which value you chose

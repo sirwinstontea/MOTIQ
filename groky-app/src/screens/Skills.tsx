@@ -19,6 +19,7 @@ import {
   physicalBlock,
   primitiveCount,
   primLabel,
+  realArmProblems,
   SkillDoc,
   stepLabel,
 } from '../skills';
@@ -265,7 +266,17 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
           <Button label="Stop" icon="hand-left" variant="danger" size="sm" onPress={skills.stop} />
         ) : (
           <Button
-            label={offline ? 'Offline' : busy ? 'Busy' : blocked ? 'Needs approval' : 'Run'}
+            label={
+              offline
+                ? 'Offline'
+                : busy
+                  ? 'Busy'
+                  : blocked
+                    ? realArmProblems(skill).length
+                      ? 'Not on real arm'
+                      : 'Needs approval'
+                    : 'Run'
+            }
             icon="play"
             size="sm"
             onPress={start}

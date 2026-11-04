@@ -1,0 +1,59 @@
+
+
+=====PAGE 1=====
+D415
+PRODUCT BRIEF
+Intel® RealSense™ Depth 
+Camera D415
+Powerful, Full-featured Depth Camera
+ 
+ 
+Ideal for Development & Productization 
+With the addition of the Intel® RealSense™ Depth Camera D415 to 
+the Intel® RealSense™ product lineup, Intel maintains a track record of 
+bringing exciting new vision sensing products to market. This camera puts 
+an Intel module and vision processor into a small form factor ideal for 
+development and productization. Lightweight, powerful, and low-cost, it 
+pairs with customizable software to enable a one-stop shop for assembly 
+and creation of a new generation of sensing solutions and devices that are 
+better able understand and interact with their surroundings. 
+Ideal for Precise Measurement 
+The D415 has a narrow field of view solution using rolling shutter sensors. 
+The narrower field results in higher depth resolution when minimum 
+object size and more precise measurements are required. The rolling 
+shutter sensors and smaller lenses allow for a lower cost, yet highly 
+capable depth camera.
+Complete Suite for Simple Integration
+The Intel® RealSense™ Camera D415 is part of the Intel® RealSense™ 
+400 Series of cameras, a lineup that takes Intel’s latest depth-sensing 
+hardware and software offerings and puts them into easy-to-integrate, 
+packaged products. Intel’s complete suite of solutions includes vision 
+processors, turnkey modules, cameras, and SDKs and computer vision 
+libraries. Perfect for developers, makers, and innovators looking to 
+bring depth-sensing vision to devices, Intel® RealSense™ 400 Series 
+Cameras offer simple out-of-the-box integration and enable a whole new 
+generation of intelligent vision-equipped devices.
+Copyright © 2017 Intel Corporation. All rights reserved. Intel, the Intel logo and Intel RealSense are trademarks of Intel Corporation or its subsidiaries 
+in the U.S. and/or other countries.
+FEATURES
+Use Environment: Indoor/Outdoor
+Depth Technology: Active IR Stereo
+Image Sensor Technology: Rolling Shutter; Smller 
+pixel size <xx um>
+Depth FOV (D x V x H): 69.4 x 42.5 x 77 (+/- 3°)
+Depth Output Resolution & Frame Rate: Up to 1280 
+x 720 active stereo depth resolution. Up to 90fps
+FEATURES
+Minimum Depth Distance (Min-Z): 0.16m
+Maximum Range: 10m+. Varies depending on performance 
+accuracy, scene and light conditions
+RGB Resolution: Up to 1920x1080 resolution
+RGB FOV (H x V x D): 69.4 x 42.5 x 77 (+/- 3°)
+MAJOR COMPONENTS
+Camera Module: Intel® RealSense™ Module D415
+Vision Processor Board: Intel® RealSense™ Vision 
+Processor D4
+PHYSICAL
+Form Factor: Camera Peripheral
+Connectors: USB 3 Type-C
+Length x Depth x Height: 99mm x 20mm x 23mm

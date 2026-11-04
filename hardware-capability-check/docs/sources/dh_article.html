@@ -1,0 +1,1656 @@
+
+<!DOCTYPE html>
+<html class="sticky-footer">
+<head>
+
+<script id="Cookiebot" data-culture="EN"
+  src="https://consent.cookiebot.com/uc.js" data-cbid="25fda4a6-c10f-491b-9239-4b46413752d9" type="text/javascript"
+  async></script>
+<link rel="preload" href="/scripts/urlibs/ae-api.js" as="script" />
+
+  
+  <meta charset="utf-8" />
+  <title>Universal Robots - DH Parameters for calculations of kinematics and dynamics</title>
+    
+    <link rel="canonical" href="https://www.universal-robots.com/articles/ur/application-installation/dh-parameters-for-calculations-of-kinematics-and-dynamics/"/>
+  <meta name="description" content="">
+      <meta property="og:title" content="Universal Robots - DH Parameters for calculations of kinematics and dynamics" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0 user-scalable=0" />
+  <meta name="format-detection" content="telephone=no" />
+
+
+
+	<link rel="stylesheet" type="text/css" href="/css/universal-robots.css?v=48">
+
+
+<script src="/scripts/urlibs/ae-api.js" type="text/javascript"></script>
+
+<!-- Id: 45257 -->
+<!-- Path: -1,13334,14942,15327,101215,45257 -->
+<!-- DocumentTypeAlias: SupportSiteHowTo -->
+<!-- LayoutPath:  -->
+<!-- ViewPath: ~/Views/SupportSiteHowTo.cshtml -->
+<!-- IpAddress: 80.116.181.237 -->
+
+</head>
+
+<body class="print-trim" data-disable-cookiebar="true">
+    <!-- Add body--gap to add extra space under header -->
+    <div class="mobilemenu mobilemenu--footer">
+      <!-- Add mobilemenu--shown to show the menu -->
+      <div class="mobilemenu-footer-page-content-wrapper">
+        <div class="mobilemenu-links-container">
+          <div class="mobilemenu-links mobilemenu-links--mainmenu">
+                <a href="/articles/" class="mobilemenu-links-menulink">Articles</a>
+                <a href="/download/" class="mobilemenu-links-menulink">Download</a>
+            <a href="https://www.universal-robots.com/articles/safety-security/" class="mobilemenu-links-menulink">Safety & Security</a>
+            <a href="https://forum.universal-robots.com/" class="mobilemenu-links-menulink" target="_blank">Forum</a>
+            <a href="https://myur.universal-robots.com/" class="mobilemenu-links-menulink" target="_blank">myUR</a>
+            <a href="https://www.universal-robots.com/" class="mobilemenu-links-menulink">Go to Main Site</a>
+          </div>
+        </div>
+      </div>
+      <footer class="mobilemenu-footer mobilemenu-footer-wrapper">
+        <p class="mobilemenu-footer-address">
+          Universal Robots A/S<br />
+          Energivej 51<br />
+          DK-5260 Odense S
+        </p>
+        <p class="mobilemenu-footer-contact">
+          T: +45 8993 8989<br />
+          sales@universal-robots.com
+        </p>
+      </footer>
+    </div>
+    <div
+      class="main sticky-footer-page-content-wrapper helper-padding6-below helper-mobile-padding5-below"
+    >
+
+      <div class='grid-outer-container print-show grid-hidden grid-gap3-below'>
+        <div class='grid-row'>
+          <div class='grid-span12'>
+            <img src="/img/logo_support.svg" width="375" class="helper-center-image">
+          </div>
+        </div>
+      </div>
+      
+      <header class="header print-hide">
+        <div class="grid-outer-container">
+          <div class="grid-row">
+            <div class="grid-span12 grid-laptop-span10 header--overflow-row">
+              <a href="/support/" class="header-logo header-logo--wide">
+                <img src="/img/logo_support.svg" / width="289">
+              </a>
+
+              <a href="/support/" class="header-logo header--overflow-logo grid-hidden">
+                <img src="/img/universal-robots_favicon.png" />
+              </a>
+
+              <a href="/support/">
+                <img class="header-mobile-logo header-mobile-logo--tallest"src="/img/logo_support.svg" / width="289">
+              </a>
+              <div class="header-seperator">&nbsp;</div>
+              <ul class="menu">
+                    <li class="menu-item menu-item--active"><a href="/articles/">Articles</a></li>
+                    <li class="menu-item "><a href="/download/">Download</a></li>
+                <li class="menu-item"><a href="https://www.universal-robots.com/articles/safety-security/">Safety & Security</a></li>
+                <li class="menu-item"><a href="https://forum.universal-robots.com/" target="_blank">Forum</a></li>
+                <li class="menu-item"><a href="https://myur.universal-robots.com/" target="_blank">myUR</a></li>
+                <li class="menu-item" style="float: right;"><a href="https://www.universal-robots.com/">Go to Main Site</a></li>
+                
+              </ul>
+            </div>
+
+            <div class="grid-laptop-span2">
+              <!-- Add class header-burger--open to indicate that the burger menu is open -->
+              <span class="header-burger"></span>
+            </div>
+          </div>
+        </div>
+      </header>
+      
+      
+
+<div class="grid-outer-container">
+  <div class="grid-row grid-gap3-below grid-tablet-gap2-below grid-mobile-gap1-below print-hide">
+    <div class="grid-span12">
+      <ul class="breadcrumbs">
+          <li class="breadcrumbs-item"><a href="/support/">Support</a></li>
+          <li class="breadcrumbs-item"><a href="/articles/">Articles</a></li>
+          <li class="breadcrumbs-item"><a href="/articles/ur/application-installation/dh-parameters-for-calculations-of-kinematics-and-dynamics/">DH Parameters for calculations of kinematics and dynamics</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="grid-row">
+    <div class="grid-span8 grid-tablet-span12 print-wide print-trim">
+      <div class="grid-row">
+        <div class="grid-span12">
+          <h2 class="grid-text-left grid-mobile-gap1-below">DH Parameters for calculations of kinematics and dynamics</h2>
+          <header class="sectionheader grid-gap4-below grid-tablet-gap3-below">
+            <h3 class="sectionheader-title">Denavit Hartenberg Parameters - DH Parameters</h3>
+            <footer class="sectionheader-footer">
+              <div class="grid-row">
+                <div class="grid-span8">
+                  <div class="sectionheader-footer-content">
+                    <img src="/img/calendar_modified.svg" alt="" /><span>Last modified on
+                      Oct 04, 2018</span>
+                  </div>
+                </div>
+                <div class="grid-span4 grid-text-right print-hide">
+                  <div class="sectionheader-footer-tools">
+                    
+                    <a href="javascript:window.print()"><img src="/img/print.svg" alt="" /></a>
+                  </div>
+                </div>
+              </div>
+            </footer>
+          </header>
+        </div>
+      </div>
+
+      <div class="grid-row">
+        <div class="grid-span12">
+              <div class="textregulator grid-gap6-below grid-tablet-gap4-below print-trim">
+                <p><span class="smallsectiontitle"></span><em>Denavit–Hartenberg parameters are used to calculate kinematics and dynamics of UR robots.</em></p>
+<p>The definition of the Denavit–Hartenberg parameters can be found here: <a rel="noopener" href="http://en.wikipedia.org/wiki/Denavit%E2%80%93Hartenberg_parameters" target="_blank">http://en.wikipedia.org/wiki/Denavit%E2%80%93Hartenberg_parameters</a></p>
+<p>Animation to explain the Denavit–Hartenberg parameters: <a rel="noopener" href="https://www.youtube.com/watch?v=rA9tm0gTln8" target="_blank">https://www.youtube.com/watch?v=rA9tm0gTln8</a></p>
+<p>Note: UR “a” parameter = Wikipedia “r” parameter.</p>
+<p> </p>
+<p><em><strong>The Denavit–Hartenberg parameters in UR robots are described as the below diagrams.</strong></em></p>
+<p><img style="width: 408px; height: 800px;" src="/media/1829771/kinematicuroverview.png?width=408&amp;height=800" alt="" data-udi="umb://media/09648cde2c684b5f936008a590911fba" /></p>
+<p> </p>
+<p>The Denavit–Hartenberg parameters of UR robots are shown as below.<br />It should be noted that the inertia matrix values for UR3e and UR5e are negligible due to their smaller size. The inertia starts having effect from UR10 and upwards.</p>
+<table border="01" style="border-color: black; border-style: solid; height: 534px; width: 808px;">
+<tbody>
+<tr style="height: 30px;">
+<td colspan="8" width="724" style="height: 30px; width: 808px;"><strong>UR8 Long</strong></td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;"><strong>Kinematics</strong></td>
+<td style="height: 42px; width: 97px;">a [m]</td>
+<td style="height: 42px; width: 97px;">d [m]</td>
+<td style="height: 42px; width: 97px;">alpha [rad]</td>
+<td style="height: 42px; width: 97px;"><strong>Dynamics</strong></td>
+<td style="height: 42px; width: 97px;">Mass [kg]</td>
+<td style="width: 31px; height: 42px;">Center of Mass [m]</td>
+<td style="height: 42px; width: 195px;">Inertia Matrix</td>
+</tr>
+<tr style="height: 105px;">
+<td style="width: 97px; height: 105px;">Joint 1</td>
+<td style="width: 97px; height: 105px;">0</td>
+<td style="width: 97px; height: 105px;">0.2186</td>
+<td style="width: 97px; height: 105px;">π/2</td>
+<td style="width: 97px; height: 105px;">Link 0</td>
+<td style="width: 97px; height: 105px;">9.9883</td>
+<td style="width: 31px; height: 105px;">[0.000024, -0.033309, 0.025304]</td>
+<td style="width: 195px; height: 105px;">[0.051334, 0.000025, -0.000016, 0.000025, 0.047702, 0.008805, -0.000016, 0.008805, 0.034263]</td>
+</tr>
+<tr style="height: 105px;">
+<td style="width: 97px; height: 105px;">Joint 2</td>
+<td style="width: 97px; height: 105px;">-0.8989</td>
+<td style="width: 97px; height: 105px;">0</td>
+<td style="width: 97px; height: 105px;">0</td>
+<td style="width: 97px; height: 105px;">Link 1</td>
+<td style="width: 97px; height: 105px;">17.0738</td>
+<td style="width: 31px; height: 105px;">[0.565429, -0.000074, 0.19542]</td>
+<td style="width: 195px; height: 105px;">[0.056709, 0.000292, -0.054852, 0.000292, 2.44012, -0.000014, -0.054852, -0.000014, 2.432744]</td>
+</tr>
+<tr style="height: 126px;">
+<td style="width: 97px; height: 126px;">Joint 3</td>
+<td style="width: 97px; height: 126px;">-0.7149</td>
+<td style="width: 97px; height: 126px;">0</td>
+<td style="width: 97px; height: 126px;">0</td>
+<td style="width: 97px; height: 126px;">Link 2</td>
+<td style="width: 97px; height: 126px;">7.6393</td>
+<td style="width: 31px; height: 126px;">[0.416102, 0.000058, 0.065663]</td>
+<td style="width: 195px; height: 126px;">[0.022148, 0.000052, 0.019779, 0.000052, 0.633274, 0.000003, 0.019779, 0.000003, 0.625889]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="width: 97px; height: 42px;">Joint 4</td>
+<td style="width: 97px; height: 42px;">0</td>
+<td style="width: 97px; height: 42px;">0.1824</td>
+<td style="width: 97px; height: 42px;">π/2</td>
+<td style="width: 97px; height: 42px;">Link 3</td>
+<td style="width: 97px; height: 42px;">2.0890</td>
+<td style="width: 31px; height: 42px;">[0.000025, -0.019695, 0.016413]</td>
+<td style="width: 195px; height: 42px;">[0.004339, 0.000019, 0.000001, 0.000019, 0.002548, 0.000706, 0.000001, 0.000706, 0.003912]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="width: 97px; height: 42px;">Joint 5</td>
+<td style="width: 97px; height: 42px;">0</td>
+<td style="width: 97px; height: 42px;">0.1361</td>
+<td style="width: 97px; height: 42px;">-π/2</td>
+<td style="width: 97px; height: 42px;">Link 4</td>
+<td style="width: 97px; height: 42px;">2.0869</td>
+<td style="width: 31px; height: 42px;">[0.000025, 0.019960, 0.015886]</td>
+<td style="width: 195px; height: 42px;">[0.004288, 0.000017, -0.000003, 0.000017, 0.002566, -0.000716, -0.000003, -0.000716, 0.003927]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="width: 97px; height: 42px;">Joint 6</td>
+<td style="width: 97px;">0</td>
+<td style="width: 97px;">0.1434</td>
+<td style="width: 97px;">0</td>
+<td style="width: 97px;">Link 5</td>
+<td style="width: 97px;">1.0666</td>
+<td style="width: 31px;">[-0.000018, -0.000112, -0.053397]</td>
+<td style="width: 195px;">[0.001406, -0.000003, 0.000001, -0.000003, 0.001404, -0.000024, 0.000001, -0.000024, 0.001002]</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>For UR15 see attached file <a data-udi="umb://document/c2f8032c24f74fffb0b42223cbdb4ce9" href="/download/mechanical-ur-series/ur15/dh-parameters-for-calculations-of-kinematics-and-dynamics-ur15/" title="DH Parameters for calculations of kinematics and dynamics UR15">HERE.</a></p>
+<table border="01" style="border-color: black; border-style: solid; height: 534px; width: 808px;">
+<tbody>
+<tr style="height: 30px;">
+<td colspan="8" width="724" style="height: 30px; width: 808px;"><strong>UR15</strong></td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;"><strong>Kinematics</strong></td>
+<td style="height: 42px; width: 97px;">a [m]</td>
+<td style="height: 42px; width: 97px;">d [m]</td>
+<td style="height: 42px; width: 97px;">alpha [rad]</td>
+<td style="height: 42px; width: 97px;"><strong>Dynamics</strong></td>
+<td style="height: 42px; width: 97px;">Mass [kg]</td>
+<td style="width: 31px; height: 42px;">Center of Mass [m]</td>
+<td style="height: 42px; width: 195px;">Inertia Matrix</td>
+</tr>
+<tr style="height: 105px;">
+<td style="width: 97px; height: 105px;">Joint 1</td>
+<td style="width: 97px; height: 105px;">0</td>
+<td style="width: 97px; height: 105px;">0.2186</td>
+<td style="width: 97px; height: 105px;">π/2</td>
+<td style="width: 97px; height: 105px;">Link 0</td>
+<td style="width: 97px; height: 105px;">9.9883</td>
+<td style="width: 31px; height: 105px;">[0.000024, -0.033309, 0.025304]</td>
+<td style="width: 195px; height: 105px;">[0.051334, 0.000025, -0.000016, 0.000025, 0.047702, 0.008805, -0.000016, 0.008805, 0.034263]</td>
+</tr>
+<tr style="height: 105px;">
+<td style="width: 97px; height: 105px;">Joint 2</td>
+<td style="width: 97px; height: 105px;">-0.6475</td>
+<td style="width: 97px; height: 105px;">0</td>
+<td style="width: 97px; height: 105px;">0</td>
+<td style="width: 97px; height: 105px;">Link 1</td>
+<td style="width: 97px; height: 105px;">14.9255</td>
+<td style="width: 31px; height: 105px;">[0.419009, -0.000083, 0.192787]</td>
+<td style="width: 195px; height: 105px;">[0.048202, 0.000232, -0.032135, 0.000232, 1.188499, -0.000017, -0.032135, -0.000017, 1.182771]</td>
+</tr>
+<tr style="height: 126px;">
+<td style="width: 97px; height: 126px;">Joint 3</td>
+<td style="width: 97px; height: 126px;">-0.5164</td>
+<td style="width: 97px; height: 126px;">0</td>
+<td style="width: 97px; height: 126px;">0</td>
+<td style="width: 97px; height: 126px;">Link 2</td>
+<td style="width: 97px; height: 126px;">6.1015</td>
+<td style="width: 31px; height: 126px;">[0.305471, 0.000019, 0.070552]</td>
+<td style="width: 195px; height: 126px;">[0.018481, -0.000005, 0.013601, -0.000005, 0.303502, 0.000003, 0.013601, 0.000003, 0.296843]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="width: 97px; height: 42px;">Joint 4</td>
+<td style="width: 97px; height: 42px;">0</td>
+<td style="width: 97px; height: 42px;">0.1824</td>
+<td style="width: 97px; height: 42px;">π/2</td>
+<td style="width: 97px; height: 42px;">Link 3</td>
+<td style="width: 97px; height: 42px;">2.0890</td>
+<td style="width: 31px; height: 42px;">[0.000025, -0.019695, 0.016413]</td>
+<td style="width: 195px; height: 42px;">[0.004339, 0.000019, 0.000001, 0.000019, 0.002548, 0.000706, 0.000001, 0.000706, 0.003912]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="width: 97px; height: 42px;">Joint 5</td>
+<td style="width: 97px; height: 42px;">0</td>
+<td style="width: 97px; height: 42px;">0.1361</td>
+<td style="width: 97px; height: 42px;">-π/2</td>
+<td style="width: 97px; height: 42px;">Link 4</td>
+<td style="width: 97px; height: 42px;">2.0869</td>
+<td style="width: 31px; height: 42px;">[0.000025, 0.019960, 0.015886]</td>
+<td style="width: 195px; height: 42px;">[0.004288, 0.000017, -0.000003, 0.000017, 0.002566, -0.000716, -0.000003, -0.000716, 0.003927]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="width: 97px; height: 42px;">Joint 6</td>
+<td style="width: 97px; height: 42px;">0</td>
+<td style="width: 97px; height: 42px;">0.1434</td>
+<td style="width: 97px; height: 42px;">0</td>
+<td style="width: 97px; height: 42px;">Link 5</td>
+<td style="width: 97px; height: 42px;">1.0666</td>
+<td style="width: 31px; height: 42px;">[-0.000018, -0.000112, -0.053397]</td>
+<td style="width: 195px; height: 42px;">[0.001406, -0.000003, 0.000010, -0.000003, 0.001404, -0.000024, 0.000010, -0.000024, 0.001002]</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>For UR18:</p>
+<table border="01" style="border-color: black; border-style: solid; height: 534px; width: 808px;">
+<tbody>
+<tr style="height: 30px;">
+<td colspan="8" width="724" style="height: 30px; width: 808px;"><strong>UR18</strong></td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;"><strong>Kinematics</strong></td>
+<td style="height: 42px; width: 97px;">a [m]</td>
+<td style="height: 42px; width: 97px;">d [m]</td>
+<td style="height: 42px; width: 97px;">alpha [rad]</td>
+<td style="height: 42px; width: 97px;"><strong>Dynamics</strong></td>
+<td style="height: 42px; width: 97px;">Mass [kg]</td>
+<td style="width: 31px; height: 42px;">Center of Mass [m]</td>
+<td style="height: 42px; width: 195px;">Inertia Matrix</td>
+</tr>
+<tr style="height: 105px;">
+<td style="width: 97px; height: 105px;">Joint 1</td>
+<td style="width: 97px; height: 105px;">0</td>
+<td style="width: 97px; height: 105px;">0.2186</td>
+<td style="width: 97px; height: 105px;">π/2</td>
+<td style="width: 97px; height: 105px;">Link 0</td>
+<td style="width: 97px; height: 105px;">9.9883</td>
+<td style="width: 31px; height: 105px;">[2.4e-05, -0.033309, 0.025304]</td>
+<td style="width: 195px; height: 105px;">[0.051334, 2.5e-05, -1.6e-05]<br />[2.5e-05, 0.047702, 0.008805]<br />[-1.6e-05, 0.008805, 0.034263]</td>
+</tr>
+<tr style="height: 105px;">
+<td style="width: 97px; height: 105px;">Joint 2</td>
+<td style="width: 97px; height: 105px;">-0.475</td>
+<td style="width: 97px; height: 105px;">0</td>
+<td style="width: 97px; height: 105px;">0</td>
+<td style="width: 97px; height: 105px;">Link 1</td>
+<td style="width: 97px; height: 105px;">14.2009</td>
+<td style="width: 31px; height: 105px;">[0.308664, -8.8e-05, 0.190204]</td>
+<td style="width: 195px; height: 105px;">[0.045094, 0.000179, -0.024705]<br />[0.000179, 0.630805, -2e-05]<br />[-0.024705, -2e-05, 0.625724]</td>
+</tr>
+<tr style="height: 126px;">
+<td style="width: 97px; height: 126px;">Joint 3</td>
+<td style="width: 97px; height: 126px;">-0.3389</td>
+<td style="width: 97px; height: 126px;">0</td>
+<td style="width: 97px; height: 126px;">0</td>
+<td style="width: 97px; height: 126px;">Link 2</td>
+<td style="width: 97px; height: 126px;">5.52</td>
+<td style="width: 31px; height: 126px;">[0.199652, 2.1e-05, 0.073101]</td>
+<td style="width: 195px; height: 126px;">[0.016891, 0.0, 0.009081]<br />[0.0, 0.129732, 3e-06]<br />[0.009081, 3e-06, 0.123451]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="width: 97px; height: 42px;">Joint 4</td>
+<td style="width: 97px; height: 42px;">0</td>
+<td style="width: 97px; height: 42px;">0.1824</td>
+<td style="width: 97px; height: 42px;">π/2</td>
+<td style="width: 97px; height: 42px;">Link 3</td>
+<td style="width: 97px; height: 42px;">2.0890</td>
+<td style="width: 31px; height: 42px;">[2.5e-05, -0.019695, 0.016413]</td>
+<td style="width: 195px; height: 42px;">[0.004339, 1.9e-05, 1e-06]<br />[1.9e-05, 0.002548, 0.000706]<br />[1e-06, 0.000706, 0.003912]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="width: 97px; height: 42px;">Joint 5</td>
+<td style="width: 97px; height: 42px;">0</td>
+<td style="width: 97px; height: 42px;">0.1361</td>
+<td style="width: 97px; height: 42px;">-π/2</td>
+<td style="width: 97px; height: 42px;">Link 4</td>
+<td style="width: 97px; height: 42px;">2.0869</td>
+<td style="width: 31px; height: 42px;">[2.5e-05, -0.019695, 0.016413]</td>
+<td style="width: 195px; height: 42px;">[0.004288, 1.7e-05, -3e-06]<br />[1.7e-05, 0.002566, -0.000716]<br />[-3e-06, -0.000716, 0.003927]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="width: 97px; height: 42px;">Joint 6</td>
+<td style="width: 97px; height: 42px;">0</td>
+<td style="width: 97px; height: 42px;">0.1434</td>
+<td style="width: 97px; height: 42px;">0</td>
+<td style="width: 97px; height: 42px;">Link 5</td>
+<td style="width: 97px; height: 42px;">1.0666</td>
+<td style="width: 31px; height: 42px;">[-1.8e-05, -0.000112, -0.053397]</td>
+<td style="width: 195px; height: 42px;">[0.001406, -3e-06, 1e-05]<br />[-3e-06, 0.001404, -2.4e-05]<br />[1e-05, -2.4e-05, 0.001002]</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>For UR20 see attached file <a data-udi="umb://document/983ed06df2774409932fa605ec0e2138" href="/download/mechanical-ur-series/ur20/dh-parameters-for-calculations-of-kinematics-and-dynamics-ur20/" title="DH Parameters for calculations of kinematics and dynamics UR20">HERE.</a></p>
+<table border="01" style="height: 324px; width: 808px; border-color: black; border-style: solid;">
+<tbody>
+<tr style="height: 30px;">
+<td colspan="8" width="724" style="height: 30px; width: 808px;"><strong>UR20</strong></td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;"><strong>Kinematics</strong></td>
+<td style="height: 42px; width: 97px;">a [m]</td>
+<td style="height: 42px; width: 97px;">d [m]</td>
+<td style="height: 42px; width: 97px;">alpha [rad]</td>
+<td style="height: 42px; width: 97px;"><strong>Dynamics</strong></td>
+<td style="height: 42px; width: 97px;">Mass [kg]</td>
+<td style="width: 31px; height: 42px;">Center of Mass [m]</td>
+<td style="height: 42px; width: 195px;">Inertia Matrix</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 1</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0.2363</td>
+<td style="height: 42px; width: 97px;">π/2</td>
+<td style="height: 42px; width: 97px;">Link 0</td>
+<td style="height: 42px; width: 97px;">16.343</td>
+<td style="width: 31px; height: 42px;">[0, -0.0610, 0.0062]</td>
+<td style="height: 42px; width: 195px;">[0.0887, -0.0001, -0.0001, -0.0001, 0.0763, 0.0072, -0.0001, 0.0072, 0.0842]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 2</td>
+<td style="height: 42px; width: 97px;">-0.8620</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">Link 1</td>
+<td style="height: 42px; width: 97px;">29.632</td>
+<td style="width: 31px; height: 42px;">[0.5226, 0, 0.2098]</td>
+<td style="height: 42px; width: 195px;">[0.1467, 0.0002, -0.0516, 0.0002, 4.6659, 0.0000, -0.0516, 0.0000, 4.6348]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 3</td>
+<td style="height: 42px; width: 97px;">-0.7287</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">Link 2</td>
+<td style="height: 42px; width: 97px;">7.879</td>
+<td style="width: 31px; height: 42px;">[0.3234, 0, 0.0604]</td>
+<td style="height: 42px; width: 195px;">[0.0261, -0.0001, -0.0290, -0.0001, 0.7576, -0.0000, -0.0290, -0.0000, 0.7533]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 4</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0.2010</td>
+<td style="height: 42px; width: 97px;">π/2</td>
+<td style="height: 42px; width: 97px;">Link 3</td>
+<td style="height: 42px; width: 97px;">3.054</td>
+<td style="width: 31px; height: 42px;">[0, -0.0026, 0.0393]</td>
+<td style="height: 42px; width: 195px;">[0.0056, -0.0000, -0.0000, -0.0000, 0.0054, 0.0004, -0.0000, 0.0004, 0.0040]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 5</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0.1593</td>
+<td style="height: 42px; width: 97px;">-π/2</td>
+<td style="height: 42px; width: 97px;">Link 4</td>
+<td style="height: 42px; width: 97px;">3.126</td>
+<td style="width: 31px; height: 42px;">[0, 0.0024, 0.0379]</td>
+<td style="height: 42px; width: 195px;">[0.0059, -0.0000, 0.0000, -0.0000, 0.0058, -0.0004, 0.0000, -0.0004, 0.0043]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 6</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0.1543</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">Link 5</td>
+<td style="height: 42px; width: 97px;">0.846</td>
+<td style="width: 31px; height: 42px;">[0, -0.0003, -0.0318]</td>
+<td style="height: 42px; width: 195px;">[0.0009, 0.0000, 0.0000, 0.0000, 0.0009, 0.0000, 0.0000, 0.0000, 0.0012]</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p>For UR30 see attached file <a data-udi="umb://document/cd304e152ba34ede82fb84f09bee8f1f" href="/download/mechanical-ur-series/ur30/dh-parameters-for-calculations-of-kinematics-and-dynamics-ur30/" title="DH Parameters for calculations of kinematics and dynamics UR30">HERE.</a></p>
+<table border="01" style="width: 811px; border-color: black; border-style: solid;">
+<tbody>
+<tr style="height: 30px;">
+<td colspan="8" width="724" style="height: 30px; width: 811px;"><strong>UR30</strong></td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;"><strong>Kinematics</strong></td>
+<td style="height: 42px; width: 97px;">a [m]</td>
+<td style="height: 42px; width: 97px;">d [m]</td>
+<td style="height: 42px; width: 97px;">alpha [rad]</td>
+<td style="height: 42px; width: 97px;"><strong>Dynamics</strong></td>
+<td style="height: 42px; width: 97px;">Mass [kg]</td>
+<td style="width: 46px;">Center of Mass [m]</td>
+<td style="height: 42px; width: 183px;">Inertia Matrix</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 1</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0.2363</td>
+<td style="height: 42px; width: 97px;">π/2</td>
+<td style="height: 42px; width: 97px;">Link 0</td>
+<td style="height: 42px; width: 97px;">16.343</td>
+<td style="width: 46px;">[-0.0001, -0.0600, 0.0069]</td>
+<td style="height: 42px; width: 183px;">[0.0883, -0.0001, -0.0001, -0.0001, 0.0764, 0.0076, -0.0001, 0.0076, 0.0830]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 2</td>
+<td style="height: 42px; width: 97px;">-0.6370</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">Link 1</td>
+<td style="height: 42px; width: 97px;">28.542</td>
+<td style="width: 46px;">[0.3894, 0, 0.2103]</td>
+<td style="height: 42px; width: 183px;">[0.1379, 0.0001, -0.0451, 0.0001, 2.5013, -0.0000, -0.0451, -0.0000, 2.4751]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 3</td>
+<td style="height: 42px; width: 97px;">-0.5037</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">Link 2</td>
+<td style="height: 42px; width: 97px;">7.156</td>
+<td style="width: 46px;">[0.2257, 0, 0.0629]</td>
+<td style="height: 42px; width: 183px;">[0.0236, 0.0000, -0.0168, 0.0009, 0.3388, 0.0001, -0.0168, 0.0001, 0.3353]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 4</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0.2010</td>
+<td style="height: 42px; width: 97px;">π/2</td>
+<td style="height: 42px; width: 97px;">Link 3</td>
+<td style="height: 42px; width: 97px;">3.054</td>
+<td style="width: 46px;">[0, -0.0048, 0.0353]</td>
+<td style="height: 42px; width: 183px;">[0.0056, 0.0000, 0.0000 0.0000, 0.0051, 0.0006 0.0000, 0.0006, 0.0043]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 5</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0.1593</td>
+<td style="height: 42px; width: 97px;">-π/2</td>
+<td style="height: 42px; width: 97px;">Link 4</td>
+<td style="height: 42px; width: 97px;">3.126</td>
+<td style="width: 46px;">[0, 0.0046, 0.0341]</td>
+<td style="height: 42px; width: 183px;">[0.0060, 0.0000, 0.0000, 0.0000, 0.0056, -0.0006, 0.0000, -0.0006, 0.0046]</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 6</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0.1543</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">Link 5</td>
+<td style="height: 42px; width: 97px;">0.926</td>
+<td style="width: 46px;">[0, 0, -0.0293]</td>
+<td style="height: 42px; width: 183px;">[0.0009, 0.0000, 0.0000, 0.0000, 0.0009, 0.0000, 0.0000, 0.0000, 0.0012]</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<table border="01" width="920" style="height: 324px; border-color: black; width: 811px; border-style: solid;">
+<tbody>
+<tr style="height: 30px;">
+<td colspan="8" width="724" style="height: 30px; width: 811px;"><strong>UR3e</strong></td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;"><strong>Kinematics</strong></td>
+<td style="height: 42px; width: 97px;">a [m]</td>
+<td style="height: 42px; width: 97px;">d [m]</td>
+<td style="height: 42px; width: 97px;">alpha [rad]</td>
+<td style="height: 42px; width: 97px;"><strong>Dynamics</strong></td>
+<td style="height: 42px; width: 97px;">Mass [kg]</td>
+<td style="width: 47px;">Center of Mass [m]</td>
+<td style="height: 42px; width: 182px;">Inertia Matrix</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 1</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0.15185</td>
+<td style="height: 42px; width: 97px;">π/2</td>
+<td style="height: 42px; width: 97px;">Link 1</td>
+<td style="height: 42px; width: 97px;">1.98</td>
+<td style="width: 47px;">[0, -0.02, 0]</td>
+<td style="height: 42px; width: 182px;">0</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 2</td>
+<td style="height: 42px; width: 97px;">-0.24355</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">Link 2</td>
+<td style="height: 42px; width: 97px;">3.4445</td>
+<td style="width: 47px;">[0.13, 0, 0.1157]</td>
+<td style="height: 42px; width: 182px;">0</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 3</td>
+<td style="height: 42px; width: 97px;">-0.2132</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">Link 3</td>
+<td style="height: 42px; width: 97px;">1.437</td>
+<td style="width: 47px;">[0.05, 0, 0.0238]</td>
+<td style="height: 42px; width: 182px;">0</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 4</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0.13105</td>
+<td style="height: 42px; width: 97px;">π/2</td>
+<td style="height: 42px; width: 97px;">Link 4</td>
+<td style="height: 42px; width: 97px;">0.871</td>
+<td style="width: 47px;">[0, 0, 0.01]</td>
+<td style="height: 42px; width: 182px;">0</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 5</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0.08535</td>
+<td style="height: 42px; width: 97px;">-π/2</td>
+<td style="height: 42px; width: 97px;">Link 5</td>
+<td style="height: 42px; width: 97px;">0.805</td>
+<td style="width: 47px;">[0, 0, 0.01]</td>
+<td style="height: 42px; width: 182px;">0</td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 97px;">Joint 6</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">0.0921</td>
+<td style="height: 42px; width: 97px;">0</td>
+<td style="height: 42px; width: 97px;">Link 6</td>
+<td style="height: 42px; width: 97px;">0.261</td>
+<td style="width: 47px;">[0, 0, -0.02]</td>
+<td style="height: 42px; width: 182px;">[0, 0, 0, 0, 0, 0, 0, 0, 0.0001]</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<table border="01" width="920" style="border-color: black; width: 823px; border-style: solid;">
+<tbody>
+<tr>
+<td colspan="8" width="724" style="width: 823px;"><strong>UR5e/UR7e</strong></td>
+</tr>
+<tr>
+<td style="width: 86px;"><strong>Kinematics</strong></td>
+<td style="width: 86px;">a [m]</td>
+<td style="width: 86px;">d [m]</td>
+<td style="width: 86px;">alpha [rad]</td>
+<td style="width: 86px;"><strong>Dynamics</strong></td>
+<td style="width: 86px;">Mass [kg]</td>
+<td style="width: 86px;">Center of Mass [m]</td>
+<td style="width: 221px;">Inertia Matrix</td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 1</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0.1625</td>
+<td style="width: 86px;">π/2</td>
+<td style="width: 86px;">Link 1</td>
+<td style="width: 86px;">3.761</td>
+<td style="width: 86px;">[0, -0.02561, 0.00193]</td>
+<td style="width: 221px;">0</td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 2</td>
+<td style="width: 86px;">-0.425</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">Link 2</td>
+<td style="width: 86px;">8.058</td>
+<td style="width: 86px;">[0.2125, 0, 0.11336]</td>
+<td style="width: 221px;">0</td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 3</td>
+<td style="width: 86px;">-0.3922</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">Link 3</td>
+<td style="width: 86px;">2.846</td>
+<td style="width: 86px;">[0.15, 0.0, 0.0265]</td>
+<td style="width: 221px;">0</td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 4</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0.1333</td>
+<td style="width: 86px;">π/2</td>
+<td style="width: 86px;">Link 4</td>
+<td style="width: 86px;">1.37</td>
+<td style="width: 86px;">[0, -0.0018, 0.01634]</td>
+<td style="width: 221px;">0</td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 5</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0.0997</td>
+<td style="width: 86px;">-π/2</td>
+<td style="width: 86px;">Link 5</td>
+<td style="width: 86px;">1.3</td>
+<td style="width: 86px;">[0, 0.0018,0.01634]</td>
+<td style="width: 221px;">0</td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 6</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0.0996</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">Link 6</td>
+<td style="width: 86px;">0.365</td>
+<td style="width: 86px;">[0, 0, -0.001159]</td>
+<td style="width: 221px;">[0, 0, 0, 0, 0, 0, 0, 0, 0.0002]</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<table border="01" width="920" style="border-color: black; width: 827px;">
+<tbody>
+<tr>
+<td colspan="8" width="724" style="width: 827px;"><strong>UR10e/UR12e</strong></td>
+</tr>
+<tr>
+<td style="width: 86px;"><strong>Kinematics</strong></td>
+<td style="width: 86px;">a [m]</td>
+<td style="width: 86px;">d [m]</td>
+<td style="width: 86px;">alpha [rad]</td>
+<td style="width: 86px;"><strong>Dynamics</strong></td>
+<td style="width: 86px;">Mass [kg]</td>
+<td style="width: 86px;">Center of Mass [m]</td>
+<td style="width: 225px;">Inertia Matrix</td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 1</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0.1807</td>
+<td style="width: 86px;">π/2</td>
+<td style="width: 86px;">Link 1</td>
+<td style="width: 86px;">7.369</td>
+<td style="width: 86px;">[0.021, 0.000, 0.027]</td>
+<td style="width: 225px;">[0.0341, 0.0000, -0.0043, 0.0000, 0.0353, 0.0001, -0.0043, 0.0001, 0.0216]</td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 2</td>
+<td style="width: 86px;">-0.6127</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">Link 2</td>
+<td style="width: 86px;">13.051</td>
+<td style="width: 86px;">[0.38, 0.000, 0.158]</td>
+<td style="width: 225px;">[0.0281, 0.0001, -0.0156, 0.0001, 0.7707, 0.0000, -0.0156, 0.0000, 0.7694]</td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 3</td>
+<td style="width: 86px;">-0.57155</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">Link 3</td>
+<td style="width: 86px;">3.989</td>
+<td style="width: 86px;">[0.24, 0.000, 0.068]</td>
+<td style="width: 225px;">[0.0101, 0.0001, 0.0092, 0.0001, 0.3093, 0.0000, 0.0092, 0.0000, 0.3065]</td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 4</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0.17415</td>
+<td style="width: 86px;">π/2</td>
+<td style="width: 86px;">Link 4</td>
+<td style="width: 86px;">2.1</td>
+<td style="width: 86px;">[0.000, 0.007, 0.018]</td>
+<td style="width: 225px;">[0.0030, -0.0000, -0.0000, -0.0000, 0.0022, -0.0002, -0.0000, -0.0002, 0.0026]</td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 5</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0.11985</td>
+<td style="width: 86px;">-π/2</td>
+<td style="width: 86px;">Link 5</td>
+<td style="width: 86px;">1.98</td>
+<td style="width: 86px;">[0.000, 0.007, 0.018]</td>
+<td style="width: 225px;">[0.0030, -0.0000, -0.0000, -0.0000, 0.0022, -0.0002, -0.0000, -0.0002, 0.0026]</td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 6</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0.11655</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">Link 6</td>
+<td style="width: 86px;">0.615</td>
+<td style="width: 86px;">[0, 0, -0.026]</td>
+<td style="width: 225px;">[0.0000, 0.0000, -0.0000, 0.0000, 0.0004, 0.0000, -0.0000, 0.0000, 0.0003]</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<table border="01" style="border-color: black; width: 827px;">
+<tbody>
+<tr>
+<td colspan="8" width="724" style="width: 827px;"><strong>UR16e</strong></td>
+</tr>
+<tr>
+<td style="width: 86px;"><strong>Kinematics</strong></td>
+<td style="width: 86px;">a [m]</td>
+<td style="width: 86px;">d [m]</td>
+<td style="width: 86px;">alpha [rad]</td>
+<td style="width: 86px;"><strong>Dynamics</strong></td>
+<td style="width: 86px;">Mass [kg]</td>
+<td style="width: 86px;">Center of Mass [m]</td>
+<td style="width: 225px;">Inertia Matrix</td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 1</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0.1807</td>
+<td style="width: 86px;">π/2</td>
+<td style="width: 86px;">Link 1</td>
+<td style="width: 86px;">7.369</td>
+<td style="width: 86px;">[0.000, -0.016, 0.030]</td>
+<td style="width: 225px;"><span>[0.0335, 0.0000, -0.0000, 0.0000, 0.0337, 0.0037, -0.0000, 0.0037, 0.0210]</span></td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 2</td>
+<td style="width: 86px;">-0.4784</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">Link 2</td>
+<td style="width: 86px;">10.450</td>
+<td style="width: 86px;">[0.302, 0.000, 0.160]</td>
+<td style="width: 225px;"><span>[0.0280, -0.0001, -0.0072, -0.0001, 0.4756, 0.0000, -0.0072, -0.0000, 0.4764]</span></td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 3</td>
+<td style="width: 86px;">-0.36</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">Link 3</td>
+<td style="width: 86px;">4.321</td>
+<td style="width: 86px;">[0.194, 0.000, 0.065]</td>
+<td style="width: 225px;"><span>[0.0109, 0.0001, 0.0101, 0.0001, 0.1206, 0.0000, 0.0101, 0.0000, 0.11714]</span></td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 4</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0.17415</td>
+<td style="width: 86px;">π/2</td>
+<td style="width: 86px;">Link 4</td>
+<td style="width: 86px;">2.180</td>
+<td style="width: 86px;">[0.000, -0.009, 0.011]</td>
+<td style="width: 225px;"><span>[0.0061, -0.0000, -0.0000, -0.0000, 0.0025, 0.0008, 0.0000, 0.0008, 0.0058]</span></td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 5</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0.11985</td>
+<td style="width: 86px;">-π/2</td>
+<td style="width: 86px;">Link 5</td>
+<td style="width: 86px;">2.033</td>
+<td style="width: 86px;">[0.000, 0.018, 0.012]</td>
+<td style="width: 225px;"><span>[0.0039, -0.0000, 0.0000, -0.0000, 0.0022, -0.0005, 0.0000, -0.0005, 0.0036]</span></td>
+</tr>
+<tr>
+<td style="width: 86px;">Joint 6</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">0.11655</td>
+<td style="width: 86px;">0</td>
+<td style="width: 86px;">Link 6</td>
+<td style="width: 86px;">0.907</td>
+<td style="width: 86px;">[0, 0, -0.044]</td>
+<td style="width: 225px;"><span>[0.0012, 0.0000, 0.0000, 0.0000, 0.0012, 0.0000, 0.0000, 0.0000, 0.0008]</span></td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<table border="01" width="724" style="height: 198px; border-color: black; width: 777px;">
+<tbody>
+<tr style="height: 30px;">
+<td colspan="7" width="724" style="height: 30px; width: 777px;"><strong>UR3</strong></td>
+</tr>
+<tr style="height: 42px;">
+<td style="height: 42px; width: 111px;"><strong>Kinematics </strong> </td>
+<td style="height: 42px; width: 111px;">a [m]</td>
+<td style="height: 42px; width: 111px;">d [m]</td>
+<td style="height: 42px; width: 111px;">alpha [rad]</td>
+<td style="height: 42px; width: 111px;"><strong>Dynamics</strong></td>
+<td style="height: 42px; width: 111px;">Mass [kg]</td>
+<td style="height: 42px; width: 111px;">Center of Mass [m]</td>
+</tr>
+<tr style="height: 21px;">
+<td style="height: 21px; width: 111px;">Joint 1</td>
+<td style="height: 21px; width: 111px;">0</td>
+<td style="height: 21px; width: 111px;">0.1519</td>
+<td style="height: 21px; width: 111px;">π/2</td>
+<td style="height: 21px; width: 111px;">Link 1</td>
+<td style="height: 21px; width: 111px;">2</td>
+<td style="height: 21px; width: 111px;">[0, -0.02, 0]</td>
+</tr>
+<tr style="height: 21px;">
+<td style="height: 21px; width: 111px;">Joint 2</td>
+<td style="height: 21px; width: 111px;">-0.24365</td>
+<td style="height: 21px; width: 111px;">0</td>
+<td style="height: 21px; width: 111px;">0</td>
+<td style="height: 21px; width: 111px;">Link 2</td>
+<td style="height: 21px; width: 111px;">3.42</td>
+<td style="height: 21px; width: 111px;">[0.13, 0, 0.1157]</td>
+</tr>
+<tr style="height: 21px;">
+<td style="height: 21px; width: 111px;">Joint 3</td>
+<td style="height: 21px; width: 111px;">-0.21325</td>
+<td style="height: 21px; width: 111px;">0</td>
+<td style="height: 21px; width: 111px;">0</td>
+<td style="height: 21px; width: 111px;">Link 3</td>
+<td style="height: 21px; width: 111px;">1.26</td>
+<td style="height: 21px; width: 111px;">[0.05, 0, 0.0238]</td>
+</tr>
+<tr style="height: 21px;">
+<td style="height: 21px; width: 111px;">Joint 4</td>
+<td style="height: 21px; width: 111px;">0</td>
+<td style="height: 21px; width: 111px;">0.11235</td>
+<td style="height: 21px; width: 111px;">π/2</td>
+<td style="height: 21px; width: 111px;">Link 4</td>
+<td style="height: 21px; width: 111px;">0.8</td>
+<td style="height: 21px; width: 111px;">[0, 0, 0.01]</td>
+</tr>
+<tr style="height: 21px;">
+<td style="height: 21px; width: 111px;">Joint 5</td>
+<td style="height: 21px; width: 111px;">0</td>
+<td style="height: 21px; width: 111px;">0.08535</td>
+<td style="height: 21px; width: 111px;">-π/2</td>
+<td style="height: 21px; width: 111px;">Link 5</td>
+<td style="height: 21px; width: 111px;">0.8</td>
+<td style="height: 21px; width: 111px;">[0, 0, 0.01]</td>
+</tr>
+<tr style="height: 21px;">
+<td style="height: 21px; width: 111px;">Joint 6</td>
+<td style="height: 21px; width: 111px;">0</td>
+<td style="height: 21px; width: 111px;">0.0819</td>
+<td style="height: 21px; width: 111px;">0</td>
+<td style="height: 21px; width: 111px;">Link 6</td>
+<td style="height: 21px; width: 111px;">0.35</td>
+<td style="height: 21px; width: 111px;">[0, 0, -0.02]</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<table border="01" width="724" style="border-color: black; width: 777px;">
+<tbody>
+<tr>
+<td colspan="7" width="724" style="width: 777px;"><strong>UR5</strong></td>
+</tr>
+<tr>
+<td style="width: 111px;"><strong>Kinematics</strong></td>
+<td style="width: 111px;">a [m]</td>
+<td style="width: 111px;">d [m]</td>
+<td style="width: 111px;">alpha [rad]</td>
+<td style="width: 111px;"><strong>Dynamics</strong></td>
+<td style="width: 111px;">Mass [kg]</td>
+<td style="width: 111px;">Center of Mass [m]</td>
+</tr>
+<tr>
+<td style="width: 111px;">Joint 1</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">0.089159</td>
+<td style="width: 111px;">π/2</td>
+<td style="width: 111px;">Link 1</td>
+<td style="width: 111px;">3.7</td>
+<td style="width: 111px;">[0, -0.02561, 0.00193]</td>
+</tr>
+<tr>
+<td style="width: 111px;">Joint 2</td>
+<td style="width: 111px;">-0.425</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">Link 2</td>
+<td style="width: 111px;">8.393</td>
+<td style="width: 111px;">[0.2125, 0, 0.11336]</td>
+</tr>
+<tr>
+<td style="width: 111px;">Joint 3</td>
+<td style="width: 111px;">-0.39225</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">Link 3</td>
+<td style="width: 111px;">2.33</td>
+<td style="width: 111px;">[0.15, 0.0, 0.0265]</td>
+</tr>
+<tr>
+<td style="width: 111px;">Joint 4</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">0.10915</td>
+<td style="width: 111px;">π/2</td>
+<td style="width: 111px;">Link 4</td>
+<td style="width: 111px;">1.219</td>
+<td style="width: 111px;">[0, -0.0018, 0.01634]</td>
+</tr>
+<tr>
+<td style="width: 111px;">Joint 5</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">0.09465</td>
+<td style="width: 111px;">-π/2</td>
+<td style="width: 111px;">Link 5</td>
+<td style="width: 111px;">1.219</td>
+<td style="width: 111px;">[0, 0.0018,0.01634]</td>
+</tr>
+<tr>
+<td style="width: 111px;">Joint 6</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">0.0823</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">Link 6</td>
+<td style="width: 111px;">0.1879</td>
+<td style="width: 111px;">[0, 0, -0.001159]</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<table border="01" width="724" style="border-color: black; width: 777px;">
+<tbody>
+<tr>
+<td colspan="7" width="724" style="width: 777px;"><strong>UR10</strong></td>
+</tr>
+<tr>
+<td style="width: 111px;"><strong>Kinematics</strong></td>
+<td style="width: 111px;">a [m]</td>
+<td style="width: 111px;">d [m]</td>
+<td style="width: 111px;">alpha [rad]</td>
+<td style="width: 111px;"><strong>Dynamics</strong></td>
+<td style="width: 111px;">Mass [kg]</td>
+<td style="width: 111px;">Center of Mass [m]</td>
+</tr>
+<tr>
+<td style="width: 111px;">Joint 1</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">0.1273</td>
+<td style="width: 111px;">π/2</td>
+<td style="width: 111px;">Link 1</td>
+<td style="width: 111px;">7.1</td>
+<td style="width: 111px;">[0.021, 0.000, 0.027]</td>
+</tr>
+<tr>
+<td style="width: 111px;">Joint 2</td>
+<td style="width: 111px;">-0.612</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">Link 2</td>
+<td style="width: 111px;">12.7</td>
+<td style="width: 111px;">[0.38, 0.000, 0.158]</td>
+</tr>
+<tr>
+<td style="width: 111px;">Joint 3</td>
+<td style="width: 111px;">-0.5723</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">Link 3</td>
+<td style="width: 111px;">4.27</td>
+<td style="width: 111px;">[0.24, 0.000, 0.068]</td>
+</tr>
+<tr>
+<td style="width: 111px;">Joint 4</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">0.163941</td>
+<td style="width: 111px;">π/2</td>
+<td style="width: 111px;">Link 4</td>
+<td style="width: 111px;">2</td>
+<td style="width: 111px;">[0.000, 0.007, 0.018]</td>
+</tr>
+<tr>
+<td style="width: 111px;">Joint 5</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">0.1157</td>
+<td style="width: 111px;">-π/2</td>
+<td style="width: 111px;">Link 5</td>
+<td style="width: 111px;">2</td>
+<td style="width: 111px;">[0.000, 0.007, 0.018]</td>
+</tr>
+<tr>
+<td style="width: 111px;">Joint 6</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">0.0922</td>
+<td style="width: 111px;">0</td>
+<td style="width: 111px;">Link 6</td>
+<td style="width: 111px;">0.365</td>
+<td style="width: 111px;">[0, 0, -0.026]</td>
+</tr>
+</tbody>
+</table>
+<p> </p>
+<p><img style="width: 800px; height: 765.2593486127865px;" src="/media/1817538/1.png?width=800&amp;height=765.2593486127865" alt="" data-udi="umb://media/d42aaa8ebf7e4200a1263bab615f02a3" /></p>
+<p><img style="width: 360px; height: 300px;" src="/media/1817539/2.png?width=360&amp;height=300&amp;mode=max" alt="" data-udi="umb://media/87b675bd0d0d4529b4e39d1730a9852a" /></p>
+<p><img style="width: 800px; height: 725.8687258687258px;" src="/media/1817540/3.png?width=800&amp;height=725.8687258687258" alt="" data-udi="umb://media/a499db73801d48419fd84ea5401fd089" /></p>
+<p> </p>
+<p><img style="width: 800px; height: 739.1874180865007px;" src="/media/1817541/4.png?width=800&amp;height=739.1874180865007" alt="" data-udi="umb://media/e791e176f874448fb967219e17fc48c4" /></p>
+<p> </p>
+<p><img style="width: 800px; height: 739.1874180865007px;" src="/media/1817542/5.png?width=800&amp;height=739.1874180865007" alt="" data-udi="umb://media/607e43b2b0cb43da82cfa9261a555529" /></p>
+<p> </p>
+<p>Download the excel file below for an overview and understanding how the transformation is done in regards to the position of the robot's joints.</p>
+<p> </p>
+<h2>FAQ</h2>
+<p><strong>How is the center of mass (CoM) for each link defined?</strong></p>
+<p><em>The CoM is defined by the mass vector. The mass vector [x, y, z]^T</em> <em>is an offset from the given joint frame for each corresponding link. <br />The center of mass for each link is illustrated with the following symbol:<img style="width: 35px; height: 37px;" src="/media/1831062/com.png?width=35&amp;height=37&amp;mode=max" alt="" data-udi="umb://media/1b0c8ece20c04bbf9dfa2e28ac96a850" /></em></p>
+<p><strong>How is the inertia matrix for each link defined?</strong></p>
+<p><em>Each link have its own unique inertia matrix. The inertia matrix is a 3x3 symmetric matrix containing the moments of inertia and products of inertia around al three cartesian axes.<br />The inertia matrix is represented as:</em></p>
+<p><img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKAAAAA5CAIAAAA+xLfxAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAXYSURBVHhe7Z1fSFtXHMdvBsO8xIdB2MNYOrBUO9aKjmW2dgU7Nuvqg042qcMpaB9moaSMyNInHdU9xLGlrGwsoowZppU6qVNXhYTEP53GRhLqnzij0xloajPQPegSWHbvzdHmz/EuObn33Nzc+3mRc3Lz+917v/ec3Jvz9RdZKBQiJDKX58BfBizXZYec6/SAXpHi6TwHTgXJdQvoTWMSEJhGYyaHeig02ZhDNw+P8+p4kO7ggoMr683vVkAPBySZJKdxkj4Rq8Zi0JPmJCpwDDl1399SE8pm25fvPA+62Kfki9ErBFHWfafhBOjhACxJeARRYILwLs8qr1a9JQdNTtj8w0lU1JUd4+4aIsGShD9QBZ6f7icuvp4HWtzgm78/m1t88kXQ5AYsSXgEUWCPa3y74tIb2aDJCcHF30aVl8+fBk1uwJKET9AE9s0NT6lLC7i97Odtpn8+OFsAWhyBJQmfIAm8ax8eVL5XyO1dicv203bF+dPcfjRiScIrSAIvP/yV4Pqy9y1NuTmfJLAk4RcEgfcn7t7eVue9BJrekQaVTNVs2w2u9FWrZBd7tmBdSRLcGP1hkMh/RQWaLkOhXH6h20P89aC1UJ59Yzroun0mW6ZqnaUew6lnWVW7I7xt4sQkge22qyMv/JhMUX33KdhSSNCP7YyYNeRm4IsOErpJUmxcpZqPrWanf6RBUatt0w2s2Q0GK6wrSQ6/RgBpH5rN/gXDqWKNTmewrw0YuhyTw9M+p/6UsmWGet2hb+rdordMgtgkkN3eGdI0jfoCfoehqspg9wXo7WjoNz87KelL8gLD8N2pJJrGIo4f2pUaAfvnx9TfukGLxqnPLelaD+2YDUYnS5nidtvvMNaUt9gixaUQjMCIj0kHeDo7fl6faL/5+6tl/da5vx3mqaeQLrAxKpaOjrlF06dj/15av2ff2DDblsELJ/Pfnl56ZPlmsagu5fsk2G7vL5o+qruX+9XADdX4h80C+OIZBhCaAaYRPKVTKIrapv2hrd6KrKwcrdkP60qNP38szcqp6XUHAjMtLxOK0i734Wha7yqJaqcA/EjC54iCmioiENkUjR2zXu/c81raKnUpXz9oiGWK5gmPZ1Crfk27WtbZXvIC6JOAIkyBqUW7/VVTY4Gk7v8hTIElEkYSOMORBM5wEAXG4abB4tjB4j3iE0SBcRhdsJhpsHiP+AR1isZhdMFjpsHhPeIRRIFxGF3wmGlweI/4BE1gHEYXPGYaHN4jXkETGIfRBYuZBov3iFeQBMZhdMFipsHiPeIXFIFxGF3wmGlweI94JnmBcbhponNAA3pHPjkul1f2eck++mE2eUNNtPcIGnD3l4/Dj8kUCK6gNACsKjEQvVwYa3Thwk0TnWMbFnDp/rDbN1SbVdH7mOzzD2haZpJdFY72HsEDOvW1txb2AptD1969NrC2R7+PRlzrwTjcNLCAO6QgWit5trv0Q6wsC0MCBjbHtOU1PQsR4lKIZT0Yi5uGBhYw+8TZ/LkVS3df9uVyVhYOYwIGn0y0vv/Zk/p+U9XOzWqB/ucsEJoBhhGMx00TBhrQqlWwYAqKIDIgeXThc0RBj+xniGuKjoJ1Nw0s4KqRnEN3XT319SxdQ8kGFK/A1JGTo9roYGtYQQNS+6Qo0o1tsjVDJBtQxCNYHAhG4BRvsiTSHUngDEcSOMORBM5wUAUWbR0loYEqsFRHSSCgT9FSHSVBgCywVEdJGCB/Bkt1lIQBosBSHSWhgCawVEdJMKAJLNVREgwoAsfUUYp3ZbFgZUrAlZV6jaPYOkpxATOgihLCahLdJgF1lOJdWetHW5kShV6soaDzQl1ZDDWOEiQ6CSQgQwaxLRfGubKOsDKlAsSVdUSNI3TiAh6VQTzLhRBXFkdWphhXFus1juICZkQVpVRHMMSVxWRlSokoVxZTjSMk4gIyZhDbFM0tvBdNiifjpuivL9B3krz86ko6FU06WEU7fmUK9KQ50u8mZTQE8R+5pIaihtLUogAAAABJRU5ErkJggg==" alt="" width="160" height="57" /></p>
+<p><strong>Why are the values of delta_d so high?</strong></p>
+<p><em>The big numbers are in SI units and are due to the singular nature of the DH model. The DH representation is a complete but singular notation to define where the rotation axis is place relative to each other.<br />The standard DH is singular when describing parallel joints, therefore it expected to have big numbers here to represent a small angle adjustment.</em></p>
+              </div>
+          
+        </div>
+      </div>
+
+
+            <div class="grid-row grid-gap4-below print-hide">
+              <div class="grid-span12">
+                <h3 class="grid-gap2-below">Attached files</h3>
+                <hr class="seperator seperator--simple grid-gap3-below" />
+                  <div>
+                    <a href="https://s3-eu-west-1.amazonaws.com/ur-support-site/45257/DH-Transformation.xlsx" class="icontext icontext--theme icontext--medium grid-gap1-below">
+                      <div class="icontext-image">
+                        <img src="/img/icon_download_code.svg" width="20" alt="" />
+                      </div>
+                      <span>DH-Transformation.xlsx</span>
+                    </a>
+                  </div>
+              </div>
+            </div>
+
+    </div>
+      <div class="grid-span4 grid-tablet-span12 print-hide">
+        <aside class="aside textregulator">
+              <div class="grid-gap3-below grid-tablet-hidden">
+                <h4 class="helper-nocase">
+                  Attached files
+                </h4>
+                  <div class="grid-gap1-below">
+                    <a href="https://s3-eu-west-1.amazonaws.com/ur-support-site/45257/DH-Transformation.xlsx" class="icontext icontext--theme icontext--medium grid-gap1-below">
+                      <div class="icontext-image">
+                        <img src="/img/icon_download_code.svg" width="17" alt="" />
+                      </div>
+                      <small>DH-Transformation.xlsx</small>
+                    </a>
+                  </div>
+              </div>
+
+          <h4 class="helper-nocase">
+            Related articles
+          </h4>
+
+            <div class="grid-gap1-below">
+              <a href="/download/mechanical-ur-series/ur20/dh-parameters-for-calculations-of-kinematics-and-dynamics-ur20/"><small>DH Parameters for calculations of kinematics and dynamics UR20</small></a>
+            </div>
+            <div class="grid-gap1-below">
+              <a href="/download/mechanical-ur-series/ur30/dh-parameters-for-calculations-of-kinematics-and-dynamics-ur30/"><small>DH Parameters for calculations of kinematics and dynamics UR30</small></a>
+            </div>
+            <div class="grid-gap1-below">
+              <a href="/download/mechanical-ur-series/ur15/dh-parameters-for-calculations-of-kinematics-and-dynamics-ur15/"><small>DH Parameters for calculations of kinematics and dynamics UR15</small></a>
+            </div>
+        </aside>
+      </div>
+  </div>
+</div>
+      
+    </div>
+
+
+
+
+
+<footer class="footer sticky-footer-wrapper print-hide">
+	<div class="grid-outer-container">
+
+		<div class="grid-span12">
+			<img class="footer-logo" src="/img/ur_logo_white.png" alt="logo" alt="" title="Collaborative robots from Universal Robots">
+		</div>
+
+
+		<div class="grid-row">
+				<div class="grid-span2 grid-tablet-span6 grid-tablet-omega2 grid-tablet-gap3-above">
+					<div class="footer-column">
+						<h4 class="footer-column-title">Product</h4>
+						<ul>
+								<li>
+									<a href="/products/ur3-robot/" >
+									UR3e Robot
+									</a>
+								</li>
+								<li>
+									<a href="/products/ur5-robot/" >
+									UR5e Robot
+									</a>
+								</li>
+								<li>
+									<a href="/products/ur10-robot/" >
+									UR10e Robot
+									</a>
+								</li>
+								<li>
+									<a href="/products/ur16-robot/" >
+									UR16e Robot
+									</a>
+								</li>
+								<li>
+									<a href="/products/ur20-robot/" >
+									UR20 Robot
+									</a>
+								</li>
+								<li>
+									<a href="/plus/" >
+									UR+ Products
+									</a>
+								</li>
+						</ul>
+					</div>
+				</div>
+				<div class="grid-span2 grid-tablet-span6 grid-tablet-omega2 grid-tablet-gap3-above">
+					<div class="footer-column">
+						<h4 class="footer-column-title">Company</h4>
+						<ul>
+								<li>
+									<a href="/about-universal-robots/" >
+									About us
+									</a>
+								</li>
+								<li>
+									<a href="/about-universal-robots/world-wide-offices/" >
+									Contact us
+									</a>
+								</li>
+								<li>
+									<a href="/careers/" >
+									Careers
+										<span class="footer-teaser">We&#39;re hiring</span>
+									</a>
+								</li>
+								<li>
+									<a href="https://shop.metz.dk/universal-robots/en" target="_blank" >
+									UR merchandise
+									</a>
+								</li>
+						</ul>
+					</div>
+				</div>
+				<div class="grid-span2 grid-tablet-span6 grid-tablet-omega2 grid-tablet-gap3-above">
+					<div class="footer-column">
+						<h4 class="footer-column-title">Training / Resources</h4>
+						<ul>
+								<li>
+									<a href="/academy/" >
+									Academy
+									</a>
+								</li>
+								<li>
+									<a href="/support/" >
+									Technical Resources
+									</a>
+								</li>
+								<li>
+									<a href="/articles/" >
+									Articles
+									</a>
+								</li>
+								<li>
+									<a href="/faq/" >
+									FAQ
+									</a>
+								</li>
+						</ul>
+					</div>
+				</div>
+				<div class="grid-span2 grid-tablet-span6 grid-tablet-omega2 grid-tablet-gap3-above">
+					<div class="footer-column">
+						<h4 class="footer-column-title">Insights</h4>
+						<ul>
+								<li>
+									<a href="/ebooks/" >
+									Content library
+									</a>
+								</li>
+								<li>
+									<a href="/about-universal-robots/news-centre/" >
+									News centre
+									</a>
+								</li>
+								<li>
+									<a href="/reautomated/" >
+									Podcast
+									</a>
+								</li>
+								<li>
+									<a href="https://events.universal-robots.com" >
+									Webinars &amp; Events
+									</a>
+								</li>
+						</ul>
+					</div>
+				</div>
+				<div class="grid-span2 grid-tablet-span6 grid-tablet-omega2 grid-tablet-gap3-above">
+					<div class="footer-column">
+						<h4 class="footer-column-title">Get in touch</h4>
+						<ul>
+								<li>
+									<a href="/contact-us/consult-with-a-local-ur-representative/" >
+									Ask an Expert
+									</a>
+								</li>
+								<li>
+									<a href="/contact-us/schedule-a-no-cost-assessment/" >
+									Schedule a no-cost assessment
+									</a>
+								</li>
+								<li>
+									<a href="/distributors/" >
+									Find a distributor
+									</a>
+								</li>
+								<li>
+									<a href="/myur-landing-page-redirect/" target="_blank" >
+									Customer support
+									</a>
+								</li>
+						</ul>
+					</div>
+				</div>
+				<div class="grid-span2 grid-tablet-span6 grid-tablet-omega2 grid-tablet-gap3-above">
+					<div class="footer-column">
+						<h4 class="footer-column-title">Connect with us</h4>
+						<ul>
+								<li>
+									<a href="https://www.linkedin.com/company/universal-robots-a-s/" target="_blank" rel="nofollow">
+									LinkedIn
+									</a>
+								</li>
+								<li>
+									<a href="https://www.facebook.com/UniversalRobots" target="_blank" rel="nofollow">
+									Facebook
+									</a>
+								</li>
+								<li>
+									<a href="https://twitter.com/Universal_Robot" rel="nofollow">
+									Twitter
+									</a>
+								</li>
+								<li>
+									<a href="https://www.youtube.com/user/UniversalRobotsVideo" target="_blank" rel="nofollow">
+									YouTube
+									</a>
+								</li>
+								<li>
+									<a href="https://www.instagram.com/universalrobots/" target="_blank" rel="nofollow">
+									Instagram
+									</a>
+								</li>
+						</ul>
+					</div>
+				</div>
+		</div>
+		<div class="grid-mobile-hidden">
+			<div class="grid-row footer-bottom grid-tablet-text-center">
+				<div class="grid-span8 grid-tablet-span12">
+					<ul class="footer-info">
+						<li>Universal Robots A/S</li>
+						<li>Energivej 51</li>
+						<li>DK-5260 Odense S</li>
+						<li>T: +45 89 93 89 89</li>
+						<li><a href="mailto:sales@universal-robots.com">sales@universal-robots.com</a></li>
+					</ul>
+						<ul class="footer-info">
+							<li>US Corporate Office</li>
+							<li>27-43 Wormwood St.</li>
+							<li>02210 Boston, MA.</li>
+							<li>+1-844-GO-COBOT</li>
+							<li><a href="mailto:ur.na@universal-robots.com">ur.na@universal-robots.com</a></li>
+						</ul>
+					<div class="footer-divider"></div>
+					<ul class="footer-info-small">
+						<li>
+						    Copyright @ Universal Robots 2026
+						</li>
+						<li class="footer-info-small-separator-container"><span class="footer-info-small-separator"></span></li>
+													<li><a href="/about-universal-robots/cookie-policy/" target="_blank">Cookie policy</a></li>
+							<li><a href="/about-universal-robots/privacy-policy/">Privacy policy</a></li>
+					</ul>
+				</div>
+				<div class="grid-span3 grid-shift1 grid-tablet-shift0 grid-tablet-span12 grid-text-center">
+				        <div class="footer-social">
+            <a href="https://www.linkedin.com/company/universal-robots-a-s/" rel="nofollow" target="_blank"><i class="fa fa-linkedin" aria-hidden="true"></i></a>
+                    <a href="https://www.youtube.com/user/UniversalRobotsVideo/" rel="nofollow" target="_blank"><i class="fa fa-youtube-play" aria-hidden="true"></i></a>
+                    <a href="https://twitter.com/Universal_Robot/" rel="nofollow" target="_blank"><i class="fa fa-twitter" aria-hidden="true"></i></a>
+                    <a href="https://www.facebook.com/UniversalRobots/" rel="nofollow" target="_blank"><i class="fa fa-facebook" aria-hidden="true"></i></a>
+                    <a href="https://www.instagram.com/universalrobots/" rel="nofollow" target="_blank"><i class="fa fa-instagram" aria-hidden="true"></i></a>
+                                                                    <a href="https://www.universal-robots.com/podcast/the-cobot-show/" rel="nofollow" target="_blank"><i class="fa fa-podcast" aria-hidden="true"></i></a>
+            </div>
+
+			    </div>
+			</div>
+		</div>
+		<div class="grid-hidden grid-mobile-visible">
+			<div class="grid-row grid-gap3-above grid-gap3-below grid-text-center">
+				<div class="grid-span12 grid-gap1-below">
+					<div class="footer-divider"></div>
+				</div>
+				<div class="footer-column">
+					<div class="grid-span6">
+						<ul >
+							<li><span>Universal Robots A/S</span></li>
+							<li><span>Energivej 51</span></li>
+							<li><span>DK-5260 Odense S</span></li>
+							<li><span>T: +45 89 93 89 89</span></li>
+							<li><span>sales@universal-robots.com</span></li>
+						</ul>
+					</div>
+					<div class="grid-span6">
+						<ul>
+							<li><span>US Corporate Office</span></li>
+							<li><span>27-43 Wormwood St.</span></li>
+							<li><span>02210 Boston, MA.</span></li>
+							<li><span>+1-844-GO-COBOT</span></li>
+							<li><span><a href="mailto:ur.na@universal-robots.com">ur.na@universal-robots.com</a></li>
+						</ul>
+					</div>
+				</div>
+			</div>
+			<div class="grid-row grid-text-center">
+				<div class="grid-span12">
+					<p class="footer-copyright">
+					    Copyright &copy; Universal Robots 2026
+
+					</p>
+				</div>
+				<div class="grid-span12">
+					<div class="footer-links">
+							<div><a href="/about-universal-robots/cookie-policy/" target="_blank">Cookie policy</a></div>
+							<div><a href="/about-universal-robots/privacy-policy/">Privacy policy</a></div>
+					</div>
+				</div>
+			</div>
+			<div class="grid-row grid-text-center grid-gap3-above">
+                <div class="grid-span12">
+                        <div class="footer-social">
+            <a href="https://www.linkedin.com/company/universal-robots-a-s/" rel="nofollow" target="_blank"><i class="fa fa-linkedin" aria-hidden="true"></i></a>
+                    <a href="https://www.youtube.com/user/UniversalRobotsVideo/" rel="nofollow" target="_blank"><i class="fa fa-youtube-play" aria-hidden="true"></i></a>
+                    <a href="https://twitter.com/Universal_Robot/" rel="nofollow" target="_blank"><i class="fa fa-twitter" aria-hidden="true"></i></a>
+                    <a href="https://www.facebook.com/UniversalRobots/" rel="nofollow" target="_blank"><i class="fa fa-facebook" aria-hidden="true"></i></a>
+                    <a href="https://www.instagram.com/universalrobots/" rel="nofollow" target="_blank"><i class="fa fa-instagram" aria-hidden="true"></i></a>
+                                                                    <a href="https://www.universal-robots.com/podcast/the-cobot-show/" rel="nofollow" target="_blank"><i class="fa fa-podcast" aria-hidden="true"></i></a>
+            </div>
+
+                </div>
+            </div>
+		</div>
+	</div>
+</footer><!-- Universal Robots A/S -->
+
+
+
+
+
+<script>
+    window.addEventListener(
+        'CookiebotOnConsentReady',
+        function () {
+        
+            if (Cookiebot.consent.necessary) {
+                (function(p,l,o,w,i,n,g){if(!p[i]){p.GlobalSnowplowNamespace=p.GlobalSnowplowNamespace||[];
+                p.GlobalSnowplowNamespace.push(i);p[i]=function(){(p[i].q=p[i].q||[]).push(arguments)
+                };p[i].q=p[i].q||[];n=l.createElement(o);g=l.getElementsByTagName(o)[0];n.async=1;
+                n.src=w;g.parentNode.insertBefore(n,g)}}(window,document,"script","/scripts/mogens.js","snowplow"));
+
+                window.snowplow('newTracker', 'umbraco-tracker', 'c.universal-robots.com', {
+                    appId: 'umbraco-corporate-website',
+                    discoverRootDomain: true,
+                    cookieSameSite: 'Lax',
+                    contexts: {
+                        performanceTiming: true
+                    }
+                });
+
+                window.snowplow('enableAnonymousTracking', {
+                    options: {
+                        withSessionTracking: true
+                    }
+                });
+
+                window.snowplow('enableActivityTracking', {
+                    minimumVisitLength: 10,
+                    heartbeatDelay: 20
+                });
+
+                window.snowplow('addPlugin',
+                    "/scripts/flemming.js",
+                    ["snowplowFormTracking", "FormTrackingPlugin"]
+                );
+
+                window.snowplow('enableFormTracking');
+                window.snowplow('enableLinkClickTracking');
+            }
+
+            if (Cookiebot.consent.statistics || Cookiebot.consent.marketing) {
+                // Set UTM cookies
+                AeUtils.setCookies();
+
+                // MCAE: Start
+                var piDomain = 'go.universal-robots.com';
+                (function() {
+                    var s=document.createElement('script');s.type='text/javascript';s.async=true;s.src='//'+piDomain+'/pdt.js';
+                    var c=document.getElementsByTagName('script')[0];c.parentNode.insertBefore(s,c);
+                    window['pdt'] = window['pdt'] || function(){(window['pdt'].cq = window['pdt'].cq || []).push(arguments);};
+                })();
+
+                pdt('create', 1024783 + 1000, 15057 + 1000, piDomain);
+                pdt('setOptIn', true);
+                pdt('sendPageView');
+                // MCAE: End
+
+                // Snowplow: Disable Anonymous Tracking
+                window.snowplow('disableAnonymousTracking');
+                // END: Snowplow: Disable Anonymous Tracking
+            }
+
+            window.snowplow('trackPageView');
+        },
+        false
+    );
+</script>
+
+
+   <script data-cookieconsent="ignore">
+    window.dataLayer = window.dataLayer || [];
+    function gtag() {
+        dataLayer.push(arguments);
+    }
+    gtag("consent", "default", {
+        ad_storage: "denied",
+        analytics_storage: "denied",
+        functionality_storage: "denied",
+        personalization_storage: "denied",
+        security_storage: "granted",
+        wait_for_update: 500,
+    });
+    gtag("set", "ads_data_redaction", true);
+    </script>
+    <noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PCP8WGV" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+    <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src='https://sst.universal-robots.com/taggingserver.js?id='+i+dl;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-PCP8WGV');</script>
+
+
+
+<script type="text/javascript">
+	window.urTrackEvent = function(eventCategory, eventAction, eventLabel, formElement) {
+		
+		
+		if (window.gdt) {
+		    if (eventCategory === 'Hubspot form' && (eventLabel === 'CN_2019_Daily Leads Register Demo_general' || eventLabel === 'CN_2019_Daily Leads Register ebook package' || eventLabel === 'CN_2019_Daily Leads Contact Us_general' || eventLabel === 'CN_2020_SISM ebook')) {
+		        gdt('track', 'REGISTER', {
+		            'category': eventCategory,
+		            'action': eventAction,
+		            'label': eventLabel
+		        });
+		        gdt('track', 'RESERVATION', {
+		            'category': eventCategory,
+		            'action': eventAction,
+		            'label': eventLabel
+		        });
+		    }
+		}
+		
+		if (window.gtag) {
+			gtag('event', eventAction, {
+			  'event_category': eventCategory,
+			  'event_label': eventLabel
+			});
+		}
+			
+		if (window.dataLayer) {
+			if (eventAction == 'Button click' && eventLabel && eventLabel.toLowerCase().indexOf('ask an expert') >= 0) {
+			    if (eventLabel.toLowerCase().indexOf('sism') >= 0) {
+			        window.dataLayer.push({'event': 'ask_an_expert_sism'});
+			    } else {
+			        window.dataLayer.push({'event': 'ask_an_expert'});
+			    }
+			} else if (eventAction == 'Button click' && eventLabel && eventLabel.toLowerCase().indexOf('payback mql form') >= 0) {
+			    window.dataLayer.push({'event': 'ask_an_expert_payback'});
+			} else if (eventAction == 'Button click' && eventLabel && eventLabel.toLowerCase().indexOf('whitepaper') >= 0) {
+			    window.dataLayer.push({'event': 'whitepaper_download'});
+			} else if (eventCategory === 'Ebook' && eventAction === 'Click') {
+			    window.dataLayer.push({'event': eventLabel });
+			}
+			
+            window.dataLayer.push({
+                'event': 'important_clicks',
+                'eventCategory' : eventCategory,
+                'eventAction' : eventAction,
+                'eventLabel' : eventLabel
+            });
+		}
+		
+		if (formElement && window.analytics) {
+		    var emailFieldValue = $(formElement).find('input[name="email"]').val();
+		    if (emailFieldValue) {
+		        analytics.identify(null, {email: emailFieldValue});
+                analytics.track(eventLabel);
+		    }
+		}
+	}
+</script>
+
+
+
+	<script src="/scripts/universal-robots.js?v=25"></script>
+	<script type="text/javascript" async src="https://bot.leadoo.com/bot/dynamic.js?company=e5c4d08e"></script>
+
+
+<script src='https://www.google.com/recaptcha/api.js?onload=CaptchaCallback&render=explicit&hl=en' async defer></script>
+<script type="text/javascript">
+  var CaptchaCallback = function() {
+    jQuery('.g-recaptcha').each(function(index, el) {
+        $(el).css({ "position": "relative", "z-index": 0 });
+        var id = $(el).attr('id');
+        window[id] = grecaptcha.render(el, {
+            'sitekey' : jQuery(el).attr('data-sitekey')
+            ,'theme' : jQuery(el).attr('data-theme')
+            ,'size' : jQuery(el).attr('data-size')
+            ,'tabindex' : jQuery(el).attr('data-tabindex')
+            ,'callback' : jQuery(el).attr('data-callback')
+            ,'expired-callback' : jQuery(el).attr('data-expired-callback')
+            ,'error-callback' : jQuery(el).attr('data-error-callback')
+        });
+    });
+  };
+</script>
+<script type="text/javascript">
+	document.addEventListener("DOMContentLoaded", function(event) { 
+	    var validationMessages = {
+		  required: "This field is required",
+		  remote: "Please fix this field",
+		  email: "Please enter a valid email address",
+		  url: "Please enter a valid URL",
+		  date: "Please enter a valid date",
+		  dateISO: "Please enter a valid date (ISO)",
+		  number: "Please enter a valid number",
+		  digits: "Please enter only digits",
+		  creditcard: "Please enter a valid credit card number",
+		  equalTo: "Please enter the same value again",
+		  accept: "Please enter a value with a valid extension",
+		  maxlength: jQuery.validator.format("Please enter no more than {0} characters"),
+		  minlength: jQuery.validator.format("Please enter at least {0} characters"),
+		  rangelength: jQuery.validator.format("Please enter a value between {0} and {1} characters long"),
+		  range: jQuery.validator.format("Please enter a value between {0} and {1}."),
+		  max: jQuery.validator.format("Please enter a value less than or equal to {0}"),
+		  min: jQuery.validator.format("Please enter a value greater than or equal to {0}")
+		};
+		$.extend($.validator.messages, validationMessages);
+		window.validationMessages = validationMessages;
+	});
+</script>
+
+
+<div class="mediaquery mediaquery--mobile"></div>
+<div class="mediaquery mediaquery--tablet"></div>
+<div class="mediaquery mediaquery--burger"></div>
+</body>
+
+</html>

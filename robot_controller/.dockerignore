@@ -1,0 +1,16 @@
+.venv/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+runs/
+stations/
+tests/
+docs/
+.git/
+.gitignore
+Dockerfile
+docker-compose.yml
+config/robot.yaml
+config/scene.yaml
+config/safety.yaml

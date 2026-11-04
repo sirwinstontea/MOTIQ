@@ -1,0 +1,48 @@
+# Camera profile: Intel RealSense D435 - the camera used to RECORD the demonstration that becomes skill.json
+#
+# TWO CAMERAS IN THIS PROJECT (owner statement, 2026-11-04):
+#   * D435 (this file)            -> used to make the skill.json (demonstration capture).
+#   * D415 (camera_realsense_d415.yaml) -> the computer-vision camera of the execution cell; the capability
+#                                          check evaluates DETECT / VERIFY steps against THIS one.
+# It is still UNDECIDED whether skill.json files will be created from both cameras or from only one.
+# Until that is decided the checker does NOT use this profile for any pass/fail verdict: the demonstration
+# camera does not have to be mounted on, or even near, the robot. It is loaded only so the report can state
+# which camera produced the skill and so a later decision (e.g. "the D435 is also the execution camera")
+# is a one-line change in the CLI/profile selection instead of a code change.
+schema: camera_profile/1
+
+camera:
+  id: realsense_d435
+  name: Intel RealSense Depth Camera D435
+  role: demonstration_capture      # role is NOT final - see note above
+  role_status: undecided           # undecided | confirmed
+
+  depth:
+    technology: active IR stereo
+    fov_deg: {horizontal: 85.2, vertical: 58.0, tolerance: 3.0}   # Intel page gives one combined "85.2 x 58" (H x V)
+    resolution_px: [1280, 720]
+    ideal_range_m: [0.3, 3.0]
+    src_fov: {doc: intel_d435_spec_page, quote: "Depth Field of View 85.2 x 58"}
+    src_range: {doc: intel_d435_spec_page, quote: "Operating Range (Min-Max) ~.3m - 3m"}
+    src_resolution: {doc: intel_d435_spec_page, quote: "Depth Resolution and FPS 1280 X 720"}
+  physical:
+    size_mm: [90, 25, 25]
+    interface: USB 3.0 Type-C
+    src: {doc: intel_d435_spec_page, quote: "Dimensions 90 mm x 25 mm x 25 mm"}
+    src_interface: {doc: intel_d435_spec_page, quote: "System Interface Type USB 3.0 Type C"}
+
+  mount: null      # unknown / irrelevant for the feasibility verdict while it is only the demonstration camera
+
+documents:
+  intel_d435_spec_page:
+    title: Intel RealSense Depth Camera D435 - specifications
+    url: https://www.intel.com/content/www/us/en/products/sku/128255/intel-realsense-depth-camera-d435/specifications.html
+    retrieved: "2026-11-04"
+    archived: false
+    extracted_text: |
+      Depth Field of View 85.2 x 58
+      Operating Range (Min-Max) ~.3m - 3m
+      Depth Resolution and FPS 1280 X 720
+      Dimensions 90 mm x 25 mm x 25 mm
+      System Interface Type USB 3.0 Type C
+      RGB Sensor Yes
