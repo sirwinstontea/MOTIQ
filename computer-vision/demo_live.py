@@ -52,7 +52,7 @@ from vision.eyes.depth import CLASS_PRIORS_CM, estimate_distance_m, format_dista
 from vision.eyes.marks import draw_marks
 from vision.eyes.pipeline import EyePipeline
 from vision.grok.geometry import refine_box
-from vision.grok.handoff import send_selection
+from vision.grok.handoff import HUMAN_LABELS, send_selection
 from vision.grok.local_resolver import display
 from vision.grok.marks import object_at, reacquire
 from vision.grok.open_vocab import OpenVocab, load_vocab, save_vocab
@@ -309,7 +309,7 @@ def main() -> None:
     parser.add_argument("--no-world", action="store_true", help="Disabilita YOLO-World (oggetti di Grok fermi)")
     parser.add_argument("--once", action="store_true", help="Scatta una foto, rileva con YOLO + Grok, salva logs/webcam_marked.jpg ed esce")
     parser.add_argument("--model", type=str, default=None,
-                        help="Pesi YOLO (.onnx o .pt). Default: il nostro data/models/oggetti_best.onnx")
+                        help="Pesi YOLO (.onnx o .pt). Default: il nostro data/models/oggetti_mani.onnx")
     parser.add_argument("--min-conf", type=float, default=0.40, help="Soglia minima di confidenza per visualizzare riquadri (default 0.40)")
     args = parser.parse_args()
 
@@ -483,6 +483,8 @@ def main() -> None:
         obj["distance_m"] = _distance(obj)
         obj["source_camera"] = st["active_source"]
         msg = send_selection(SELECTION_PATH, obj, **st["sel_cmd"])
+        if msg is None and str(obj.get("label", "")).lower() in HUMAN_LABELS:
+            return "NON inviato al robot: e' una mano"
         if msg is None:
             return "NON inviato al robot (logs/selection.json non scrivibile)"
         print("\n[ROBOT] logs/selection.json:\n" + json.dumps(msg, ensure_ascii=False, indent=2, default=str))

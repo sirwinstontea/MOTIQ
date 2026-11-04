@@ -79,6 +79,10 @@ CLASS_PRIORS_CM: dict[str, tuple[float, float]] = {
     "anello_verde": (0.7, 14.0),     # anello piatto, diametro 14 cm
     "vite_arancione": (9.5, 3.5),    # cilindro lungo 9,5 cm, diametro 3,5 cm
     "secchio_blu": (11.5, 14.0),     # cilindro cavo, diametro 14 cm, parete 1,5 cm
+    # Parti del corpo del modello oggetti_mani: misure medie di un adulto, solo per la distanza stimata
+    "mano": (18.0, 9.0),
+    "polso": (6.0, 6.0),
+    "braccio": (30.0, 9.0),          # avambraccio
 }
 
 DEFAULT_PRIOR_CM: tuple[float, float] = (18.0, 15.0)

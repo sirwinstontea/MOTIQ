@@ -6,6 +6,7 @@ from typing import Sequence
 from ..schemas import DogTelemetry, EyeObject
 
 PERSON_LABELS = {"person", "persona", "pedestrian", "human"}
+HAND_LABELS = {"mano", "polso"}
 
 
 def _coerce_objects(objects: Sequence[EyeObject | dict]) -> list[EyeObject]:
@@ -39,6 +40,18 @@ def check_person_safety_stop(
                     True,
                     f"Persona vicina rilevata (id={obj.id}, h={bh:.2f}, area={area:.2f})",
                 )
+    return False, None
+
+
+def check_hand_safety_stop(
+    objects: Sequence[EyeObject | dict],
+    conf_threshold: float = 0.50,
+) -> tuple[bool, str | None]:
+    """Stop del braccio se nel campo di lavoro c'è una mano o un polso (modello oggetti_mani).
+    "braccio" no: dalla camera del braccio potrebbe essere il robot stesso e lo fermerebbe sempre."""
+    for obj in _coerce_objects(objects):
+        if obj.label.lower() in HAND_LABELS and obj.conf >= conf_threshold:
+            return True, f"Mano nel campo di lavoro (id={obj.id}, {obj.label})"
     return False, None
 
 

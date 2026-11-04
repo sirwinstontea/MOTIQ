@@ -86,8 +86,12 @@ def action_of(text: str) -> str:
 
 
 def display(o: TrackedObject) -> str:
-    """Nome da dire a voce: name se c'è, altrimenti label + colore."""
-    return o.name or " ".join(x for x in (o.label, o.color) if x)
+    """Nome da dire a voce: name se c'è, altrimenti label + colore ("vite_arancione" -> "vite arancione",
+    senza ripetere il colore se è già nel nome)."""
+    if o.name:
+        return o.name
+    label = o.label.replace("_", " ")
+    return f"{label} {o.color}" if o.color and o.color not in label else label
 
 
 def _words(o: TrackedObject) -> set[str]:
