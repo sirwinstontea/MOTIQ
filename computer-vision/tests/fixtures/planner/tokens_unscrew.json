@@ -1,0 +1,46 @@
+{
+  "video": "fixture://demo_unscrew.mp4",
+  "fps": 30.0,
+  "duration_s": 9.5,
+  "keyframes": [0, 24, 41, 60, 95, 150, 190, 230, 268, 284],
+  "transcript": "prendo il tappo bianco. ora svito il tappo. lo sollevo. e lo metto nel secchio blu.",
+  "goal_hint": "svitare il tappo bianco e metterlo nel secchio blu",
+  "tokens": [
+    {
+      "id": "tok_001", "t_start": 0.8, "t_end": 2.0, "frame_idx": [24, 41, 60],
+      "verb": "prendere", "canonical": "grasp",
+      "objects": [{"name": "white_cap", "color": "bianco", "role": "target"}],
+      "gripper": "closed", "motion": {"direction": "down", "distance_cm": 12},
+      "speech": "prendo il tappo bianco", "confidence": 0.9
+    },
+    {
+      "id": "tok_002", "t_start": 2.0, "t_end": 5.0, "frame_idx": [60, 95, 150],
+      "verb": "svitare", "canonical": "rotate",
+      "objects": [{"name": "white_cap", "color": "bianco", "role": "target"}],
+      "gripper": "closed", "rotation": {"axis": "yaw", "angle_deg": 360},
+      "speech": "ora svito il tappo", "confidence": 0.85,
+      "notes": "quattro quarti di giro antiorari con riprese della presa"
+    },
+    {
+      "id": "tok_003", "t_start": 5.0, "t_end": 6.3, "frame_idx": [150, 190],
+      "verb": "sollevare", "canonical": "move",
+      "objects": [{"name": "white_cap", "color": "bianco", "role": "target"}],
+      "gripper": "closed", "motion": {"direction": "up", "distance_cm": 15},
+      "speech": "lo sollevo", "confidence": 0.8
+    },
+    {
+      "id": "tok_004", "t_start": 6.3, "t_end": 9.0, "frame_idx": [230, 268],
+      "verb": "rilasciare", "canonical": "release",
+      "objects": [
+        {"name": "white_cap", "color": "bianco", "role": "target"},
+        {"name": "blue_bucket", "color": "blu", "role": "dest"}
+      ],
+      "gripper": "open", "motion": {"direction": "toward_dest", "distance_cm": 25},
+      "speech": "e lo metto nel secchio blu", "confidence": 0.9
+    }
+  ],
+  "scene_objects": [
+    {"name": "white_cap", "color": "bianco", "label": "cap", "position_mm": {"x": 420.0, "y": -120.0, "z": 20.0}, "source": "manual"},
+    {"name": "blue_bucket", "color": "blu", "label": "bucket", "position_mm": {"x": 380.0, "y": 180.0, "z": 0.0}, "source": "manual"}
+  ]
+}

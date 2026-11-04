@@ -1,0 +1,81 @@
+{
+  "version": "1.0.0",
+  "skills": {
+    "pick": {
+      "id": "pick",
+      "name": "Pick an object",
+      "description": "Aligns above target object, opens gripper, descends, grasps and lifts up.",
+      "origin": "builtin",
+      "status": "approved",
+      "version": "1.0.0",
+      "params": {
+        "target": {
+          "type": "object_ref",
+          "description": "Name or coordinate reference of object to pick"
+        },
+        "approach_z_m": {
+          "type": "number",
+          "default": 0.15,
+          "min": 0.05,
+          "max": 0.30
+        }
+      },
+      "body": [
+        { "primitive": "OPEN_GRIPPER", "args": { "width_m": 0.085 } },
+        { "primitive": "MOVE_ABOVE", "args": { "target": "$target", "height_m": "$approach_z_m" } },
+        { "primitive": "MOVE_DOWN", "args": { "distance_m": "$approach_z_m" } },
+        { "primitive": "CLOSE_GRIPPER", "args": { "force_pct": 70 } },
+        { "primitive": "MOVE_UP", "args": { "distance_m": "$approach_z_m" } }
+      ]
+    },
+    "place": {
+      "id": "place",
+      "name": "Place held object at destination",
+      "description": "Moves above target location, lowers object, opens gripper and retracts upward.",
+      "origin": "builtin",
+      "status": "approved",
+      "version": "1.0.0",
+      "params": {
+        "destination": {
+          "type": "object_ref",
+          "description": "Destination container or position"
+        },
+        "place_z_m": {
+          "type": "number",
+          "default": 0.15,
+          "min": 0.05,
+          "max": 0.30
+        }
+      },
+      "body": [
+        { "primitive": "MOVE_ABOVE", "args": { "target": "$destination", "height_m": "$place_z_m" } },
+        { "primitive": "MOVE_DOWN", "args": { "distance_m": "$place_z_m" } },
+        { "primitive": "OPEN_GRIPPER", "args": { "width_m": 0.085 } },
+        { "primitive": "MOVE_UP", "args": { "distance_m": "$place_z_m" } }
+      ]
+    },
+    "pick_and_place": {
+      "id": "pick_and_place",
+      "name": "Pick and Place object",
+      "description": "Composite skill that picks target and places it inside destination.",
+      "origin": "builtin",
+      "status": "approved",
+      "version": "1.0.0",
+      "params": {
+        "target": { "type": "object_ref" },
+        "destination": { "type": "object_ref" }
+      },
+      "body": [
+        { "skill": "pick", "args": { "target": "$target" } },
+        { "skill": "place", "args": { "destination": "$destination" } }
+      ]
+    }
+  },
+  "history": [
+    {
+      "timestamp": "2026-11-04T10:00:00Z",
+      "action": "init",
+      "details": "Initialized builtin baseline skills for UR5e (pick, place, pick_and_place)."
+    }
+  ]
+}

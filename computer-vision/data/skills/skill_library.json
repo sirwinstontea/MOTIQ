@@ -1,0 +1,408 @@
+{
+  "schema_version": "2.0.0",
+  "robot_ref": "skill_pick_place_ur5e.json",
+  "table_z_m": 0.0,
+  "updated_at": "2026-11-04T17:33:45Z",
+  "skills": {
+    "home": {
+      "id": "home",
+      "name": "Home",
+      "description": "Ritorno alla configurazione sicura home.",
+      "aliases": [
+        "home",
+        "torna a casa",
+        "riposo"
+      ],
+      "params": {},
+      "body": [
+        {
+          "primitive": "HOME",
+          "args": {},
+          "note": ""
+        }
+      ],
+      "preconditions": [],
+      "postconditions": [],
+      "origin": "builtin",
+      "status": "approved",
+      "learned_from": null,
+      "uncertainties": [],
+      "version": 1,
+      "created_at": "2026-11-04T17:16:11Z",
+      "updated_at": "2026-11-04T17:16:11Z"
+    },
+    "pick": {
+      "id": "pick",
+      "name": "Pick",
+      "description": "Presa dall'alto: apre la pinza, va sopra l'oggetto, scende, chiude, risale.",
+      "aliases": [
+        "prendere",
+        "afferrare",
+        "raccogliere",
+        "pick",
+        "grab",
+        "grasp"
+      ],
+      "params": {
+        "target": {
+          "type": "object_ref",
+          "default": null,
+          "min": null,
+          "max": null,
+          "values": null,
+          "length": null,
+          "optional": false,
+          "description": "oggetto da prendere"
+        },
+        "approach_height_m": {
+          "type": "number",
+          "default": 0.15,
+          "min": 0.05,
+          "max": 0.3,
+          "values": null,
+          "length": null,
+          "optional": false,
+          "description": ""
+        },
+        "grasp_depth_m": {
+          "type": "number",
+          "default": 0.13,
+          "min": 0.0,
+          "max": 0.2,
+          "values": null,
+          "length": null,
+          "optional": false,
+          "description": ""
+        },
+        "force_pct": {
+          "type": "number",
+          "default": 70,
+          "min": 0.0,
+          "max": 100.0,
+          "values": null,
+          "length": null,
+          "optional": false,
+          "description": ""
+        }
+      },
+      "body": [
+        {
+          "primitive": "OPEN_GRIPPER",
+          "args": {},
+          "note": ""
+        },
+        {
+          "primitive": "MOVE_ABOVE",
+          "args": {
+            "target": "$target",
+            "height_m": "$approach_height_m"
+          },
+          "note": ""
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "args": {
+            "distance_m": "$grasp_depth_m",
+            "speed_mps": 0.05
+          },
+          "note": ""
+        },
+        {
+          "primitive": "CLOSE_GRIPPER",
+          "args": {
+            "force_pct": "$force_pct"
+          },
+          "note": ""
+        },
+        {
+          "primitive": "MOVE_UP",
+          "args": {
+            "distance_m": "$grasp_depth_m"
+          },
+          "note": ""
+        }
+      ],
+      "preconditions": [
+        "target rilevato",
+        "target raggiungibile"
+      ],
+      "postconditions": [
+        "oggetto in pinza"
+      ],
+      "origin": "builtin",
+      "status": "approved",
+      "learned_from": null,
+      "uncertainties": [],
+      "version": 1,
+      "created_at": "2026-11-04T17:16:11Z",
+      "updated_at": "2026-11-04T17:16:11Z"
+    },
+    "place": {
+      "id": "place",
+      "name": "Place",
+      "description": "Deposito: va sopra la destinazione, scende, apre la pinza, risale.",
+      "aliases": [
+        "posare",
+        "mettere",
+        "appoggiare",
+        "rilasciare",
+        "depositare",
+        "place",
+        "put",
+        "drop"
+      ],
+      "params": {
+        "target": {
+          "type": "object_ref",
+          "default": null,
+          "min": null,
+          "max": null,
+          "values": null,
+          "length": null,
+          "optional": false,
+          "description": "destinazione (contenitore o area)"
+        },
+        "approach_height_m": {
+          "type": "number",
+          "default": 0.15,
+          "min": 0.05,
+          "max": 0.3,
+          "values": null,
+          "length": null,
+          "optional": false,
+          "description": ""
+        },
+        "release_depth_m": {
+          "type": "number",
+          "default": 0.08,
+          "min": 0.0,
+          "max": 0.2,
+          "values": null,
+          "length": null,
+          "optional": false,
+          "description": ""
+        }
+      },
+      "body": [
+        {
+          "primitive": "MOVE_ABOVE",
+          "args": {
+            "target": "$target",
+            "height_m": "$approach_height_m"
+          },
+          "note": ""
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "args": {
+            "distance_m": "$release_depth_m",
+            "speed_mps": 0.05
+          },
+          "note": ""
+        },
+        {
+          "primitive": "OPEN_GRIPPER",
+          "args": {},
+          "note": ""
+        },
+        {
+          "primitive": "MOVE_UP",
+          "args": {
+            "distance_m": "$release_depth_m"
+          },
+          "note": ""
+        }
+      ],
+      "preconditions": [
+        "oggetto in pinza",
+        "destinazione rilevata"
+      ],
+      "postconditions": [
+        "oggetto rilasciato nella destinazione"
+      ],
+      "origin": "builtin",
+      "status": "approved",
+      "learned_from": null,
+      "uncertainties": [],
+      "version": 1,
+      "created_at": "2026-11-04T17:16:11Z",
+      "updated_at": "2026-11-04T17:16:11Z"
+    },
+    "pick_and_place": {
+      "id": "pick_and_place",
+      "name": "Pick and place",
+      "description": "Prende un oggetto e lo deposita nella destinazione, poi torna in home.",
+      "aliases": [
+        "spostare",
+        "trasferire",
+        "pick and place"
+      ],
+      "params": {
+        "obj": {
+          "type": "object_ref",
+          "default": null,
+          "min": null,
+          "max": null,
+          "values": null,
+          "length": null,
+          "optional": false,
+          "description": "oggetto da spostare"
+        },
+        "dest": {
+          "type": "object_ref",
+          "default": null,
+          "min": null,
+          "max": null,
+          "values": null,
+          "length": null,
+          "optional": false,
+          "description": "destinazione"
+        }
+      },
+      "body": [
+        {
+          "skill": "pick",
+          "args": {
+            "target": "$obj"
+          },
+          "note": ""
+        },
+        {
+          "skill": "place",
+          "args": {
+            "target": "$dest"
+          },
+          "note": ""
+        },
+        {
+          "skill": "home",
+          "args": {},
+          "note": ""
+        }
+      ],
+      "preconditions": [],
+      "postconditions": [],
+      "origin": "builtin",
+      "status": "approved",
+      "learned_from": null,
+      "uncertainties": [],
+      "version": 1,
+      "created_at": "2026-11-04T17:16:11Z",
+      "updated_at": "2026-11-04T17:16:11Z"
+    },
+    "grasp": {
+      "id": "grasp",
+      "name": "Grasp",
+      "description": "Presa SENZA sollevare: apre, va sopra l'oggetto, scende, chiude e resta giù. Da usare prima di azioni sul posto (svitare, ruotare, premere, spingere).",
+      "aliases": [
+        "afferrare sul posto",
+        "stringere",
+        "grasp in place"
+      ],
+      "params": {
+        "target": {
+          "type": "object_ref",
+          "default": null,
+          "min": null,
+          "max": null,
+          "values": null,
+          "length": null,
+          "optional": false,
+          "description": "oggetto da afferrare"
+        },
+        "approach_height_m": {
+          "type": "number",
+          "default": 0.15,
+          "min": 0.05,
+          "max": 0.3,
+          "values": null,
+          "length": null,
+          "optional": false,
+          "description": ""
+        },
+        "grasp_depth_m": {
+          "type": "number",
+          "default": 0.13,
+          "min": 0.0,
+          "max": 0.2,
+          "values": null,
+          "length": null,
+          "optional": false,
+          "description": ""
+        },
+        "force_pct": {
+          "type": "number",
+          "default": 70,
+          "min": 0.0,
+          "max": 100.0,
+          "values": null,
+          "length": null,
+          "optional": false,
+          "description": ""
+        }
+      },
+      "body": [
+        {
+          "primitive": "OPEN_GRIPPER",
+          "args": {},
+          "note": ""
+        },
+        {
+          "primitive": "MOVE_ABOVE",
+          "args": {
+            "target": "$target",
+            "height_m": "$approach_height_m"
+          },
+          "note": ""
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "args": {
+            "distance_m": "$grasp_depth_m",
+            "speed_mps": 0.05
+          },
+          "note": ""
+        },
+        {
+          "primitive": "CLOSE_GRIPPER",
+          "args": {
+            "force_pct": "$force_pct"
+          },
+          "note": ""
+        }
+      ],
+      "preconditions": [
+        "target rilevato",
+        "target raggiungibile"
+      ],
+      "postconditions": [
+        "oggetto in pinza, TCP a quota di presa"
+      ],
+      "origin": "builtin",
+      "status": "approved",
+      "learned_from": null,
+      "uncertainties": [],
+      "version": 1,
+      "created_at": "2026-11-04T17:33:45Z",
+      "updated_at": "2026-11-04T17:33:45Z"
+    }
+  },
+  "history": [
+    {
+      "ts": "2026-11-04T17:16:11Z",
+      "event": "seeded",
+      "skill_id": null,
+      "version": null,
+      "by": "system",
+      "note": "skill builtin da skill_pick_place_ur5e.json"
+    },
+    {
+      "ts": "2026-11-04T17:33:45Z",
+      "event": "seeded",
+      "skill_id": "grasp",
+      "version": null,
+      "by": "system",
+      "note": "nuova builtin"
+    }
+  ]
+}
