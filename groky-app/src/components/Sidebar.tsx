@@ -43,7 +43,7 @@ export default function Sidebar({ tab, onTab, onSettings, historyCount, skillRun
   return (
     <View style={[s.side, compact && s.sideCompact]}>
       <Text style={[s.logo, compact && { paddingHorizontal: 0, textAlign: 'center' }]}>
-        {compact ? 'g' : 'groky'}
+        {compact ? 'm' : 'motiq'}
         <Text style={{ color: c.accent }}>.</Text>
       </Text>
 

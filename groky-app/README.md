@@ -1,7 +1,7 @@
-# Groky
+# MOTIQ
 
-Talk to a robot dog and a robot arm and watch them do it. Grok listens, decides, moves the robots, looks through the
-cameras to check its own work, and tells you how it went.
+Talk to Motion, the voice agent for a robot dog and a robot arm, and watch them do it. Motion (running on Grok)
+listens, decides, moves the robots, looks through the cameras to check its own work, and tells you how it went.
 
 Built at the Grok Hackathon, Ctrl+Alt Museum, Pavia (4-5 Nov 2026).
 
@@ -51,13 +51,22 @@ Grok sees one flat tool list: `dog_walk`, `dog_turn`, `dog_pose`, `arm_goto`, `a
 
 | tab | what it's for |
 | --- | --- |
-| Talk | the orb, live transcript, camera and the agent's activity timeline side by side |
-| Cameras | big camera view plus "Show Grok", next to the activity timeline |
+| Talk | the orb, live transcript, camera and the agent's activity timeline side by side. Open the transcript to type: it works without the mic too |
+| Cameras | big camera view plus "Show Motion", next to the activity timeline |
 | Robots | status of each robot: online / simulated / offline, battery, latency, success rate, recent actions, stop |
 | History | everything you've asked, searchable, pin favourites, tap to run again |
 
 Light and dark theme in Settings. The camera can be switched off from the camera panel; Grok is told it's off
 instead of guessing.
+
+## Skill preview
+
+Every skill has a 2D animated preview so you can check what it will do before anything moves. Open it with the film
+icon on a skill card, or under the steps while editing a skill (it updates as you edit). It flags steps that look
+wrong, for example a gripper closing on nothing or a camera check that would fail given where the cube ends up.
+
+It's conceptual only: no physics, collisions or real reachability. The scene is a side view for the arm (table, red
+cube, box, handover spot) and a top-down floor for the dog. The animation logic is in `src/preview/scene.ts`.
 
 ## Robot bridge
 
@@ -94,7 +103,7 @@ Scan the QR code with Expo Go. On venue wifi use `npm run tunnel`, or plug the t
 | `EXPO_PUBLIC_BRIDGE_KEY` | sent as `X-Bridge-Key` |
 | `EXPO_PUBLIC_CAMERAS` | extra cameras, `Name=url,Name=url`, each url returns a JPEG |
 | `EXPO_PUBLIC_GROK_VOICE` | voice, default `eve` |
-| `EXPO_PUBLIC_GROK_VISION_MODEL` | model for camera questions, default `grok-4.7` |
+| `EXPO_PUBLIC_GROK_VISION_MODEL` | model for camera questions, default `grok-4.20-0309-non-reasoning` (~1s; `grok-4.7` ~4s) |
 
 Restart with `npx expo start -c` after changing `.env`.
 
@@ -110,6 +119,7 @@ src/hooks/           useVoice, useCamera, useDevices, useHistory
 src/voice/           Grok realtime session, prompt, audio
 src/devices/         robot tools, bridge client, simulator
 src/lib/             config, vision, cameras
+src/preview/         2D skill preview timeline
 ```
 
 `npm run lint`, `npm run typecheck`, `npm run format` before pushing.
@@ -117,6 +127,6 @@ src/lib/             config, vision, cameras
 ## Known limits
 
 - Replies play once fully received, not streamed. Fine for short answers.
-- The mic is ignored while Groky talks, so you can't interrupt by voice. Use the stop button.
+- The mic is ignored while Motion talks, so you can't interrupt by voice. Use the stop button.
 - The token endpoint's response format isn't documented; `src/voice/token.ts` accepts the likely shapes.
 - Tool list is a first guess until we see the real hardware.

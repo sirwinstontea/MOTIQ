@@ -27,7 +27,7 @@ const stages: { label: string; icon: Icon }[] = [
 
 const secs = (ms: number) => (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
 
-// "What Groky is doing": Hear → Reason → Act → See → Speak, then a log of each step
+// "What Motion is doing": Hear → Reason → Act → See → Speak, then a log of each step
 export default function Activity({ traces, status }: { traces: Trace[]; status: Status }) {
   const { c } = useTheme();
   const s = useStyles(makeStyles);
@@ -43,7 +43,7 @@ export default function Activity({ traces, status }: { traces: Trace[]; status: 
 
   return (
     <View style={s.card}>
-      <Text style={s.title}>What Groky is doing</Text>
+      <Text style={s.title}>What Motion is doing</Text>
 
       <View style={s.steps}>
         <View style={s.hairline} />

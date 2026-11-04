@@ -25,6 +25,8 @@ export function useVoice({ onLevel, onAsked }: Options = {}) {
   const [lines, setLines] = useState<Line[]>([]);
   const [traces, setTraces] = useState<Trace[]>([]);
   const [muted, setMuted] = useState(false);
+  const [mic, setMic] = useState(false); // mic streaming; false = typed chat only
+  const streaming = useRef(false);
 
   const mutedRef = useRef(muted);
   const levelRef = useRef(onLevel);
@@ -58,28 +60,55 @@ export function useVoice({ onLevel, onAsked }: Options = {}) {
     },
   });
 
+  // voice: connect if needed, then turn the mic on (also upgrades a typed-only session)
   const start = useCallback(async () => {
     const perm = await requestRecordingPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert('Microphone', 'Groky needs the mic to hear you.');
+      Alert.alert('Microphone', 'Motion needs the mic to hear you.');
       return;
     }
     await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
     await session.start();
+    if (session.status === 'off') return; // couldn't connect, the error is already in the log
     await stream.start();
+    streaming.current = true;
+    setMic(true);
+    setMuted(false);
   }, [session, stream]);
 
   const end = useCallback(() => {
-    stream.stop();
+    if (streaming.current) stream.stop();
+    streaming.current = false;
     session.stop();
+    setMic(false);
     levelRef.current?.(0);
   }, [session, stream]);
+
+  // typed chat: connects without the mic if no session is running; Grok still answers out loud
+  const say = useCallback(
+    (text: string) => {
+      if (session.status === 'off') {
+        setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
+        session.start();
+      }
+      session.say(text); // queued until connected
+    },
+    [session],
+  );
+
+  // the session can drop on its own (network, server); keep the mic in step
+  if (status === 'off' && mic) setMic(false);
+  useEffect(() => {
+    if (status === 'off' && streaming.current) {
+      stream.stop();
+      streaming.current = false;
+    }
+  }, [status, stream]);
 
   useEffect(() => end, [end]);
 
   const actions = useMemo(
     () => ({
-      say: (text: string) => session.say(text),
       share: (source: string, answer: string, image?: string) => session.share(source, answer, image),
       setLooker: (fn: Looker | null) => session.setLooker(fn),
       setSkills: (runner: SkillRunner | null) => session.setSkills(runner),
@@ -93,7 +122,7 @@ export function useVoice({ onLevel, onAsked }: Options = {}) {
     [session],
   );
 
-  return { status, lines, traces, muted, setMuted, start, end, ...actions };
+  return { status, lines, traces, muted, setMuted, mic, start, end, say, ...actions };
 }
 
 export type Voice = ReturnType<typeof useVoice>;

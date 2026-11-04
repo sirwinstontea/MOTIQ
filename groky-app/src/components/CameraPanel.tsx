@@ -94,7 +94,7 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
           </View>
 
           <Button
-            label={busy ? 'Groky is looking...' : 'Show Groky'}
+            label={busy ? 'Motion is looking...' : 'Show Motion'}
             icon="eye-outline"
             loading={busy}
             onPress={onShow}
