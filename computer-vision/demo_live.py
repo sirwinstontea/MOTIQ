@@ -21,7 +21,8 @@
 Senza XAI_API_KEY nel .env la demo parte in modalità finta (GROK_MOCK=1).
 
 Utilizzo:
-  python demo_live.py                 # Tutte le camere: principale quella USB se c'è, se no quella del PC
+  python demo_live.py                 # La RealSense collegata via USB-C, se non c'è la webcam del PC
+  python demo_live.py --cams auto     # Tutte le webcam viste da OpenCV, in griglia
   python demo_live.py --cam 1         # Seconda webcam
   python demo_live.py --no-yolo       # Solo Grok (senza YOLO)
   python demo_live.py --no-world      # Senza YOLO-World (gli oggetti di Grok restano fermi)
@@ -43,6 +44,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from vision.eyes.capture.realsense import RealSenseError, list_devices
 from vision.eyes.depth import CLASS_PRIORS_CM, estimate_distance_m, format_distance
 from vision.eyes.marks import draw_marks
 from vision.eyes.pipeline import EyePipeline
@@ -99,6 +101,22 @@ def detect_cameras(max_devices: int = 8) -> list[int]:
                 available.append(idx)
             cap.release()
     return sorted(available, key=lambda i: i == 0)  # la 0 in fondo, le altre nel loro ordine
+
+
+def default_camera(cam: int = 0) -> tuple[str, int | None, str, str]:
+    """La RealSense collegata via USB-C (colore + profondità) se c'è, se no la webcam del PC (indice `cam`).
+    La RealSense si cerca con pyrealsense2 e non per indice OpenCV: su Windows l'ordine degli indici cambia
+    e la D435 ne occupa più di uno (RGB, profondità)."""
+    try:
+        devices = list_devices()
+    except RealSenseError as exc:  # pyrealsense2 non installato
+        print(f"[Cam] {exc}")
+        devices = []
+    if devices:
+        print(f"[Cam] Trovata {devices[0]['name']} (USB {devices[0]['usb']})")
+        return ("arm", None, "realsense", "ARM [RealSense USB-C]")
+    print(f"[Cam] Nessuna RealSense collegata: uso la webcam del PC (Dev {cam})")
+    return ("arm", cam, "webcam", f"ARM [Webcam PC, Dev {cam}]")
 
 
 def get_grid_cell(x: int, y: int, w: int, h: int, n: int) -> tuple[int, float, float]:
@@ -338,15 +356,7 @@ def main() -> None:
             m = "webcam" if isinstance(t, int) else "stream"
             cam_targets.append(("dog", t, m, f"DOG [{f'Dev {t}' if m == 'webcam' else 'Stream'}]"))
     else:
-        # Default: auto-detection intelligente di tutte le telecamere connesse!
-        print("[Cam] Scansione automatica di tutte le telecamere collegate...")
-        avail = detect_cameras(8)
-        cam_indices = avail if avail else [args.cam]
-        for i, t in enumerate(cam_indices):
-            sname = STANDARD_NAMES[i] if i < len(STANDARD_NAMES) else f"cam{i+1}"
-            role = STANDARD_ROLES[i] if i < len(STANDARD_ROLES) else f"CAM {i+1}"
-            lbl = f"{role} [Dev {t}]"
-            cam_targets.append((sname, t, "webcam", lbl))
+        cam_targets = [default_camera(args.cam)]
 
     print(f"\n[Cam] {len(cam_targets)} telecamere pronte:")
     for sname, t, m, lbl in cam_targets:
