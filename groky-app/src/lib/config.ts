@@ -7,7 +7,7 @@ const env = {
   dogUrl: (process.env.EXPO_PUBLIC_DOG_URL ?? '').replace(/\/$/, ''),
   armUrl: (process.env.EXPO_PUBLIC_ARM_URL ?? '').replace(/\/$/, ''),
   bridgeKey: process.env.EXPO_PUBLIC_BRIDGE_KEY ?? '',
-  visionModel: process.env.EXPO_PUBLIC_GROK_VISION_MODEL || 'grok-4.7',
+  visionModel: process.env.EXPO_PUBLIC_GROK_VISION_MODEL || 'grok-4.20-0309-non-reasoning',
   visionUrl: process.env.EXPO_PUBLIC_VISION_URL ?? '',
   // "Name=url,Name=url" - any url that returns a jpeg (bridge /camera.jpg, IP Webcam /shot.jpg, ...)
   cameras: process.env.EXPO_PUBLIC_CAMERAS ?? '',

@@ -36,16 +36,23 @@ export default function Talk({ voice, level, wide, mobile, camera, stopButton }:
   const headline = lastGrok?.kind === 'grok' ? lastGrok.text : 'hi, what should we build today?';
 
   const onMic = () => {
-    if (!live) voice.start();
+    if (!live || !voice.mic) voice.start();
     else voice.setMuted(!voice.muted);
   };
+  const status = !live
+    ? caption.off
+    : !voice.mic
+      ? 'Text chat · tap the mic to talk'
+      : voice.muted
+        ? 'Muted'
+        : caption[voice.status];
 
   return (
     <View style={[s.body, mobile && s.bodyMobile]}>
       <View style={[s.stage, !mobile && s.stageGlow]}>
         {logOpen ? (
           <View style={{ flex: 1, alignSelf: 'stretch' }}>
-            <Log lines={voice.lines} canSend={live} onSend={voice.say} />
+            <Log lines={voice.lines} live={live} onSend={voice.say} />
           </View>
         ) : (
           <>
@@ -54,7 +61,7 @@ export default function Talk({ voice, level, wide, mobile, camera, stopButton }:
             </Text>
             <View style={s.center}>
               <Orb status={voice.status} level={level} size={mobile ? 110 : 130} />
-              <Text style={s.caption}>{voice.muted && live ? 'Muted' : caption[voice.status]}</Text>
+              <Text style={s.caption}>{status}</Text>
             </View>
           </>
         )}
@@ -63,13 +70,13 @@ export default function Talk({ voice, level, wide, mobile, camera, stopButton }:
           {stopButton}
           <ControlBar
             live={live}
-            muted={voice.muted}
+            muted={voice.muted || !voice.mic}
             logOpen={logOpen}
             onLog={() => setLogOpen((o) => !o)}
             onMic={onMic}
             onEnd={voice.end}
           />
-          <Text style={s.foot}>Groky can get things wrong. Keep a hand near the stop button.</Text>
+          <Text style={s.foot}>Motion can get things wrong. Keep a hand near the stop button.</Text>
         </View>
       </View>
 
