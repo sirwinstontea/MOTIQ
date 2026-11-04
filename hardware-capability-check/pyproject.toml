@@ -1,0 +1,23 @@
+[project]
+name = "hardware-capability-check"
+version = "0.1.0"
+description = "Checks whether a UR5e work cell can physically execute a skill.json"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26", "pyyaml>=6"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pymupdf", "beautifulsoup4"]
+
+[project.scripts]
+hardware-capability-check = "hardware_capability_check.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

@@ -13,6 +13,7 @@ import argparse
 import json
 import logging
 import math
+import os
 import sys
 import time
 from pathlib import Path
@@ -172,12 +173,17 @@ def cmd_setup_station(args) -> int:
 def cmd_serve(args) -> int:
     import uvicorn
     from .api.app import create_app
+    password = os.environ.get("ROBOT_API_PASSWORD", "")
+    user = os.environ.get("ROBOT_API_USER", "operator")
+    if args.host not in ("127.0.0.1", "localhost", "::1") and len(password) < 12:
+        print("Refusing to bind a robot-control API to a non-loopback address without authentication. "
+              "Set ROBOT_API_PASSWORD (12+ chars) to enable HTTP Basic auth.", file=sys.stderr)
+        return 2
     ex = build_executor(args)
     ex.start()
-    if args.host not in ("127.0.0.1", "localhost", "::1"):
-        print("Refusing to bind a robot-control API to a non-loopback address in this build.", file=sys.stderr)
-        return 2
-    uvicorn.run(create_app(ex), host=args.host, port=args.port, log_level="info")
+    auth = (user, password) if password else None
+    uvicorn.run(create_app(ex, auth=auth), host=args.host, port=args.port, log_level="info",
+                proxy_headers=False)
     return 0
 
 
@@ -207,7 +213,7 @@ def main(argv=None) -> int:
     t = sub.add_parser("tools", help="print the AI tool allowlist")
     t.set_defaults(fn=lambda a: (print(json.dumps(tool_specs(), indent=2)), 0)[1])
 
-    sv = sub.add_parser("serve", help="local FastAPI server")
+    sv = sub.add_parser("serve", help="FastAPI server + dashboard (loopback unless ROBOT_API_PASSWORD is set)")
     _add_common(sv)
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8765)

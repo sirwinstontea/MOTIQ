@@ -1,9 +1,16 @@
-"""Optional LOCAL FastAPI transport. Bind to 127.0.0.1 only (enforced by the CLI).
+"""Optional FastAPI transport.
 
-No authentication is implemented, so this must never be exposed to a LAN or
-the Internet. Health means "the process is up", not "safe to move".
+By default it binds to 127.0.0.1 only, with no authentication. Binding to another
+address (e.g. 0.0.0.0 in a container) is refused by the CLI unless
+ROBOT_API_PASSWORD is set. Every route except /health then requires HTTP Basic
+auth (the browser prompts once for the dashboard) or ``Authorization: Bearer <password>``.
+Health means "the process is up", not "safe to move".
 """
 from __future__ import annotations
+
+import base64
+import binascii
+import hmac
 
 from fastapi import FastAPI, HTTPException, Request
 from pathlib import Path
@@ -18,8 +25,37 @@ _HTTP = {ErrorCode.BUSY: 409, ErrorCode.FAULT_LATCHED: 409, ErrorCode.DUPLICATE_
          ErrorCode.UNKNOWN_ID: 404, ErrorCode.VALIDATION_ERROR: 422, ErrorCode.UNKNOWN_ACTION: 422}
 
 
-def create_app(ex: TaskExecutor) -> FastAPI:
+def _authorized(header: str, user: str, password: str) -> bool:
+    scheme, _, value = header.partition(" ")
+    scheme = scheme.lower()
+    if scheme == "bearer":
+        return hmac.compare_digest(value.strip().encode(), password.encode())
+    if scheme == "basic":
+        try:
+            u, sep, p = base64.b64decode(value.strip(), validate=True).decode("utf-8").partition(":")
+        except (binascii.Error, UnicodeDecodeError):
+            return False
+        ok_user = hmac.compare_digest(u.encode(), user.encode())
+        ok_pass = hmac.compare_digest(p.encode(), password.encode())
+        return bool(sep) and ok_user and ok_pass
+    return False
+
+
+def create_app(ex: TaskExecutor, *, auth: tuple[str, str] | None = None) -> FastAPI:
+    """``auth=(user, password)`` protects every route except /health."""
     app = FastAPI(title="robot_control (simulation only)", version="0.1.0")
+
+    if auth:
+        user, password = auth
+
+        @app.middleware("http")
+        async def _require_auth(request: Request, call_next):
+            if request.url.path == "/health" or _authorized(request.headers.get("authorization", ""), user, password):
+                return await call_next(request)
+            return JSONResponse(status_code=401,
+                                content={"error": {"code": "UNAUTHORIZED", "message": "credentials required",
+                                                   "recoverable": True}},
+                                headers={"WWW-Authenticate": 'Basic realm="robot_control", charset="UTF-8"'})
 
     @app.exception_handler(RobotControlError)
     async def _err(_req: Request, e: RobotControlError):

@@ -1,0 +1,70 @@
+Universal Robots - Max. joint torques CB3 and e-Series
+Articles
+Download
+Safety & Security
+Forum
+myUR
+Go to Main Site
+Support
+Articles
+Max. joint torques CB3 and e-Series
+Max. joint torques CB3 and e-Series
+Created on August 26th, 2015.
+Table of max. torque values for the different joint sizes.
+Note that it is the joint itself that has these torque values. You cannot use the full value in your application.
+If the robot is mounted on a vertical plane the robot has to lift itself and still operate within the limits of the safety force.
+You cannot exceed the safety force limits of the robot in your application even if the robot has more power.
+JOINT SIZE
+TORQUE
+Size 0
+9 Nm
+Size 1
+28 Nm
+Size 2
+54 Nm
+Size 3
+150 Nm
+Size 4
+330 Nm
+Joint ID
+Joint
+UR3/UR3e
+UR5/UR5e/UR7e
+UR10/UR10e/UR12e
+UR16e
+Joint ID 5
+Wrist 3
+Size 0
+Size 1
+Size 2
+Size 2
+Joint ID 4
+Wrist 2
+Size 0
+Size 1
+Size 2
+Size 2
+Joint ID 3
+Wrist 1
+Size 0
+Size 1
+Size 2
+Size 2
+Joint ID 2
+Elbow
+Size 1
+Size 3
+Size 3
+Size 3
+Joint ID 1
+Shoulder
+Size 2
+Size 3
+Size 4
+Size 4
+Joint ID 0
+Base
+Size 2
+Size 3
+Size 4
+Size 4

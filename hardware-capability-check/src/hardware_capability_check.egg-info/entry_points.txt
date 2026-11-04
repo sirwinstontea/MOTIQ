@@ -1,0 +1,2 @@
+[console_scripts]
+hardware-capability-check = hardware_capability_check.cli:main

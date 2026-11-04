@@ -1,5 +1,6 @@
 // Skills in the MOTIQ skill format (see schema.ts and templates/pick_place_ur5e.json).
 import { Ionicons } from '@expo/vector-icons';
+import env from '../lib/config';
 import { defaultOpts, resolveParams, type ArmOpts } from '../robot/arm';
 import { ARM_LIMITS, profiles } from '../robot/profiles';
 import template from './templates/pick_place_ur5e.json';
@@ -74,11 +75,40 @@ export function stepLabel(s: SkillStep): string {
   return `${s.action.toLowerCase()}${target}`;
 }
 
+// ---------- what the real arm can do ----------
+
+// The real arm goes through robot_controller (../bridge), which only moves between taught positions:
+// PICK / PLACE steps with a target become one controller task each; inside SEQUENCE steps only these primitives
+// reach it. Everything else (MOVE_UP, ROTATE_*, MOVE_TO_POSE, ...) runs in the simulator only.
+export const REAL_ARM_PRIMITIVES = ['MOVE_ABOVE', 'HOME', 'OPEN_GRIPPER', 'WAIT', 'STOP'];
+export const realArmConnected = () => !!env.armUrl;
+
+// steps the real arm can't run, as readable messages (empty = fine)
+export function realArmProblems(doc: SkillDoc): string[] {
+  if (deviceOf(doc) !== 'arm') return [];
+  const out: string[] = [];
+  doc.steps.forEach((s, i) => {
+    if (isLookStep(s)) return;
+    if ((s.action === 'PICK' || s.action === 'PLACE') && s.target) return;
+    const bad = [
+      ...new Set((s.primitive_sequence ?? []).map((c) => c.primitive).filter((p) => !REAL_ARM_PRIMITIVES.includes(p))),
+    ];
+    if (bad.length)
+      out.push(
+        `Step ${i + 1}: ${bad.map((p) => p.toLowerCase().replace(/_/g, ' ')).join(', ')} only works in the simulator. ` +
+          'The real arm can only pick, place, move above an object, open the gripper, wait and go home.',
+      );
+  });
+  return out;
+}
+
 // ---------- safety gates ----------
 
 // why the skill may not move a real robot, or null
 export function physicalBlock(doc: SkillDoc, real: boolean): string | null {
   if (!real) return null;
+  const arm = realArmProblems(doc);
+  if (arm.length) return `${arm[0]} Edit the skill (or ask Grok to change it) to run it on the arm.`;
   if (!doc.safety?.physical_execution_allowed)
     return 'physical execution is not allowed for this skill yet. Approve it in the Skills tab first.';
   if (doc.safety?.requires_operator_approval !== false && !doc.review?.approved)

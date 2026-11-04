@@ -1,0 +1,64 @@
+# Camera profile: Intel RealSense D415 (identified by the project owner)
+#
+# TWO CAMERAS IN THIS PROJECT: this D415 is the COMPUTER-VISION camera of the execution cell and is the one the
+# capability check uses for DETECT / VERIFY steps. The skill.json itself was recorded with a different camera, the
+# D435 (camera_realsense_d435_demo.yaml). It is still undecided whether skill.json files will be created from both
+# cameras or from only one; the check does not depend on that decision.
+#
+# Owner statement (2026-11-04): "Camera D415 (Product ID: 0x0ad3 ...). Serial read by pyrealsense2:
+# 143122062854." The mounting position is NOT known -> `mount: null`, so coverage is reported as a
+# condition instead of being guessed.
+#
+# Sources: Intel D415 specification page and the Intel D415 product brief (docs/sources/realsense_d415_product_brief.pdf).
+# The Intel page itself was fetched online (not archived): values quoted below.
+schema: camera_profile/1
+
+camera:
+  id: realsense_d415
+  name: Intel RealSense Depth Camera D415
+  usb_product_id: "0x0ad3"
+  serial: "143122062854"
+
+  depth:
+    technology: active IR stereo, rolling shutter
+    fov_deg: {horizontal: 69.4, vertical: 42.5, diagonal: 77.0, tolerance: 3.0}
+    resolution_px: [1280, 720]
+    fps_max: 90
+    ideal_range_m: [0.5, 3.0]
+    src_fov: {doc: intel_d415_spec_page, quote: "Depth Field of View H: 69.4 V: 42.5"}
+    src_range: {doc: intel_d415_spec_page, quote: "Ideal Range ~.5m - 3m"}
+    src_resolution: {doc: intel_d415_product_brief, quote: "Up to 1280 x 720 active stereo depth resolution. Up to 90fps"}
+    src_fov_diag: {doc: intel_d415_product_brief, quote: "69.4 x 42.5 x 77 (+/- 3°)"}
+    min_distance_claimed_by_brief_m: 0.16   # 2017 product brief; contradicts Intel page (~0.5 m) -> NOT used
+  rgb:
+    resolution_px: [1920, 1080]
+    fov_deg: {horizontal: 69.4, vertical: 42.5}   # brief gives one combined FOV figure for depth and RGB
+    src: {doc: intel_d415_product_brief, quote: "RGB Resolution: Up to 1920x1080 resolution"}
+  physical:
+    size_mm: [99, 20, 23]
+    interface: USB 3.0 Type-C
+    src: {doc: intel_d415_product_brief, quote: "Length x Depth x Height: 99mm x 20mm x 23mm"}
+
+  # Mounting is unknown. When it is known, give ONE of:
+  #   mount: {type: fixed, position_m: [x, y, z], look_at_m: [x, y, z]}          (world frame)
+  #   mount: {type: eye_in_hand, offset_from_flange_m: [x, y, z], pitch_deg: 0}   (on the arm)
+  mount: null
+
+documents:
+  intel_d415_spec_page:
+    title: Intel RealSense Depth Camera D415 - specifications
+    url: https://www.intel.com/content/www/us/en/products/sku/128256/intel-realsense-depth-camera-d415/specifications.html
+    retrieved: "2026-11-04"
+    archived: false
+    extracted_text: |
+      Depth Field of View H: 69.4 V: 42.5
+      Ideal Range ~.5m - 3m
+      Depth resolution Up to 1280 x 720
+      Dimensions 99 mm x 20 mm x 23 mm
+      Interface USB 3.0 Type-C
+  intel_d415_product_brief:
+    title: Intel RealSense Depth Camera D415 Product Brief (2017)
+    file: docs/sources/realsense_d415_product_brief.pdf
+    text: docs/text/realsense_d415_product_brief.txt
+    url: https://simplecore.intel.com/realsensehub/wp-content/uploads/sites/63/D415_Series_ProductBrief_111207.pdf
+    published: "2017-12-11"

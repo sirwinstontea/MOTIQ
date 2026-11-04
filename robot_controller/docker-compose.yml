@@ -1,0 +1,13 @@
+# For Coolify ("Docker Compose" build pack, base directory = robot_controller) or local `docker compose up`.
+# Set ROBOT_API_PASSWORD in Coolify's environment variables (or a local .env file).
+services:
+  robot-controller:
+    build: .
+    restart: unless-stopped
+    environment:
+      ROBOT_API_PASSWORD: ${ROBOT_API_PASSWORD:?set ROBOT_API_PASSWORD (12+ chars)}
+      ROBOT_API_USER: ${ROBOT_API_USER:-operator}
+      BACKEND: mock
+      PORT: 8765
+    ports:
+      - "8765"

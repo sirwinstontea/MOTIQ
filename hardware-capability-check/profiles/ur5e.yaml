@@ -1,0 +1,249 @@
+# ============================================================================
+# Hardware profile: Universal Robots UR5e  (robot arm only - tool / camera / cell are separate profiles)
+#
+# Every documented value carries `src`:
+#   doc    -> id of a document listed under `documents` (files live in docs/sources, text in docs/text)
+#   quote  -> a verbatim passage (whitespace-insensitive) that must appear in that document
+#   section/contains -> for tables: the numbers must all appear between two anchor strings
+# `tests/test_provenance.py` re-checks every `src` against the extracted text of the official
+# documents, so a typo in this file cannot silently pass.
+#
+# Where the official documents disagree we keep the MORE RESTRICTIVE value and record the conflict
+# under `conflicts`. Values that are not published by UR are marked `basis: assumed` or `null`.
+# ============================================================================
+schema: robot_profile/1
+
+robot:
+  id: ur5e
+  name: Universal Robots UR5e
+  manufacturer: Universal Robots A/S
+  type: serial_arm_6dof
+
+documents:
+  ur5e_manual_ps5_latest:
+    title: UR5e PolyScope 5 User Manual (Original instructions, en)
+    file: docs/sources/ur5e_user_manual_ps5_latest.pdf
+    text: docs/text/ur5e_user_manual_ps5_latest.txt
+    url: https://www.universal-robots.com/manuals/latest/en/pdf/ps5/ur5e/
+    published: "2026-09-10"   # PDF creation date; copyright 2009-2026
+    role: primary specification (technical specs, payload curve, tool I/O, workspace, safety)
+  ur5e_manual_ps5_25_1:
+    title: UR5e User Manual PolyScope 5.25.1 (710-965-00)
+    file: docs/sources/ur5e_user_manual_SW5_25_1.pdf
+    text: docs/text/ur5e_user_manual_SW5_25_1.txt
+    url: https://www.universal-robots.com/manuals/EN/PDF/SW5_25_1/user-manual-UR5e-PDF_online/710-965-00_UR5e_User_Manual_en_Global.pdf
+    published: "2026-09-11"
+    role: cross-check of the latest manual
+  ur5e_manual_polyscope_x:
+    title: UR5e PolyScope X User Manual (SW 10.11)
+    file: docs/sources/ur5e_user_manual_polyscopeX.pdf
+    text: docs/text/ur5e_user_manual_polyscopeX.txt
+    url: https://www.universal-robots.com/manuals/EN/PDF/SW10_11/user-manual-UR5e-PolyX-PDF_online/718-732-00_UR5e%20PolyScope%20X_User_Manual_PolyScopeX_en_Global.pdf
+    published: "2026-05-04"
+    role: cross-check for PolyScope X controllers (same arm hardware)
+  ur5e_datasheet_latest:
+    title: UR5e technical specification datasheet ("Updated October 2026")
+    file: docs/sources/ur5e_datasheet_latest.pdf
+    text: docs/text/ur5e_datasheet_latest.txt
+    url: https://www.universal-robots.com/manuals/latest/en/datasheets/ur5e/
+    published: "2026-10-20"
+    role: latest official datasheet (force/torque range, tool I/O, mounting)
+  ur5e_datasheet_dec2024:
+    title: UR5e e-Series datasheet ("Updated December 2024")
+    file: docs/sources/ur5e_datasheet.pdf
+    text: docs/text/ur5e_datasheet.txt
+    url: https://universal-robots.com/media/1807465/ur5e_e-series_datasheets_web.pdf
+    published: "2024-12-10"
+    role: older datasheet, used only to document conflicts
+  ur_dh_article:
+    title: "UR article: DH Parameters for calculations of kinematics and dynamics"
+    file: docs/sources/dh_article.html
+    text: docs/text/ur_dh_article.txt
+    url: https://www.universal-robots.com/articles/ur/application-installation/dh-parameters-for-calculations-of-kinematics-and-dynamics/
+    published: "retrieved 2026-11-04"
+    role: DH kinematics, link masses and centres of mass
+  ur_max_joint_torques:
+    title: "UR article: Max. joint torques CB3 and e-Series"
+    file: docs/sources/ur_max_joint_torques.html
+    text: docs/text/ur_max_joint_torques.txt
+    url: https://www.universal-robots.com/articles/ur/robot-care-maintenance/max-joint-torques/
+    published: "created 2015-08-26 (retrieved 2026-11-04)"
+    role: maximum joint torque per joint size
+  ur_ros2_joint_limits:
+    title: UR official ROS2 description repo - config/ur5e/joint_limits.yaml
+    file: docs/sources/ur_ros2_description/joint_limits.yaml
+    text: docs/text/ur_ros2_joint_limits.txt
+    url: https://github.com/UniversalRobots/Universal_Robots_ROS2_Description/blob/rolling/config/ur5e/joint_limits.yaml
+    published: "last changed 2021-10-13"
+    role: cross-check only (older; elbow limit there is an artificial planning limit)
+
+# ---------------------------------------------------------------------------------------------
+kinematics:
+  convention: "UR DH: T_i = Rz(theta_i) Tz(d_i) Tx(a_i) Rx(alpha_i)"
+  d_m:     [0.1625, 0.0, 0.0, 0.1333, 0.0997, 0.0996]
+  a_m:     [0.0, -0.425, -0.3922, 0.0, 0.0, 0.0]
+  alpha_rad: [1.5707963267948966, 0.0, 0.0, 1.5707963267948966, -1.5707963267948966, 0.0]
+  src:
+    doc: ur_dh_article
+    section: ["UR5e/UR7e", "UR10e/UR12e"]
+    contains: ["0.1625", "-0.425", "-0.3922", "0.1333", "0.0997", "0.0996"]
+  note: >
+    Nominal DH values. Every physical UR arm also has per-robot calibration offsets
+    (calibration.conf, up to a few mm). Not available here -> positional results are +-few mm.
+  link_masses_kg: [3.761, 8.058, 2.846, 1.37, 1.3, 0.365]
+  link_com_m:                    # centre of mass of link i in DH frame i
+    - [0.0, -0.02561, 0.00193]
+    - [0.2125, 0.0, 0.11336]
+    - [0.15, 0.0, 0.0265]
+    - [0.0, -0.0018, 0.01634]
+    - [0.0, 0.0018, 0.01634]
+    - [0.0, 0.0, -0.001159]
+  masses_src:
+    doc: ur_dh_article
+    section: ["UR5e/UR7e", "UR10e/UR12e"]
+    contains: ["3.761", "8.058", "2.846", "1.37", "1.3", "0.365", "[0, -0.02561, 0.00193]", "[0.2125, 0, 0.11336]", "[0.15, 0.0, 0.0265]", "[0, -0.0018, 0.01634]", "[0, 0.0018,0.01634]", "[0, 0, -0.001159]"]
+
+# ---------------------------------------------------------------------------------------------
+limits:
+  payload_rated_kg:
+    value: 5.0
+    src: {doc: ur5e_manual_ps5_latest, quote: "Maximum payload 5 kg / 11 lb"}
+  payload_vs_cog_offset:
+    description: Rated payload as a function of the distance from the tool-flange centre to the payload CoG.
+    points_mm_kg: [[0, 5.0], [350, 5.0], [400, 4.5], [450, 4.09], [500, 3.74], [550, 3.45], [600, 3.20]]
+    src: {doc: ur5e_manual_ps5_latest, quote: "The rated robot arm payload depends on the center of gravity (CoG) offset of the payload"}
+    extraction: >
+      Values read from the vector curve of the figure "The relationship between the rated payload
+      and the center of gravity offset" (manual PDF page 94) by converting drawing coordinates to
+      axis units: flat 5 kg up to ~350 mm, then falling to ~3.2 kg at 600 mm.
+    note_src: {doc: ur5e_manual_ps5_latest, quote: "when computing the payload mass in a pick and place application, consider both the gripper and the workpiece."}
+  reach_m:
+    value: 0.85
+    src: {doc: ur5e_manual_ps5_latest, quote: "Reach 850 mm / 33.5 in"}
+  degrees_of_freedom:
+    value: 6
+    src: {doc: ur5e_manual_ps5_latest, quote: "Degrees of freedom 6 rotating joints"}
+  joint_position_deg:            # [min, max] per joint: base, shoulder, elbow, wrist1, wrist2, wrist3
+    - [-360, 360]
+    - [-360, 360]
+    - [-160, 160]
+    - [-360, 360]
+    - [-360, 360]
+    - [-360, 360]
+  joint_position_src: {doc: ur5e_manual_ps5_latest, quote: "± 360 ° for all joints except Elbow ± 160 °"}
+  joint_speed_max_deg_s:
+    value: 180
+    src: {doc: ur5e_manual_ps5_latest, quote: "Joints: Max 180 °/s ."}
+  tcp_speed_max_m_s:
+    value: 4.0
+    src: {doc: ur5e_manual_ps5_latest, quote: "Maximum TCP speed: Approx. 4 m/s / Approx. 157.5 in/s."}
+  pose_repeatability_mm:
+    value: 0.03
+    src: {doc: ur5e_manual_ps5_latest, quote: "± 0.03 mm / ± 0.0011 in (1.1 mils) per ISO 9283"}
+  joint_torque_max_nm: [150, 150, 150, 28, 28, 28]
+  joint_torque_src:
+    doc: ur_max_joint_torques
+    contains: ["Size 1 28 Nm", "Size 3 150 Nm", "Joint ID 2 Elbow Size 1 Size 3 Size 3 Size 3", "Joint ID 3 Wrist 1 Size 0 Size 1 Size 2 Size 2"]
+  joint_torque_note: >
+    UR: "it is the joint itself that has these torque values. You cannot use the full value in your
+    application." The checker therefore only accepts static gravity torque up to `torque_usable_fraction`.
+  torque_usable_fraction: 0.8       # engineering margin (not from UR) so that dynamics have headroom
+  acceleration_limits: null          # not published by UR (the ROS2 description says the same)
+  system_update_frequency_hz:
+    value: 500
+    src: {doc: ur5e_manual_ps5_latest, quote: "System update frequency 500 Hz"}
+  force_torque_sensor:
+    range_n: 50.0
+    range_nm: 10.0
+    precision_n: 3.5
+    accuracy_n: 4.0
+    accuracy_nm: 0.3
+    src:
+      doc: ur5e_datasheet_latest
+      contains: ["Range ± 50.0 N ± 10.0 Nm", "Precision ± 3.5 N ± 0.2 Nm", "Accuracy ± 4.0 N ± 0.3 Nm"]
+  min_workspace_exclusion:
+    description: Cylinder directly above and below the base where many poses are unreachable (inner workspace singularity).
+    src: {doc: ur5e_manual_ps5_latest, quote: "The cylindrical volume is both directly above and directly below the robot base."}
+    wrist_alignment_src: {doc: ur5e_manual_ps5_latest, quote: "wrist joint 2 rotates on the same plane as the shoulder, elbow and wrist joint 1"}
+
+# ---------------------------------------------------------------------------------------------
+physical:
+  footprint_diameter_m:
+    value: 0.151
+    src: {doc: ur5e_datasheet_latest, quote: "Footprint Ø151 mm"}
+  arm_weight_kg:
+    value: 20.7
+    src: {doc: ur5e_manual_ps5_latest, quote: "Robot arm weight 20.7 kg / 45.7 lb"}
+  ip_rating:
+    value: IP54
+    src: {doc: ur5e_manual_ps5_latest, quote: "IP classification IP54"}
+  mounting_orientation:
+    value: any
+    src: {doc: ur5e_datasheet_latest, quote: "Arm mounting Any orientation"}
+  ambient_temperature_c:
+    range: [0, 50]
+    derating_above_c: 35
+    src: {doc: ur5e_manual_ps5_latest, quote: "0-50 °C. At ambient temperatures above 35°C, the robot may operate at reduced speed and performance."}
+  # UR publishes no link-radius numbers in these documents -> approximate capsule radii (assumed).
+  collision_model:
+    basis: assumed
+    note: Approximate cylinder radii used only to keep the arm above the table plane; not from UR.
+    segment_radius_m: [0.0755, 0.060, 0.050, 0.045, 0.045, 0.040]   # base-joint2, upper arm, forearm, wrist1, wrist2, wrist3
+    table_clearance_margin_m: 0.005
+
+# ---------------------------------------------------------------------------------------------
+tool_interface:
+  flange_standard:
+    value: EN ISO 9409-1-50-4-M6
+    src: {doc: ur5e_datasheet_latest, quote: "Tool flange EN ISO-9409-1-50-4-M6"}
+  connector:
+    value: M8 8-pin female
+    src: {doc: ur5e_datasheet_latest, quote: "Connector type M8 8-pin female"}
+  max_mounting_bolt_length_mm:
+    value: 8
+    src: {doc: ur5e_manual_ps5_latest, quote: "Do not use bolts that extend beyond 8 mm to mount the tool."}
+  io:
+    digital_in: 2
+    digital_out: 2
+    analog_in: 2
+    rs485: true
+    src: {doc: ur5e_manual_ps5_latest, quote: "Tool I/O ports 2 digital in, 2 digital out, 2 analog in"}
+    rs485_src: {doc: ur5e_manual_ps5_latest, quote: "Tool Communication RS-485"}
+  power:
+    voltages_v: [0, 12, 24]
+    current_a_dual_pin: 1.5
+    current_a_single_pin: 1.0
+    src: {doc: ur5e_manual_ps5_latest, quote: "Tool I/O power supply & voltage 1.5 A (Dual pin) 1 A (Single pin) & 12 V/24 V"}
+
+controller_interfaces:
+  protocols: [MODBUS TCP, EtherNet/IP adapter, PROFINET, ROS/ROS2, URScript over TCP, RTDE]
+  src: {doc: ur5e_manual_ps5_latest, quote: "MODBUS TCP & Ethernet/IP adapter, PROFINET, USB 2.0, USB 3.0"}
+  ros_src: {doc: ur5e_datasheet_latest, quote: "ROS/ROS2"}
+
+safety_defaults:
+  note: >
+    These are configurable controller limits, not hardware limits. They are reported for context only.
+  teach_mode_tcp_speed_m_s:
+    value: 0.25
+    src: {doc: ur5e_manual_ps5_latest, quote: "When in teach/program, initially the TCP speed is limited to 250mm/s."}
+
+# ---------------------------------------------------------------------------------------------
+conflicts:
+  - id: elbow_range
+    summary: >
+      PolyScope manuals (latest, 5.25.1, PolyScope X) state "Elbow +-160 deg"; the datasheets (Dec 2024 and
+      Oct 2026) list +-360 deg for all joints; UR's ROS2 description limits it artificially to +-180 deg.
+    decision: Use +-160 deg (the most restrictive, newest manual).
+    docs: [ur5e_manual_ps5_latest, ur5e_datasheet_latest, ur5e_datasheet_dec2024, ur_ros2_joint_limits]
+    quotes:
+      - {doc: ur5e_datasheet_dec2024, quote: "Elbow ± 360° ± 180°/s"}
+  - id: max_tcp_speed
+    summary: The ManualsLib copy of an older manual lists ~1 m/s; the 2024/2026 datasheets and 2026 manuals list 4 m/s.
+    decision: Use 4 m/s (latest official). Irrelevant in practice - the controller safety limits are far lower.
+    docs: [ur5e_manual_ps5_latest, ur5e_datasheet_latest]
+  - id: footprint_weight
+    summary: Dec 2024 datasheet says footprint 149 mm / 20.6 kg; Oct 2026 datasheet and manual say 151 mm / 20.7 kg.
+    decision: Use the 2026 values.
+    docs: [ur5e_datasheet_latest, ur5e_datasheet_dec2024]
+    quotes:
+      - {doc: ur5e_datasheet_dec2024, quote: "Footprint Ø 149 mm"}

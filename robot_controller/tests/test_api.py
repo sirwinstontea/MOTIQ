@@ -46,3 +46,26 @@ def test_operator_reset_clears_latched_cancel(make_executor):
     assert client.post("/operator/reset", json={"operator": ""}).status_code == 422
     r = client.post("/operator/reset", json={"operator": "tester"})
     assert r.status_code == 200 and r.json()["executor_state"] == "IDLE"
+
+
+def test_auth_protects_everything_but_health(make_executor):
+    import base64
+    client = TestClient(create_app(make_executor(), auth=("operator", "a-long-test-secret")))
+    assert client.get("/health").status_code == 200
+    r = client.get("/status")
+    assert r.status_code == 401 and r.headers["www-authenticate"].startswith("Basic")
+    assert client.get("/", auth=("operator", "wrong-secret")).status_code == 401
+    assert client.get("/", auth=("someone", "a-long-test-secret")).status_code == 401
+    assert client.get("/", headers={"authorization": "Basic !!notbase64"}).status_code == 401
+    assert "Robot Live Status" in client.get("/", auth=("operator", "a-long-test-secret")).text
+    assert client.get("/status", headers={"authorization": "Bearer a-long-test-secret"}).status_code == 200
+    token = base64.b64encode(b"operator:a-long-test-secret").decode()
+    assert client.post("/robot/stop", headers={"authorization": f"Basic {token}"}).status_code == 200
+
+
+def test_serve_refuses_remote_bind_without_password(monkeypatch):
+    from robot_control import cli
+    monkeypatch.delenv("ROBOT_API_PASSWORD", raising=False)
+    assert cli.main(["serve", "--backend", "mock", "--host", "0.0.0.0"]) == 2
+    monkeypatch.setenv("ROBOT_API_PASSWORD", "short")
+    assert cli.main(["serve", "--backend", "mock", "--host", "0.0.0.0"]) == 2
