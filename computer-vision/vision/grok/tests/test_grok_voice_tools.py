@@ -41,6 +41,17 @@ def test_select_object_and_context(state):
     assert voice_tools._context["arm"] == {"last_selected_id": 3, "last_question": None}
 
 
+def test_select_object_sends_selection_to_robot(state):
+    assert not voice_tools.SELECTION_PATH.exists()
+    dispatch("select_object", {"source": "arm", "description": "quello rosso"}, state)   # domanda: niente file
+    assert not voice_tools.SELECTION_PATH.exists()
+
+    r = dispatch("select_object", {"source": "arm", "description": "prendi la tazza rossa"}, state)
+    assert r["ok"] and r["sent_to_robot"]
+    msg = json.loads(voice_tools.SELECTION_PATH.read_text(encoding="utf-8"))
+    assert msg["target"]["id"] == 3 and msg["command"] == "prendi la tazza rossa" and msg["source"] == "arm"
+
+
 def test_select_absent(state):
     r = dispatch("select_object", {"source": "arm", "description": "la banana"}, state)
     assert not r["ok"] and r["id"] is None and r["say"]

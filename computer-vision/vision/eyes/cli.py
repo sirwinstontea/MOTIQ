@@ -4,6 +4,7 @@ Esempi d'uso:
   python -m vision.eyes.cli inspect --mode synthetic
   python -m vision.eyes.cli generate-replay --output data/replays/sample_arm.mp4
   python -m vision.eyes.cli calibrate-arm --generate-board data/calibration/aruco_board.png --output data/calibration/calibration_arm.json
+  python -m vision.eyes.cli run --port 8000                  # RealSense USB-C, se no webcam del PC
   python -m vision.eyes.cli run --mode synthetic --port 8000
 """
 from __future__ import annotations
@@ -17,6 +18,7 @@ import uvicorn
 
 from .calibration.aruco_calib import ArmCalibrator, render_aruco_workspace
 from .capture.reader import generate_sample_video
+from .capture.realsense import default_camera
 from .pipeline import EyePipeline
 from .server.app import create_app
 
@@ -90,20 +92,24 @@ def _cmd_calibrate_arm(args: argparse.Namespace) -> int:
 
 def _cmd_run(args: argparse.Namespace) -> int:
     pipeline = EyePipeline(fps=args.fps)
-    arm_target = args.file if args.mode == "replay" else args.device
+    mode, arm_target = args.mode, (args.file if args.mode == "replay" else args.device)
+    if mode == "auto":  # RealSense USB-C se c'è, se no la webcam del PC
+        mode, arm_target = default_camera(int(args.device) if str(args.device).isdigit() else 0)
     pipeline.add_source(
         source="arm",
-        mode=args.mode,
+        mode=mode,
         target=arm_target,
         use_mock_tracker=args.mock_tracker,
         calibration_file=args.calibration,
     )
-    pipeline.add_source(
-        source="dog",
-        mode=args.mode,
-        target=args.dog_target or arm_target,
-        use_mock_tracker=args.mock_tracker,
-    )
+    if args.dog_target:  # solo se richiesto: una seconda sorgente sulla stessa camera la aprirebbe due volte
+        dog_mode = mode if mode in ("replay", "synthetic") else ("webcam" if args.dog_target.isdigit() else "stream")
+        pipeline.add_source(
+            source="dog",
+            mode=dog_mode,
+            target=args.dog_target,
+            use_mock_tracker=args.mock_tracker,
+        )
     pipeline.start()
     app = create_app(pipeline)
     try:
@@ -148,10 +154,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     # run
     p_run = sub.add_parser("run", help="Avvia la pipeline e il server FastAPI (MJPEG + WebSocket)")
-    p_run.add_argument("--mode", default="synthetic", choices=["webcam", "replay", "stream", "synthetic"])
-    p_run.add_argument("--device", default="0")
+    p_run.add_argument("--mode", default="auto", choices=["auto", "realsense", "webcam", "replay", "stream", "synthetic"],
+                       help="auto = RealSense USB-C se c'è, se no la webcam del PC (--device)")
+    p_run.add_argument("--device", default="0", help="Indice webcam; con --mode realsense il seriale (vuoto = la prima)")
     p_run.add_argument("--file", default="data/replays/sample_arm.mp4")
-    p_run.add_argument("--dog-target", default=None)
+    p_run.add_argument("--dog-target", default=None, help="Camera del cane (indice o stream). Senza: solo 'arm'")
     p_run.add_argument("--calibration", default="data/calibration/calibration_arm.json")
     p_run.add_argument("--fps", type=float, default=25.0)
     p_run.add_argument("--host", default="0.0.0.0")

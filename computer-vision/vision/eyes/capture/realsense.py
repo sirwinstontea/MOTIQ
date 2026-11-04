@@ -423,6 +423,22 @@ def list_devices(rs_module: ModuleType | None = None) -> list[dict[str, str]]:
              "usb": _info(rs, d, "usb_type_descriptor")} for d in devices]
 
 
+def default_camera(cam: int = 0) -> tuple[str, int | None]:
+    """(mode, target) della camera da aprire: la RealSense collegata via USB-C (colore + profondità) se c'è, se no
+    la webcam del PC (indice `cam`). La RealSense si cerca con pyrealsense2 e non per indice OpenCV: su Windows
+    l'ordine degli indici cambia e la D435 ne occupa più di uno (RGB, profondità)."""
+    try:
+        devices = list_devices()
+    except RealSenseError as exc:  # pyrealsense2 non installato
+        print(f"[Cam] {exc}")
+        devices = []
+    if devices:
+        print(f"[Cam] Trovata {devices[0]['name']} (USB {devices[0]['usb']})")
+        return "realsense", None
+    print(f"[Cam] Nessuna RealSense collegata: uso la webcam del PC (Dev {cam})")
+    return "webcam", cam
+
+
 def _info(rs: ModuleType, dev: Any, field: str) -> str:
     try:
         return str(dev.get_info(getattr(rs.camera_info, field)))

@@ -6,13 +6,16 @@ CORS è aperto, quindi l'app può chiamarlo da qualsiasi origine.
 ## 1. Avvio (lo facciamo noi, sul PC)
 
 ```bat
-.venv\Scripts\python.exe -m vision.eyes.cli run --mode webcam --device 2 --port 8000
+run_server.bat
 ```
+(= `.venv\Scripts\python.exe -m vision.eyes.cli run --port 8000`)
 
-- `--device 2` = RealSense, `--device 0` = webcam del portatile. `--mode synthetic` = scena finta, senza camera.
+- Camera: la RealSense collegata in USB-C (colore + profondità) se c'è, se no la webcam del portatile.
+  Per forzarla: `--mode realsense`, `--mode webcam --device 0`; `--mode synthetic` = scena finta, senza camera.
+- Solo la sorgente `arm`; `dog` si aggiunge con `--dog-target <indice o stream>`.
 - Indirizzo base: `http://<IP-del-PC>:8000` (l'IP lo trovate con `ipconfig`, stessa Wi-Fi). Se dal telefono
   non risponde, è il firewall di Windows: va permesso Python sulla rete privata.
-- Prova veloce: `GET /health` → `{"ok": true, "sources": ["arm", "dog"]}`.
+- Prova veloce: `GET /health` → `{"ok": true, "sources": ["arm"]}`.
 - Documentazione interattiva generata dal server: `http://<IP-del-PC>:8000/docs`.
 - Il server e `run_demo.bat` non possono usare la stessa camera contemporaneamente.
 
@@ -139,10 +142,45 @@ L'app apre la sessione vocale con xAI; la visione risponde agli strumenti.
 
 Strumenti: `list_objects`, `select_object` (con `description` = le parole dell'utente), `describe_scene`,
 `verify_last_action`. Se `ambiguous` è `true`, la voce fa la domanda in `say` e la risposta dell'utente
-va in un nuovo `select_object`: il contesto lo teniamo noi.
+va in un nuovo `select_object`: il contesto lo teniamo noi. Quando `select_object` riesce, la scelta va
+anche al braccio in `logs/selection.json` (come il click nel demo): `sent_to_robot` dice se è stata scritta.
 
-In groky-app: aggiungete i nostri strumenti alla lista di `grokTools()` (per esempio con il prefisso `vision_`)
-e, in `runTool`, mandate quei nomi a `POST /voice/dispatch` invece che a `{bridge}/tools/{name}`.
+#### Cosa cambiare in groky-app (due file, nient'altro)
+
+`src/lib/config.ts`: un campo nuovo, **diverso** da `visionUrl` (quello è il modello vision di xAI):
+```ts
+  visionApi: (process.env.EXPO_PUBLIC_VISION_API ?? '').replace(/\/$/, ''), // es. http://192.168.1.50:8000
+```
+
+`src/voice/session.ts`: i nostri strumenti con il prefisso `vision_`, per non scontrarsi con quelli del bridge.
+```ts
+// in cima alla classe
+private visionTools: any[] = [];
+
+// all'apertura della sessione, prima del primo session.update (vuoto se il server non risponde: l'app va come oggi)
+async loadVisionTools() {
+  if (!env.visionApi) return;
+  try {
+    const tools = await (await fetch(`${env.visionApi}/voice/tools`)).json();
+    this.visionTools = tools.map((t: any) => ({ ...t, name: `vision_${t.name}` }));
+  } catch {
+    this.visionTools = [];
+  }
+}
+
+// tools(): aggiungere ...this.visionTools
+return [...grokTools(), lookTool, ...this.visionTools, ...(list.length ? [skillTool(list)] : [])];
+
+// call(): un ramo prima dell'else finale che chiama runTool
+} else if (name.startsWith('vision_')) {
+  res = await (await fetch(`${env.visionApi}/voice/dispatch`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name.slice('vision_'.length), arguments: args }),
+  })).json();
+  this.trace({ id, kind: 'vision', title: String(res.say ?? name), ok: res.ok, ms: Date.now() - t0 });
+}
+```
+`.env` dell'app: `EXPO_PUBLIC_VISION_API=http://<IP-del-PC>:8000`. Grok legge il campo `say` del risultato e lo dice.
 
 `XAI_API_KEY` non va nel codice dell'app (finirebbe nel bundle): ditecelo se vi serve un modo per ottenerla dal server.
 

@@ -363,17 +363,26 @@ def test_depth_estimation_and_badge():
     assert all(o.distance_m is not None and o.distance_m > 0 for o in objs)
 
 
-def test_demo_default_camera_realsense_first_then_pc_webcam(monkeypatch):
-    import demo_live
-    from vision.eyes.capture.realsense import RealSenseError
+def test_default_camera_realsense_first_then_pc_webcam(monkeypatch):
+    from vision.eyes.capture import realsense
 
-    monkeypatch.setattr(demo_live, "list_devices", lambda: [{"name": "RealSense D435", "serial": "1", "usb": "3.2"}])
-    assert demo_live.default_camera(0)[2] == "realsense"
+    monkeypatch.setattr(realsense, "list_devices", lambda: [{"name": "RealSense D435", "serial": "1", "usb": "3.2"}])
+    assert realsense.default_camera(0) == ("realsense", None)
 
-    monkeypatch.setattr(demo_live, "list_devices", lambda: [])                 # USB-C staccata
-    assert demo_live.default_camera(0)[1:3] == (0, "webcam")
+    monkeypatch.setattr(realsense, "list_devices", lambda: [])                 # USB-C staccata
+    assert realsense.default_camera(0) == ("webcam", 0)
 
     def missing():
-        raise RealSenseError("pyrealsense2 non è installato")
-    monkeypatch.setattr(demo_live, "list_devices", missing)                     # pacchetto assente (es. Mac)
-    assert demo_live.default_camera(0)[1:3] == (0, "webcam")
+        raise realsense.RealSenseError("pyrealsense2 non è installato")
+    monkeypatch.setattr(realsense, "list_devices", missing)                     # pacchetto assente (es. Mac)
+    assert realsense.default_camera(0) == ("webcam", 0)
+
+
+def test_cli_run_auto_opens_only_arm_on_default_camera(monkeypatch):
+    from vision.eyes import cli
+
+    seen = []
+    monkeypatch.setattr(cli, "default_camera", lambda cam=0: ("synthetic", None))
+    monkeypatch.setattr(cli.uvicorn, "run", lambda app, **kw: seen.append(sorted(app.state.pipeline.nodes)))
+    assert cli.main(["run", "--mock-tracker"]) == 0
+    assert seen == [["arm"]]                                                    # niente "dog" senza --dog-target
