@@ -13,6 +13,7 @@ export type Beat = {
   scan: boolean;
   seconds: number;
   frames: Keyframe[]; // arm only
+  joints?: number[]; // arm joints (deg) after this beat, used by the hardware check
 };
 
 export type DryRun = { beats: Beat[]; error?: string; warnings: string[]; start: ArmState; world: World };
@@ -73,6 +74,7 @@ export function dryRun(doc: SkillDoc, start: ArmState = initialArm()): DryRun {
         scan: true,
         seconds: 1.2,
         frames: device === 'arm' ? hold(1.2) : [],
+        joints: device === 'arm' ? state.joints : undefined,
       });
       continue;
     }
@@ -113,6 +115,7 @@ export function dryRun(doc: SkillDoc, start: ArmState = initialArm()): DryRun {
           scan: false,
           seconds: 0.5,
           frames: hold(0.5),
+          joints: state.joints,
         });
         break outer;
       }
@@ -127,7 +130,17 @@ export function dryRun(doc: SkillDoc, start: ArmState = initialArm()): DryRun {
       }
       state = out.state;
       world = out.world;
-      beats.push({ step: i, prim: j, label, note, warn, scan: false, seconds: out.seconds, frames: out.frames });
+      beats.push({
+        step: i,
+        prim: j,
+        label,
+        note,
+        warn,
+        scan: false,
+        seconds: out.seconds,
+        frames: out.frames,
+        joints: state.joints,
+      });
     }
   }
   return { beats, error, warnings, start, world: world0 };

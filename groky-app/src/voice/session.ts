@@ -384,10 +384,11 @@ export class VoiceSession {
         detail: res.ok ? undefined : String(res.error ?? res.status ?? ''),
         ok: res.ok,
         ms: Date.now() - t0,
+        speed: speedOf(res),
       });
     }
 
-    this.line({ id, kind: 'tool', name, args: raw, ok: res.ok, ms: Date.now() - t0, at: t0 });
+    this.line({ id, kind: 'tool', name, args: raw, ok: res.ok, ms: Date.now() - t0, at: t0, speed: speedOf(res) });
     return { call_id, output: JSON.stringify(res) };
   }
 
@@ -461,3 +462,7 @@ export class VoiceSession {
     this.trace({ kind: 'error', title: 'Problem', detail: text, ok: false });
   }
 }
+
+// the arm bridge reports the speed each task ran at (% of the UR5e maximums)
+const speedOf = (res: Record<string, unknown>) =>
+  typeof res.speed_percent === 'number' ? (res.speed_percent as number) : undefined;

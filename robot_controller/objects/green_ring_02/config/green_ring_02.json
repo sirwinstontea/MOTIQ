@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "units": "mm",
+  "stl_units": "mm",
+  "status_legend": {
+    "measured": "confirmed by the user / drawing",
+    "derived": "computed from other fields (validator checks consistency)",
+    "interpreted": "reading of an ambiguous drawing/photo; confirm with a measurement",
+    "estimated": "approximation from photos, NOT measured; edit freely"
+  },
+  "id": "green_ring_02",
+  "name": "Green_Ring_02",
+  "description": "Flat annular disk with a central through-hole.",
+  "stl_file": "../model/green_ring_02.stl",
+  "local_frame": {
+    "origin": "centre of the lowest flat face, (0,0,0) mm",
+    "symmetry_axis": "+Z",
+    "z_range_mm": [
+      0,
+      7
+    ],
+    "note": "mesh has z >= 0; top surface at overall height"
+  },
+  "mesh": {
+    "method": "solid_of_revolution",
+    "angular_segments": 192
+  },
+  "color_rgba": [
+    0.1,
+    0.85,
+    0.2,
+    1.0
+  ],
+  "color_name": "bright green",
+  "dimensions": {
+    "outer_diameter_mm": {
+      "value": 139,
+      "status": "measured"
+    },
+    "through_hole_diameter_mm": {
+      "value": 78,
+      "status": "measured",
+      "note": "User-corrected: NOT 88."
+    },
+    "thickness_mm": {
+      "value": 7,
+      "status": "measured"
+    },
+    "radial_width_mm": {
+      "value": 30.5,
+      "status": "derived",
+      "formula": "(outer_diameter - through_hole_diameter) / 2"
+    }
+  },
+  "expected_bounds_mm": [
+    139,
+    139,
+    7
+  ],
+  "ignored_features": [
+    "small screw holes",
+    "backside pattern/texture"
+  ],
+  "references_dir": "references/green_ring/"
+}

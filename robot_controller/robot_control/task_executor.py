@@ -130,6 +130,41 @@ class TaskExecutor:
                 self._go(S.IDLE)
             self._latched = None
 
+    # ------------------------------------------------------------------ speed
+    @property
+    def speed_percent(self) -> Optional[float]:
+        """Current speed as % of the model maximums (None if the config uses absolute values)."""
+        return self.safety_cfg.speed_percent_of_model_max
+
+    def speed_info(self) -> dict:
+        return {"speed_percent": self.speed_percent, "motion_limits": self.motion_limits.model_dump(mode="json"),
+                "min_percent": 1, "max_percent": 100}
+
+    def set_speed_percent(self, percent) -> dict:
+        """Change speed/acceleration to ``percent`` of the robot model's maximums.
+        Refused while a task runs, so a move never changes speed halfway; it applies to the next task."""
+        try:
+            pct = round(float(percent), 1)
+        except (TypeError, ValueError):
+            raise RobotControlError(ErrorCode.VALIDATION_ERROR, f"speed percent must be a number, got {percent!r}")
+        with self._lock:
+            if self._active is not None:
+                raise RobotControlError(ErrorCode.BUSY,
+                                        f"task '{self._active}' is running; change the speed after it finishes")
+            try:
+                new_cfg = SafetyConfig.model_validate({**self.safety_cfg.model_dump(), "speed_percent_of_model_max": pct,
+                                                       "tcp_speed_m_s": None, "tcp_accel_m_s2": None,
+                                                       "joint_speed_rad_s": None, "joint_accel_rad_s2": None})
+            except ValueError:
+                raise RobotControlError(ErrorCode.VALIDATION_ERROR, f"speed must be > 0 and <= 100 %, got {pct:g}")
+            cross_validate(self.robot_cfg, new_cfg, self.scene.cfg)   # never above the model maximums
+            ml = motion_limits(self.robot_cfg, new_cfg)
+            self.c.apply_motion_limits(ml.tcp_speed_m_s, ml.tcp_accel_m_s2, ml.joint_speed_rad_s, ml.joint_accel_rad_s2)
+            self.safety_cfg, self.motion_limits = new_cfg, ml
+            self.policy.safety = new_cfg
+        log.warning("speed set to %g%% (%s)", pct, ml.source)
+        return self.speed_info()
+
     @property
     def latched(self) -> Optional[ErrorInfo]:
         return self._latched
@@ -219,12 +254,15 @@ class TaskExecutor:
         d["latched_error"] = self._latched.model_dump(mode="json") if self._latched else None
         d["capabilities"] = self.c.capabilities().model_dump(mode="json")
         d["motion_limits"] = self.motion_limits.model_dump(mode="json")
+        d["speed_percent"] = self.speed_percent
         return d
 
     # ------------------------------------------------------------------ run loop
     def _run(self, task: TaskRequest, status: TaskStatus) -> None:
         status.started_utc = utc_now()
         status.status = ActionStatus.RUNNING
+        status.speed_percent = self.speed_percent
+        status.motion_limits = self.motion_limits.model_dump(mode="json")
         current: Optional[ActionRequest] = None
         self._cur_status, self._cur_action = status, None
         try:
@@ -232,7 +270,7 @@ class TaskExecutor:
                 self._go(S.IDLE)
             self._go(S.VALIDATING)
             status.state = self.state
-            self._emit(status, None, "INFO", message="validating task (preflight)")
+            self._emit(status, None, "INFO", message=f"validating task (preflight); speed {self.motion_limits.source}")
             self._preflight(task)
             status.plan = self._build_plan(task)
             self._emit(status, None, "INFO", message=f"plan ready: {len(status.plan)} steps", with_feedback=False)
@@ -678,6 +716,8 @@ class TaskExecutor:
             "state": self.state.value, "progress": {"done": done, "total": len(steps)},
             "now": now, "next": nxt, "robot": robot, "steps": steps,
             "motion_limits": self.motion_limits.model_dump(mode="json"),
+            "speed_percent": self.speed_percent,
+            "task_speed_percent": st.speed_percent if st else None,
             "error": st.error.model_dump(mode="json") if st and st.error else None,
         }
 

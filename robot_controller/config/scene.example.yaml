@@ -20,6 +20,23 @@ targets:
   delivery_place:    {pose_m_rad: [-0.45, 0.20, 0.028, 3.14159, 0, 0]}
   delivery_retreat:  {pose_m_rad: [-0.45, 0.20, 0.200, 3.14159, 0, 0]}
 
+  # --- Demo objects (objects/, imported by scripts/import_all.py). SIMULATION PLACEHOLDERS:
+  # positions = display layout in object_specifications.json (Objects_Frame at base [-620,0,0], rz=90).
+  # Grasp = tool-down on the symmetry axis at the object's mid-height (symbolic gripper rule).
+  # NOT taught on a real cell and no real gripper/jaw geometry: re-teach before any real use.
+  blue_bucket_01_approach: {pose_m_rad: [-0.62, -0.24, 0.250, 3.14159, 0, 0]}
+  blue_bucket_01_grasp:    {pose_m_rad: [-0.62, -0.24, 0.0575, 3.14159, 0, 0]}
+  blue_bucket_01_lift:     {pose_m_rad: [-0.62, -0.24, 0.300, 3.14159, 0, 0]}
+  green_ring_02_approach: {pose_m_rad: [-0.62, -0.07, 0.250, 3.14159, 0, 0]}
+  green_ring_02_grasp:    {pose_m_rad: [-0.62, -0.07, 0.0150, 3.14159, 0, 0]}
+  green_ring_02_lift:     {pose_m_rad: [-0.62, -0.07, 0.300, 3.14159, 0, 0]}
+  orange_screw_03_approach: {pose_m_rad: [-0.62, +0.08, 0.250, 3.14159, 0, 0]}
+  orange_screw_03_grasp:    {pose_m_rad: [-0.62, +0.08, 0.0450, 3.14159, 0, 0]}
+  orange_screw_03_lift:     {pose_m_rad: [-0.62, +0.08, 0.300, 3.14159, 0, 0]}
+  white_bucket_lid_04_approach: {pose_m_rad: [-0.62, +0.24, 0.250, 3.14159, 0, 0]}
+  white_bucket_lid_04_grasp:    {pose_m_rad: [-0.62, +0.24, 0.0265, 3.14159, 0, 0]}
+  white_bucket_lid_04_lift:     {pose_m_rad: [-0.62, +0.24, 0.300, 3.14159, 0, 0]}
+
 objects:
   red_cube:
     dimensions_m: [0.05, 0.05, 0.05]
@@ -27,15 +44,62 @@ objects:
     approach_target: pick_approach
     grasp_target: pick_grasp
     lift_target: pick_lift
-    # vision labels mapped to this ID. vite_arancione = the trained model's orange screw (stand-in for testing)
-    class_labels: [red_cube, cube, red cube, cubo rosso, vite_arancione, vite arancione, orange screw]
+    class_labels: [red_cube, cube, red cube, cubo rosso]
     station_item: red_cube
+  blue_bucket_01:   # 139x139x115 mm cup; grasp height = mid-height
+    dimensions_m: [0.139, 0.139, 0.115]
+    # mass_kg: unknown -> shake is refused until a measured mass is added
+    approach_target: blue_bucket_01_approach
+    grasp_target: blue_bucket_01_grasp
+    lift_target: blue_bucket_01_lift
+    class_labels: [secchio_blu, secchio, blue bucket, bucket, Blue_Bucket_01]   # vision model classes first
+    station_item: Blue_Bucket_01
+  green_ring_02:   # 139x139x7 mm ring; grasp at workspace floor z=15 mm (ring centre z=3.5 mm)
+    dimensions_m: [0.139, 0.139, 0.007]
+    # mass_kg: unknown -> shake is refused until a measured mass is added
+    approach_target: green_ring_02_approach
+    grasp_target: green_ring_02_grasp
+    lift_target: green_ring_02_lift
+    class_labels: [anello_verde, anello, green ring, ring, Green_Ring_02]   # vision model classes first
+    station_item: Green_Ring_02
+  orange_screw_03:   # 30x30x90 mm screw; grasp height = mid-height
+    dimensions_m: [0.030, 0.030, 0.090]
+    # mass_kg: unknown -> shake is refused until a measured mass is added
+    approach_target: orange_screw_03_approach
+    grasp_target: orange_screw_03_grasp
+    lift_target: orange_screw_03_lift
+    class_labels: [vite_arancione, vite arancione, vite, orange screw, screw, Orange_Screw_03]   # vision model classes first
+    station_item: Orange_Screw_03
+  white_bucket_lid_04:   # 139x139x53 mm lid; grasp height = mid-height
+    dimensions_m: [0.139, 0.139, 0.053]
+    # mass_kg: unknown -> shake is refused until a measured mass is added
+    approach_target: white_bucket_lid_04_approach
+    grasp_target: white_bucket_lid_04_grasp
+    lift_target: white_bucket_lid_04_lift
+    class_labels: [tappo_bianco, tappo, white lid, lid, White_Bucket_Lid_04]   # vision model classes first
+    station_item: White_Bucket_Lid_04
 
 destinations:
   delivery_zone:
     approach_target: delivery_approach
     place_target: delivery_place
     retreat_target: delivery_retreat
+  blue_bucket_01_slot:      # the object's own spot: place it back where it was picked
+    approach_target: blue_bucket_01_approach
+    place_target: blue_bucket_01_grasp
+    retreat_target: blue_bucket_01_approach
+  green_ring_02_slot:      # the object's own spot: place it back where it was picked
+    approach_target: green_ring_02_approach
+    place_target: green_ring_02_grasp
+    retreat_target: green_ring_02_approach
+  orange_screw_03_slot:      # the object's own spot: place it back where it was picked
+    approach_target: orange_screw_03_approach
+    place_target: orange_screw_03_grasp
+    retreat_target: orange_screw_03_approach
+  white_bucket_lid_04_slot:      # the object's own spot: place it back where it was picked
+    approach_target: white_bucket_lid_04_approach
+    place_target: white_bucket_lid_04_grasp
+    retreat_target: white_bucket_lid_04_approach
 
 patterns:
   gentle_shake:

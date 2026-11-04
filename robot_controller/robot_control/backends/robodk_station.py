@@ -89,6 +89,8 @@ def build_demo_station(robot_cfg: RobotConfig, scene: SceneConfig, port: int = 2
             p = t.pose_m_rad
             tgt.setAsCartesianTarget()
             tgt.setPose(rm.UR_2_Pose([p[0] * 1000, p[1] * 1000, p[2] * 1000, p[3], p[4], p[5]]))
+        tgt.setVisible(False)  # keep targets usable but hide their arrow markers
+    base.setVisible(True, False)  # hide the base frame's XYZ axes
 
     RDK.setCollisionActive(rl.COLLISION_ON)
     RDK.Render(True)

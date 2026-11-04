@@ -49,6 +49,14 @@
   li .tg { color: var(--muted); font-size: 12px; }
   .err { color: var(--bad); margin-top: 8px; }
   .full { grid-column: 1 / -1; }
+  .speedrow { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+  .speedrow input[type=range] { flex: 1; accent-color: var(--accent); }
+  .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+  button { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 6px; cursor: pointer;
+           border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+  button.on { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  .speedtag { display: inline-block; font-size: 12px; font-weight: 600; color: var(--accent); }
   footer { margin-top: 12px; font-size: 12px; }
 </style>
 </head>
@@ -66,7 +74,8 @@
       <div class="big" id="now">–</div>
       <div class="muted mono" id="nowTarget"></div>
       <div class="bar"><i id="prog"></i></div>
-      <div class="muted"><span id="progTxt">0 / 0</span> · state <span class="state" id="state">–</span></div>
+      <div class="muted"><span id="progTxt">0 / 0</span> · state <span class="state" id="state">–</span>
+        · <span class="speedtag" id="taskSpeed">–</span></div>
       <div class="err" id="err"></div>
     </section>
 
@@ -74,6 +83,17 @@
       <h2>Next</h2>
       <div class="big" id="next">–</div>
       <div class="muted mono" id="nextTarget"></div>
+    </section>
+
+    <section class="card">
+      <h2>Speed</h2>
+      <div class="big"><span id="speedVal">–</span><span class="muted" style="font-size:13px;font-weight:400"> of model max</span></div>
+      <div class="speedrow">
+        <input type="range" id="speedRange" min="1" max="100" step="1" value="10" aria-label="speed percent">
+        <button id="speedApply">Set</button>
+      </div>
+      <div class="presets" id="presets"></div>
+      <div class="muted" id="speedMsg" style="margin-top:6px;font-size:12px"></div>
     </section>
 
     <section class="card">
@@ -125,6 +145,8 @@ function render(d) {
   $("next").textContent = d.next ? `[${d.next.index}] ${d.next.description}` : "–";
   $("nextTarget").textContent = stepTarget(d.next);
   $("err").textContent = d.error ? `${d.error.code}: ${d.error.message}` : "";
+  $("taskSpeed").textContent = d.task_speed_percent != null ? `task speed ${d.task_speed_percent}%` : "";
+  renderSpeed(d);
 
   const r = d.robot || {};
   $("tcp").textContent = xyz(r.tcp_m);
@@ -150,6 +172,36 @@ function render(d) {
   if (m) $("limits").textContent =
     `Motion limits: ${m.source} — TCP ${m.tcp_speed_m_s.toFixed(3)} m/s, joints ${(m.joint_speed_rad_s * 57.2958).toFixed(0)}°/s. ` +
     `Simulated feedback only; not proof of physical safety.`;
+}
+
+const PRESETS = [10, 25, 50, 75, 100];
+let editing = false;
+$("presets").innerHTML = PRESETS.map((p) => `<button data-p="${p}">${p}%</button>`).join("");
+$("presets").addEventListener("click", (e) => { const p = e.target.dataset.p; if (p) setSpeed(+p); });
+$("speedRange").addEventListener("input", () => { editing = true; $("speedVal").textContent = $("speedRange").value + "%"; });
+$("speedApply").addEventListener("click", () => setSpeed(+$("speedRange").value));
+
+function renderSpeed(d) {
+  const busy = d.task_status === "RUNNING";
+  document.querySelectorAll("#presets button, #speedApply").forEach((b) => b.disabled = busy);
+  $("speedRange").disabled = busy;
+  if (busy) $("speedMsg").textContent = "Task running — speed can be changed when it finishes.";
+  else if ($("speedMsg").dataset.sticky !== "1") $("speedMsg").textContent = "";
+  if (d.speed_percent == null) { $("speedVal").textContent = "custom"; return; }
+  document.querySelectorAll("#presets button").forEach((b) => b.classList.toggle("on", +b.dataset.p === d.speed_percent));
+  if (!editing) { $("speedVal").textContent = d.speed_percent + "%"; $("speedRange").value = d.speed_percent; }
+}
+
+async function setSpeed(pct) {
+  const msg = $("speedMsg");
+  try {
+    const res = await fetch("/robot/speed", { method: "POST", headers: { "content-type": "application/json" },
+                                              body: JSON.stringify({ percent: pct }) });
+    const body = await res.json();
+    msg.textContent = res.ok ? `Speed set to ${body.speed_percent}%` : (body.error ? body.error.message : `error ${res.status}`);
+  } catch (e) { msg.textContent = "could not reach the controller"; }
+  msg.dataset.sticky = "1"; setTimeout(() => { msg.dataset.sticky = ""; }, 3000);
+  editing = false;
 }
 
 async function poll() {

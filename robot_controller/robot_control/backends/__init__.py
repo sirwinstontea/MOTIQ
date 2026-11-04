@@ -14,6 +14,9 @@ def create_controller(robot: RobotConfig, scene: SceneConfig, backend: str | Non
     if name == "robodk_sim":
         from .robodk_sim import RoboDKSimController
         return RoboDKSimController(robot, scene, **kwargs)
+    if name == "ursim_sync":
+        from .ursim_sync import URSimSyncController
+        return URSimSyncController(robot, scene, **kwargs)
     if name == "physical_disabled":
         from .physical_disabled import PhysicalDisabledController
         return PhysicalDisabledController(robot)

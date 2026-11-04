@@ -2,7 +2,7 @@ export type Status = 'off' | 'connecting' | 'listening' | 'thinking' | 'speaking
 
 export type Line =
   | { id: string; kind: 'user' | 'grok'; text: string }
-  | { id: string; kind: 'tool'; name: string; args: string; ok?: boolean; ms?: number; at?: number }
+  | { id: string; kind: 'tool'; name: string; args: string; ok?: boolean; ms?: number; at?: number; speed?: number }
   | { id: string; kind: 'error'; text: string };
 
 // what the agent is doing, for the activity panel
@@ -14,6 +14,7 @@ export type Trace = {
   detail?: string;
   ok?: boolean;
   ms?: number;
+  speed?: number; // arm speed the task ran at, % of model max
   image?: string; // small jpeg, base64
 };
 

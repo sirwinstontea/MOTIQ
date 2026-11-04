@@ -4,6 +4,8 @@ The app (EXPO_PUBLIC_ARM_URL) speaks the "bridge" protocol:
     GET  /health          -> status of the bridge, the controller and the vision server
     GET  /camera.jpg      -> latest annotated frame from the vision server (arm camera)
     POST /tools/stop      -> cancel the active task + controlled stop
+    GET  /speed           -> current arm speed (% of the UR5e maximums)
+    POST /speed           -> {"percent": 25}: change it (refused while a task runs)
     POST /tools/{name}    -> run one tool, wait for it, return {ok, did, error, ...}
 
 The controller only accepts allowlisted high-level tasks (AI_ACTION_CONTRACT.md) and only on
@@ -239,7 +241,7 @@ class Bridge:
             self.active_task = None
 
         out: dict[str, Any] = {"ok": st["status"] == "SUCCEEDED", "task_id": task_id, "status": st["status"],
-                               "state": st["state"]}
+                               "state": st["state"], "speed_percent": st.get("speed_percent")}
         if out["ok"]:
             out["did"] = did
         else:
@@ -257,6 +259,18 @@ class Bridge:
         except Exception:
             pass
         return out
+
+    def speed(self, percent: Any = None) -> tuple[int, dict]:
+        """Read (percent=None) or set the controller's speed. Returns (http status, body)."""
+        if percent is None:
+            r = self.http.get(f"{self.controller}/robot/speed")
+        else:
+            r = self.http.post(f"{self.controller}/robot/speed", json={"percent": percent})
+        body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+        if r.status_code >= 400:
+            err = body.get("error") or {}
+            return r.status_code, {"ok": False, "error": err.get("message", r.text[:200]), "code": err.get("code")}
+        return 200, {"ok": True, **body}
 
     def stop(self) -> dict:
         res: dict[str, Any] = {"ok": True}
@@ -326,6 +340,7 @@ class Bridge:
             out["controller"] = {"backend": h.get("backend"), "state": st.get("executor_state"),
                                  "mode": st.get("mode"), "gripper": st.get("gripper_state"),
                                  "fault": (st.get("latched_error") or {}).get("message")}
+            out["speed_percent"] = st.get("speed_percent")
         except Exception as e:
             out.update(ok=False, controller={"error": f"unreachable: {e.__class__.__name__}"})
         if self.vision:
@@ -370,6 +385,30 @@ def create_app(bridge: Bridge, key: str) -> FastAPI:
     @app.post("/tools/stop")
     def stop():
         return bridge.stop()
+
+    @app.get("/speed")
+    def get_speed():
+        try:
+            code, body = bridge.speed()
+        except httpx.HTTPError as e:
+            return JSONResponse({"ok": False, "error": f"controller unreachable: {e.__class__.__name__}"}, status_code=502)
+        return JSONResponse(body, status_code=code)
+
+    @app.post("/speed")
+    async def set_speed(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        if not isinstance(body, dict) or body.get("percent") is None:
+            return JSONResponse({"ok": False, "error": 'body must be {"percent": <number>}'}, status_code=400)
+        from starlette.concurrency import run_in_threadpool
+        try:
+            code, res = await run_in_threadpool(bridge.speed, body["percent"])
+        except httpx.HTTPError as e:
+            return JSONResponse({"ok": False, "error": f"controller unreachable: {e.__class__.__name__}"}, status_code=502)
+        log.info("speed -> %s", res.get("speed_percent", res.get("error")))
+        return JSONResponse(res, status_code=code)
 
     @app.post("/tools/{name}")
     async def tool(name: str, request: Request):

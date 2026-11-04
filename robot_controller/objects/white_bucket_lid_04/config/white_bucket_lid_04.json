@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "units": "mm",
+  "stl_units": "mm",
+  "status_legend": {
+    "measured": "confirmed by the user / drawing",
+    "derived": "computed from other fields (validator checks consistency)",
+    "interpreted": "reading of an ambiguous drawing/photo; confirm with a measurement",
+    "estimated": "approximation from photos, NOT measured; edit freely"
+  },
+  "id": "white_bucket_lid_04",
+  "name": "White_Bucket_Lid_04",
+  "description": "Flat circular flange with a truncated cone on top and a central through-hole.",
+  "stl_file": "../model/white_bucket_lid_04.stl",
+  "local_frame": {
+    "origin": "centre of the lowest flat face, (0,0,0) mm",
+    "symmetry_axis": "+Z",
+    "z_range_mm": [
+      0,
+      53
+    ],
+    "note": "mesh has z >= 0; top surface at overall height"
+  },
+  "mesh": {
+    "method": "solid_of_revolution",
+    "angular_segments": 192
+  },
+  "color_rgba": [
+    0.93,
+    0.93,
+    0.93,
+    1.0
+  ],
+  "color_name": "white",
+  "dimensions": {
+    "flange_outer_diameter_mm": {
+      "value": 139,
+      "status": "measured"
+    },
+    "flange_thickness_mm": {
+      "value": 8,
+      "status": "measured"
+    },
+    "total_height_mm": {
+      "value": 53,
+      "status": "measured",
+      "note": "including cone"
+    },
+    "cone_top_outer_diameter_mm": {
+      "value": 50,
+      "status": "measured"
+    },
+    "centre_hole_diameter_mm": {
+      "value": 30,
+      "status": "measured"
+    },
+    "flange_exposed_radial_width_mm": {
+      "value": 25,
+      "status": "interpreted",
+      "note": "drawing's 25 mm read as exposed flange radial width beyond the cone base; confirm by measurement"
+    },
+    "centre_hole_through": {
+      "value": true,
+      "status": "interpreted",
+      "note": "hole runs z=0..53, consistent with photos",
+      "unit": "bool"
+    },
+    "cone_bottom_outer_diameter_mm": {
+      "value": 89,
+      "status": "derived",
+      "note": "NOT separately measured",
+      "formula": "flange_outer_diameter - 2 * flange_exposed_radial_width"
+    },
+    "cone_height_mm": {
+      "value": 45,
+      "status": "derived",
+      "formula": "total_height - flange_thickness"
+    }
+  },
+  "expected_bounds_mm": [
+    139,
+    139,
+    53
+  ],
+  "ignored_features": [
+    "small mounting holes",
+    "surface texture"
+  ],
+  "references_dir": "references/white_lid/"
+}

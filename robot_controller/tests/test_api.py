@@ -69,3 +69,29 @@ def test_serve_refuses_remote_bind_without_password(monkeypatch):
     assert cli.main(["serve", "--backend", "mock", "--host", "0.0.0.0"]) == 2
     monkeypatch.setenv("ROBOT_API_PASSWORD", "short")
     assert cli.main(["serve", "--backend", "mock", "--host", "0.0.0.0"]) == 2
+
+
+def test_speed_default_change_and_per_task_record(make_executor):
+    ex = make_executor()
+    client = TestClient(create_app(ex))
+    assert client.get("/robot/speed").json()["speed_percent"] == 10          # example config default
+    ex.submit(demo_task("slow1"), wait=True)
+    r = client.post("/robot/speed", json={"percent": 40})
+    assert r.status_code == 200 and r.json()["speed_percent"] == 40
+    assert r.json()["motion_limits"]["tcp_speed_m_s"] == 0.4                   # 40% of UR5e 1.0 m/s
+    ex.submit(demo_task("fast1"), wait=True)
+    assert client.get("/tasks/slow1").json()["speed_percent"] == 10           # each task keeps its own speed
+    assert client.get("/tasks/fast1").json()["speed_percent"] == 40
+    assert client.get("/status").json()["task_speed_percent"] == 40
+    for bad in (0, 101, "fast", None):
+        assert client.post("/robot/speed", json={"percent": bad}).status_code == 422
+    assert client.post("/robot/speed", json={}).status_code == 422
+    assert client.get("/robot/speed").json()["speed_percent"] == 40          # rejected values change nothing
+
+
+def test_speed_change_refused_while_task_runs(make_executor):
+    ex = make_executor()
+    ex._active = "busy_task"                     # simulate a running task
+    r = TestClient(create_app(ex)).post("/robot/speed", json={"percent": 50})
+    assert r.status_code == 409 and r.json()["error"]["code"] == "BUSY"
+    assert ex.speed_percent == 10

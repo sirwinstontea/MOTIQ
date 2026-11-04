@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "units": "mm",
+  "description": "Station-level spec for the four demo objects. Per-object geometry lives in each object's config JSON (the editable source of dimensions).",
+  "user_corrections": [
+    "Blue_Bucket_01 outer diameter is 139 mm constant (old 115 mm is wrong)",
+    "Green_Ring_02 through-hole is 78 mm (old 88 mm is wrong)"
+  ],
+  "robodk": {
+    "frame_name": "Objects_Frame",
+    "parent_frame_candidates": [
+      "UR5e Base"
+    ],
+    "parent_fallback": "station root",
+    "frame_pose_mm_deg_when_created": [
+      -620,
+      0,
+      0,
+      0,
+      0,
+      90
+    ],
+    "frame_pose_note": "DISPLAY-ONLY layout. Applied only when Objects_Frame is first created (an existing frame is never moved unless --reset-frame-pose). With rz=90 the row of objects runs along the robot base Y axis at X=-620 mm, beside the demo table's cube/pad. Does NOT prove free space in the real cell.",
+    "no_collision_with": [
+      "table"
+    ]
+  },
+  "objects": [
+    {
+      "id": "blue_bucket_01",
+      "config": "blue_bucket_01/config/blue_bucket_01.json",
+      "display_pose_mm_deg": [
+        -240,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "green_ring_02",
+      "config": "green_ring_02/config/green_ring_02.json",
+      "display_pose_mm_deg": [
+        -70,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "orange_screw_03",
+      "config": "orange_screw_03/config/orange_screw_03.json",
+      "display_pose_mm_deg": [
+        80,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "id": "white_bucket_lid_04",
+      "config": "white_bucket_lid_04/config/white_bucket_lid_04.json",
+      "display_pose_mm_deg": [
+        240,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "pose_convention": "display_pose_mm_deg = [x, y, z, rx, ry, rz] in Objects_Frame; pose = transl(x,y,z) * rotz(rz) * roty(ry) * rotx(rx)"
+}

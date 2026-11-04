@@ -3,6 +3,7 @@
   python -m robot_control.cli demo --backend mock --task examples/pick_shake_place.json
   python -m robot_control.cli setup-station --config config/robot.yaml     # RoboDK demo station
   python -m robot_control.cli demo --backend robodk_sim --task examples/pick_shake_place.json --config config/robot.yaml
+  python -m robot_control.cli demo --backend ursim_sync --task examples/objects/all_objects_pick_place.json   # URSim + RoboDK in sync
   python -m robot_control.cli validate --task examples/invalid_action.json
   python -m robot_control.cli tools          # AI tool list (JSON)
   python -m robot_control.cli serve          # local FastAPI on 127.0.0.1:8765
@@ -36,7 +37,7 @@ def _add_common(ap):
     ap.add_argument("--config", default=None, help="robot config (default config/robot.yaml or robot.example.yaml)")
     ap.add_argument("--scene", default=None)
     ap.add_argument("--safety", default=None)
-    ap.add_argument("--backend", choices=["mock", "robodk_sim", "physical_disabled"], default=None)
+    ap.add_argument("--backend", choices=["mock", "robodk_sim", "ursim_sync", "physical_disabled"], default=None)
     ap.add_argument("--detector", choices=["mock", "none", "vision_file"], default="mock")
     ap.add_argument("--vision-file", default=None, help="MOTIQ vision JSON (FramePayload or logs/selection.json)")
     ap.add_argument("--start-robodk", action="store_true", help="launch RoboDK if it is not running")
@@ -56,7 +57,7 @@ def build_executor(args, on_event=None, on_step=None) -> TaskExecutor:
         except ValueError as e:
             raise RobotControlError(ErrorCode.CONFIG_ERROR, f"invalid --speed-percent: {e}") from e
     backend = args.backend or robot.backend
-    kwargs = {"start_robodk": args.start_robodk} if backend == "robodk_sim" else {}
+    kwargs = {"start_robodk": args.start_robodk} if backend in ("robodk_sim", "ursim_sync") else {}
     controller = create_controller(robot, scene_cfg, backend, **kwargs)
     if args.detector == "mock":
         detector = MockDetector()
@@ -166,6 +167,16 @@ def cmd_setup_station(args) -> int:
     scene_cfg = load_scene_config(args.scene or _default_config("scene"))
     path = build_demo_station(robot, scene_cfg)
     print(f"RoboDK demo station built and saved to {path}")
+    if not args.no_objects:
+        from .sim_objects.robodk_import import run_import
+        print("importing demo objects (objects/object_specifications.json):")
+        if run_import(replace=True, out=lambda m: print("  " + m)) == 0:
+            from .backends.robodk_sim import _import_robodk
+            rl, _ = _import_robodk()
+            rl.Robolink().Save(path)
+            print(f"station with objects saved to {path}")
+        else:
+            print("  object import failed (run `python scripts/generate_all.py` first); station has no demo objects")
     print("NOTE: demo geometry is a stand-in; collision checks are a digital-twin aid only.")
     return 0
 
@@ -208,6 +219,7 @@ def main(argv=None) -> int:
     s = sub.add_parser("setup-station", help="build the RoboDK demo station (simulation only)")
     s.add_argument("--config", default=None)
     s.add_argument("--scene", default=None)
+    s.add_argument("--no-objects", action="store_true", help="don't import the 4 demo objects (objects/)")
     s.set_defaults(fn=cmd_setup_station)
 
     t = sub.add_parser("tools", help="print the AI tool allowlist")

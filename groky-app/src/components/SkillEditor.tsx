@@ -32,10 +32,11 @@ import {
   validateSkill,
 } from '../skills';
 import { dryRun } from '../skills/dryrun';
+import { checkHardware, HardwareReport } from '../skills/hardware';
 import { generateSkill } from '../skills/generate';
 import { Colors, fonts, radius, shadowFloat, type, useStyles, useTheme } from '../theme';
 import SkillPreview from './SkillPreview';
-import { Button, IconButton, Segmented } from './ui';
+import { Button, IconButton, Pill, Segmented } from './ui';
 
 type Props = {
   initial: SkillDoc;
@@ -226,7 +227,7 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
     const v = validateSkill(d);
     if (realArmConnected()) v.warnings.unshift(...realArmProblems(d));
     const run = v.errors.length ? null : dryRun(d);
-    return { v, run };
+    return { v, run, d };
   }, [key]);
 
   const patch = (fn: (d: SkillDoc) => void) =>
@@ -640,6 +641,7 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
                 </View>
 
                 <Checks check={check} />
+                {device === 'arm' && <HardwareCheck check={check} stamp={key} />}
 
                 {doc.steps.length > 0 && (
                   <>
@@ -710,6 +712,131 @@ function Checks({
           <Text style={s.checkText}>{r.text}</Text>
         </View>
       ))}
+    </View>
+  );
+}
+
+// can the real cell (UR5e + its tool + camera) physically run this skill? See src/skills/hardware.ts
+function HardwareCheck({
+  check,
+  stamp,
+}: {
+  check: { v: { errors: string[] }; run: ReturnType<typeof dryRun> | null; d: SkillDoc };
+  stamp: string;
+}) {
+  const { c } = useTheme();
+  const s = useStyles(makeStyles);
+  const [res, setRes] = useState<{ stamp: string; report: HardwareReport | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [more, setMore] = useState(false);
+  const stale = !!res && res.stamp !== stamp;
+  const r = res?.report;
+
+  const runCheck = () => {
+    setBusy(true);
+    // let the spinner paint before the IK scan blocks the JS thread
+    setTimeout(() => {
+      try {
+        setRes({ stamp, report: checkHardware(check.d, check.run) });
+      } finally {
+        setBusy(false);
+      }
+    }, 30);
+  };
+
+  const row = (tone: 'bad' | 'warn' | 'ok' | 'dim', text: string, k: string | number) => (
+    <View key={k} style={s.checkRow}>
+      <Ionicons
+        name={
+          tone === 'bad'
+            ? 'close-circle'
+            : tone === 'warn'
+              ? 'alert-circle'
+              : tone === 'ok'
+                ? 'checkmark-circle'
+                : 'ellipse-outline'
+        }
+        size={14}
+        color={tone === 'bad' ? c.bad : tone === 'warn' ? c.warn : tone === 'ok' ? c.ok : c.dim}
+        style={{ marginTop: 1 }}
+      />
+      <Text style={s.checkText}>{text}</Text>
+    </View>
+  );
+  const where = (step?: number) => (step === undefined ? '' : `Step ${step + 1}: `);
+
+  return (
+    <View style={{ marginTop: 16, gap: 6 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Text style={[s.label, { marginTop: 0, flex: 1 }]}>Hardware check</Text>
+        {r && !stale && (
+          <Pill label={r.verdict === 'yes' ? 'YES' : 'NO'} tone={r.verdict === 'yes' ? 'ok' : 'bad'} dot />
+        )}
+        {stale && <Pill label="Outdated" tone="warn" />}
+        <Button
+          label={res ? 'Re-check' : 'Check hardware'}
+          size="sm"
+          icon="hardware-chip-outline"
+          loading={busy}
+          disabled={check.v.errors.length > 0}
+          onPress={runCheck}
+        />
+      </View>
+      {!res && (
+        <Text style={s.hint}>
+          Can the real cell (UR5e, its tool and the vision camera) physically run this skill? Checks reach, joint
+          limits, tool, payload, camera and the robot claims in the skill.
+        </Text>
+      )}
+      {r && (
+        <View style={{ gap: 6, opacity: stale ? 0.5 : 1 }}>
+          <Text style={s.checkText}>{r.summary}</Text>
+          {r.blockers.map((b, i) => row('bad', `${where(b.step)}${b.message}`, `b${i}`))}
+          {r.needs.length > 0 && <Text style={[s.label, { marginTop: 4 }]}>Information needed</Text>}
+          {r.needs.map((n, i) => row('warn', n, `n${i}`))}
+          <Pressable onPress={() => setMore((m) => !m)} hitSlop={6}>
+            <Text style={[s.hint, { color: c.accent }]}>
+              {more
+                ? 'Hide details'
+                : `Show conditions, numbers and per-step results (${r.conditions.length} conditions)`}
+            </Text>
+          </Pressable>
+          {more && (
+            <>
+              <Text style={[s.label, { marginTop: 4 }]}>Holds only if</Text>
+              {r.conditions.map((t, i) => row('dim', t, `c${i}`))}
+              <Text style={[s.label, { marginTop: 4 }]}>Steps</Text>
+              {r.steps.map((st) =>
+                st.findings
+                  .filter((f) => f.status !== 'fail')
+                  .map((f, i) =>
+                    row(
+                      f.status === 'pass' ? 'ok' : f.status === 'info' ? 'dim' : 'warn',
+                      `Step ${st.index + 1} · ${f.check.replace(/_/g, ' ')}: ${f.message}`,
+                      `s${st.index}-${i}`,
+                    ),
+                  ),
+              )}
+              {r.global
+                .filter((f) => f.status !== 'fail')
+                .map((f, i) =>
+                  row(
+                    f.status === 'pass' ? 'ok' : f.status === 'info' ? 'dim' : 'warn',
+                    `${f.check.replace(/_/g, ' ')}: ${f.message}`,
+                    `g${i}`,
+                  ),
+                )}
+              <Text style={[s.label, { marginTop: 4 }]}>Key numbers</Text>
+              {Object.entries(r.metrics).map(([k, v]) => row('dim', `${k}: ${v}`, `m${k}`))}
+              <Text style={[s.label, { marginTop: 4 }]}>Assumed</Text>
+              {r.assumptions.map((t, i) => row('dim', t, `a${i}`))}
+              <Text style={s.hint}>
+                {r.robot} · {r.tool} · {r.camera}. Hardware capability only, not a safety approval.
+              </Text>
+            </>
+          )}
+        </View>
+      )}
     </View>
   );
 }

@@ -84,7 +84,10 @@ function Row({ line }: { line: Line }) {
           {line.name}
           <Text style={{ color: c.faint }}> {line.args !== '{}' ? line.args : ''}</Text>
         </Text>
-        <Text style={s.toolMs}>{line.ms != null ? `${line.ms}ms` : '...'}</Text>
+        <Text style={s.toolMs}>
+          {line.speed != null && <Text style={{ color: c.accent }}>{line.speed}% · </Text>}
+          {line.ms != null ? `${line.ms}ms` : '...'}
+        </Text>
       </View>
     );
   }

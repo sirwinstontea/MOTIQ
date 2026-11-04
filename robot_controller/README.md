@@ -7,6 +7,7 @@ actions** (`identify_object`, `pick_object`, `shake_object`, `place_object`, …
 |---|---|---|
 | `mock` | Pure-Python, deterministic simulator with fault injection. Doesn't need RoboDK. | simulated |
 | `robodk_sim` | The RoboDK digital twin: a UR5e in a demo station, forced to `RUNMODE_SIMULATE` | simulated |
+| `ursim_sync` | RoboDK plans and collision-checks each segment, **URSim** (the UR controller software in Docker, localhost only) executes it over RTDE, and RoboDK mirrors URSim's live joints | simulated (2 simulators in sync) |
 | `physical_disabled` | The interface a future hardware adapter would plug into | **refused** (`PHYSICAL_BACKEND_DISABLED`) |
 
 > **No robot hardware can be moved by this revision.** Simulation results, including RoboDK collision
@@ -49,15 +50,67 @@ follow it in four places:
 
 ### Speed
 
-`config/safety.example.yaml` sets `speed_percent_of_model_max: 25`. The four motion limits are 25% of the model's
-maximums in `robot.*.yaml` (UR5e: TCP 0.25 m/s, 0.5 m/s²; joints 0.785 rad/s = 45°/s, 1.0 rad/s²). Joint speed is
-scaled from the slowest joint's maximum. Override a single run with `--speed-percent 10`. Values outside
+`config/safety.example.yaml` sets `speed_percent_of_model_max: 10` (the startup default). The four motion limits are
+10% of the model's maximums in `robot.*.yaml` (UR5e: TCP 0.10 m/s, 0.2 m/s²; joints 0.314 rad/s = 18°/s, 0.4 rad/s²).
+Joint speed is scaled from the slowest joint's maximum. Override at startup with `--speed-percent 25`, or change it
+live (between tasks) with the dashboard's Speed card, the app's arm card, or
+`curl -X POST localhost:8765/robot/speed -H 'content-type: application/json' -d '{"percent": 25}'`
+(`GET /robot/speed` reads it; a change is refused with 409 while a task runs). Every task records the speed it ran
+at (`speed_percent` in `GET /tasks/{id}`). Values outside
 0 < p ≤ 100, or setting both a percentage and absolute values, are rejected as `CONFIG_ERROR`.
 RoboDK plays simulations at 5× real time by default (Tools → Options → Motion → Simulation speed), so set
 it to 1× to see real-time motion.
 
 Run `setup-station` again to reset the cube to its pick position. If you re-run the demo while the cube is
 still on the delivery pad, the controller **correctly fails** with `GRIP_NOT_CONFIRMED` and latches FAULT.
+
+### Synchronized runs: URSim + RoboDK (`ursim_sync`)
+
+Every task can run on URSim and RoboDK in lock-step. For each segment:
+
+1. RoboDK resolves the target, solves IK and runs the collision test.
+2. URSim executes the move (`moveJ`, or `moveL_FK` for linear moves) at the configured speed.
+3. While URSim moves, its *actual* joints are streamed into RoboDK at 50 Hz, so held objects follow.
+
+Before each move, URSim must be RUNNING with safety NORMAL, and both robots must agree to within 0.5°. After
+each move, URSim must have reached the planned joints and RoboDK must match URSim. On connect, RoboDK is
+re-synced from URSim. The TCP is set to the same 150 mm offset on both, so their TCP readouts match.
+
+`ursim_host` must be a loopback address, so **this backend cannot drive a physical arm**.
+
+```bash
+# URSim running (see ursim/README.md), powered on + brakes released; RoboDK running
+python -m pip install ur_rtde
+python -m robot_control.cli setup-station --config config/robot.yaml          # station + targets + 4 demo objects
+python -m robot_control.cli demo --backend ursim_sync --config config/robot.yaml --task examples/objects/all_objects_pick_place.json
+RUN_URSIM_TESTS=1 python -m pytest -m integration tests/test_ursim_sync_smoke.py -q
+python scripts/mirror_ursim_to_robodk.py        # read-only live mirror (e.g. while jogging in PolyScope)
+```
+
+### Tasks for the demo objects (`examples/objects/`)
+
+| Task | Actions |
+|---|---|
+| `<object>_pick_place.json` (one per object) | identify → pick from its slot → place back in its slot → home |
+| `all_objects_pick_place.json` | the same for all four in turn (13 actions), then home |
+
+The objects are `blue_bucket_01`, `green_ring_02`, `orange_screw_03` and `white_bucket_lid_04`. Placing each
+object back in its own slot makes the tasks repeatable without a reset. Vision labels map to the objects:
+`secchio_blu`, `anello_verde`, `vite_arancione` and `tappo_bianco`. `vite_arancione` no longer maps to
+`red_cube`. Grasp targets are **simulation placeholders**: tool-down on the object axis at mid-height, which is
+what the symbolic gripper needs. They were not taught on a real cell and use no real jaw geometry. The masses are
+unknown, so `shake_object` is refused for these objects until a measured `mass_kg` is added to the scene.
+
+### Demo objects (blue bucket, green ring, orange screw, white lid)
+
+Four coloured, watertight STL models (in mm) for the RoboDK station. See [objects/README.md](objects/README.md).
+
+```bash
+python -m pip install -e '.[objects,robodk]'
+python scripts/generate_all.py && python scripts/validate_all.py -q
+python scripts/import_all.py --dry-run      # no RoboDK contact
+python scripts/import_all.py                # adds them to the open station under Objects_Frame (skips duplicates)
+```
 
 ## Layout
 

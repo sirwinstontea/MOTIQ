@@ -105,6 +105,21 @@ def create_app(ex: TaskExecutor, *, auth: tuple[str, str] | None = None) -> Fast
     def cancel(task_id: str):
         return ex.cancel(task_id).model_dump(mode="json", exclude={"events"})
 
+    @app.get("/robot/speed")
+    def get_speed():
+        return ex.speed_info()
+
+    @app.post("/robot/speed")
+    async def set_speed(request: Request):
+        """Body: {"percent": 25}. Speed/accel as % of the model maximums; refused (409) while a task runs."""
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        if not isinstance(body, dict) or "percent" not in body:
+            raise RobotControlError(ErrorCode.VALIDATION_ERROR, 'body must be {"percent": <number>}')
+        return ex.set_speed_percent(body["percent"])
+
     @app.post("/robot/stop")
     def stop():
         ex.stop_robot()

@@ -1,0 +1,97 @@
+{
+  "schema_version": "1.0",
+  "task_id": "all_objects_pick_place",
+  "actions": [
+    {
+      "action_id": "a1",
+      "action": "identify_object",
+      "parameters": {
+        "object_id": "blue_bucket_01"
+      }
+    },
+    {
+      "action_id": "a2",
+      "action": "pick_object",
+      "parameters": {
+        "object_id": "blue_bucket_01"
+      }
+    },
+    {
+      "action_id": "a3",
+      "action": "place_object",
+      "parameters": {
+        "destination_id": "blue_bucket_01_slot"
+      }
+    },
+    {
+      "action_id": "a4",
+      "action": "identify_object",
+      "parameters": {
+        "object_id": "green_ring_02"
+      }
+    },
+    {
+      "action_id": "a5",
+      "action": "pick_object",
+      "parameters": {
+        "object_id": "green_ring_02"
+      }
+    },
+    {
+      "action_id": "a6",
+      "action": "place_object",
+      "parameters": {
+        "destination_id": "green_ring_02_slot"
+      }
+    },
+    {
+      "action_id": "a7",
+      "action": "identify_object",
+      "parameters": {
+        "object_id": "orange_screw_03"
+      }
+    },
+    {
+      "action_id": "a8",
+      "action": "pick_object",
+      "parameters": {
+        "object_id": "orange_screw_03"
+      }
+    },
+    {
+      "action_id": "a9",
+      "action": "place_object",
+      "parameters": {
+        "destination_id": "orange_screw_03_slot"
+      }
+    },
+    {
+      "action_id": "a10",
+      "action": "identify_object",
+      "parameters": {
+        "object_id": "white_bucket_lid_04"
+      }
+    },
+    {
+      "action_id": "a11",
+      "action": "pick_object",
+      "parameters": {
+        "object_id": "white_bucket_lid_04"
+      }
+    },
+    {
+      "action_id": "a12",
+      "action": "place_object",
+      "parameters": {
+        "destination_id": "white_bucket_lid_04_slot"
+      }
+    },
+    {
+      "action_id": "a13",
+      "action": "perform_motion",
+      "parameters": {
+        "motion_id": "go_home"
+      }
+    }
+  ]
+}

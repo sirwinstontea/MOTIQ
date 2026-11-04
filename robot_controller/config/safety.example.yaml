@@ -1,10 +1,11 @@
 # Conservative EXAMPLE software limits. This is software risk reduction only,
 # NOT a certified safety configuration. Real cells rely on the robot's certified
 # safety functions, protective devices, risk assessment and a responsible operator.
-allowed_backends: [mock, robodk_sim]   # physical motion is not possible in this build
+allowed_backends: [mock, robodk_sim, ursim_sync]   # ursim_sync = URSim on localhost; physical motion is not possible in this build
 # Speed: ONE percentage of the robot model's maximums (limits in robot.*.yaml).
-# UR5e @ 25%: TCP 0.25 m/s, 0.5 m/s^2; joints 0.785 rad/s (45 deg/s), 1.0 rad/s^2.
-speed_percent_of_model_max: 25
+# This is the startup default; change it live with POST /robot/speed (dashboard or app).
+# UR5e @ 10%: TCP 0.10 m/s, 0.2 m/s^2; joints 0.314 rad/s (18 deg/s), 0.4 rad/s^2.
+speed_percent_of_model_max: 10
 # Alternative (remove the line above): all four absolute values.
 # tcp_speed_m_s: 0.25
 # tcp_accel_m_s2: 0.5

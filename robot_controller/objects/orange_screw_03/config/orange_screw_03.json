@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "units": "mm",
+  "stl_units": "mm",
+  "status_legend": {
+    "measured": "confirmed by the user / drawing",
+    "derived": "computed from other fields (validator checks consistency)",
+    "interpreted": "reading of an ambiguous drawing/photo; confirm with a measurement",
+    "estimated": "approximation from photos, NOT measured; edit freely"
+  },
+  "id": "orange_screw_03",
+  "name": "Orange_Screw_03",
+  "description": "APPROXIMATE model: ribbed solid of revolution (annular ridges, not a helical thread) with a smooth upper collar around a blind top cavity. Only length and max diameter are measured.",
+  "stl_file": "../model/orange_screw_03.stl",
+  "local_frame": {
+    "origin": "centre of the lowest flat face, (0,0,0) mm",
+    "symmetry_axis": "+Z",
+    "z_range_mm": [
+      0,
+      90
+    ],
+    "note": "mesh has z >= 0; top surface at overall height"
+  },
+  "mesh": {
+    "method": "solid_of_revolution",
+    "angular_segments": 192
+  },
+  "color_rgba": [
+    1.0,
+    0.38,
+    0.02,
+    1.0
+  ],
+  "color_name": "vivid orange",
+  "dimensions": {
+    "total_length_mm": {
+      "value": 90,
+      "status": "measured"
+    },
+    "max_outer_diameter_mm": {
+      "value": 30,
+      "status": "measured",
+      "note": "hard limit: no radius may exceed half of this"
+    },
+    "rib_peak_diameter_mm": {
+      "value": 30,
+      "status": "interpreted",
+      "note": "ribs assumed to reach the max outer diameter"
+    },
+    "upper_collar_diameter_mm": {
+      "value": 30,
+      "status": "interpreted",
+      "note": "collar assumed to be at max outer diameter"
+    },
+    "rib_count": {
+      "value": 8,
+      "status": "estimated",
+      "note": "count (dimensionless), from photos",
+      "unit": "count"
+    },
+    "valley_diameter_mm": {
+      "value": 23,
+      "status": "estimated"
+    },
+    "upper_collar_length_mm": {
+      "value": 12,
+      "status": "estimated"
+    },
+    "lower_end_length_mm": {
+      "value": 5,
+      "status": "estimated"
+    },
+    "lower_end_diameter_mm": {
+      "value": 26,
+      "status": "estimated",
+      "note": "smooth lower end; diameter not given in brief"
+    },
+    "cavity_opening_diameter_mm": {
+      "value": 22,
+      "status": "estimated"
+    },
+    "cavity_depth_mm": {
+      "value": 9,
+      "status": "estimated",
+      "note": "blind cavity depth from top face"
+    },
+    "bottom_closed": {
+      "value": true,
+      "status": "interpreted",
+      "note": "bottom modelled closed (no through-hole)",
+      "unit": "bool"
+    },
+    "rib_flank_fraction": {
+      "value": 0.3,
+      "status": "estimated",
+      "note": "fraction of rib pitch for each sloping flank",
+      "unit": "ratio"
+    },
+    "rib_peak_fraction": {
+      "value": 0.25,
+      "status": "estimated",
+      "note": "fraction of rib pitch for the flat peak; valley gets the rest",
+      "unit": "ratio"
+    },
+    "rib_zone_length_mm": {
+      "value": 73,
+      "status": "derived",
+      "formula": "total_length - upper_collar_length - lower_end_length"
+    },
+    "rib_pitch_mm": {
+      "value": 9.125,
+      "status": "derived",
+      "formula": "rib_zone_length / rib_count"
+    }
+  },
+  "expected_bounds_mm": [
+    30,
+    30,
+    90
+  ],
+  "fit_note": "Max outside diameter 30 mm equals White_Bucket_Lid_04 centre-hole 30 mm: zero nominal clearance. Insertion feasibility is NOT established.",
+  "ignored_features": [
+    "helical thread (not modelled unless measurements require it)",
+    "rib edge rounding"
+  ],
+  "references_dir": "references/orange_screw/"
+}

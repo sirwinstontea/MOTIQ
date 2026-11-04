@@ -211,6 +211,7 @@ def test_speed_percent_uses_slowest_joint(safety_dict):
     from tests.conftest import CFG
     from robot_control.config import motion_limits
     ur3 = RobotConfig.model_validate(yaml.safe_load((CFG / "robot.ur3e.example.yaml").read_text()))
+    safety_dict["speed_percent_of_model_max"] = 25
     ml = motion_limits(ur3, SafetyConfig.model_validate(safety_dict))
     assert ml.joint_speed_rad_s == pytest.approx(0.25 * math.pi, abs=1e-4)   # wrists are faster; base joints bound it
 

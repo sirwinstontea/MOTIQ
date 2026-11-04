@@ -330,6 +330,8 @@ class TaskStatus(Strict):
     events: list[Event] = Field(default_factory=list)
     plan: list[PlanStep] = Field(default_factory=list)
     current_step: Optional[int] = None
+    speed_percent: Optional[float] = None          # speed this task ran at (% of model max)
+    motion_limits: Optional[dict] = None            # effective m/s, rad/s values for this task
     error: Optional[ErrorInfo] = None
     started_utc: Optional[str] = None
     finished_utc: Optional[str] = None

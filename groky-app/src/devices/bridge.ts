@@ -90,6 +90,25 @@ async function runArmTool(name: string, args: Record<string, unknown>, url: stri
   return runArm(name.toUpperCase(), args, armSend());
 }
 
+// arm speed lives in robot_controller (% of the UR5e maximums, default 10). Changes apply from the next task.
+export async function getArmSpeed(): Promise<ToolResult & { speed_percent?: number }> {
+  const url = devices.arm.url;
+  if (!url) return { ok: false, sim: true, error: 'arm is simulated' };
+  try {
+    const res = await request(`${url}/speed`, {}, 3000);
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, ...data };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message ?? e) };
+  }
+}
+
+export async function setArmSpeed(percent: number): Promise<ToolResult & { speed_percent?: number }> {
+  const url = devices.arm.url;
+  if (!url) return { ok: false, sim: true, error: 'arm is simulated' };
+  return post(`${url}/speed`, { percent }, 5000);
+}
+
 export async function ping(id: DeviceId): Promise<Health> {
   const url = devices[id].url;
   if (!url) return { state: 'sim', info: simInfo(id) };

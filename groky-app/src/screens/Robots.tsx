@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { devices, DeviceId, stopDevice } from '../devices';
+import { devices, DeviceId, getArmSpeed, setArmSpeed, stopDevice } from '../devices';
 import { useDevices } from '../hooks/useDevices';
 import type { Line } from '../voice/types';
-import { Button, IconChip, Pill } from '../components/ui';
+import { Button, IconButton, IconChip, Pill } from '../components/ui';
 import { Colors, fonts, radius, type, useStyles, useTheme } from '../theme';
 import { ago } from '../lib/time';
 
@@ -43,7 +43,7 @@ function Card({ id, lines }: { id: DeviceId; lines: Line[] }) {
   const running = actions.find((a) => a.ok === undefined);
   const recent = actions.slice(-5).reverse();
 
-  const info = Object.entries(st.info ?? {}).filter(([k]) => k !== 'ok');
+  const info = Object.entries(st.info ?? {}).filter(([k]) => k !== 'ok' && k !== 'speed_percent');
   const battery = typeof st.info?.battery === 'number' ? (st.info.battery as number) : null;
 
   const stop = async () => {
@@ -84,6 +84,8 @@ function Card({ id, lines }: { id: DeviceId; lines: Line[] }) {
         <Stat label="avg time" value={avg != null ? `${avg}ms` : '—'} />
         <Stat label="now" value={running ? running.name.slice(id.length + 1) : 'idle'} hot />
       </View>
+
+      {id === 'arm' && <ArmSpeed online={st.state === 'online'} busy={!!running} />}
 
       <View>
         {battery != null && (
@@ -126,9 +128,105 @@ function Card({ id, lines }: { id: DeviceId; lines: Line[] }) {
             {a.name.slice(id.length + 1)}
             <Text style={{ color: c.faint }}> {a.args !== '{}' ? a.args : ''}</Text>
           </Text>
-          <Text style={s.actionMeta}>{a.ms != null ? `${a.ms}ms · ${ago(a.at)}` : 'running'}</Text>
+          <Text style={s.actionMeta}>
+            {a.speed != null && <Text style={{ color: c.accent }}>{a.speed}% · </Text>}
+            {a.ms != null ? `${a.ms}ms · ${ago(a.at)}` : 'running'}
+          </Text>
         </View>
       ))}
+    </View>
+  );
+}
+
+const PRESETS = [10, 25, 50, 100];
+const STEP = 5;
+
+// arm speed as % of the UR5e maximums (default 10). The controller applies it from the next task
+// and refuses changes while a task is moving.
+function ArmSpeed({ online, busy }: { online: boolean; busy: boolean }) {
+  const { c } = useTheme();
+  const s = useStyles(makeStyles);
+  const [speed, setSpeed] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ text: string; bad?: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!online) return;
+    let alive = true;
+    const load = () =>
+      getArmSpeed().then((r) => alive && typeof r.speed_percent === 'number' && setSpeed(r.speed_percent));
+    load();
+    const t = setInterval(load, 5000); // picks up changes made from the dashboard
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [online]);
+
+  const apply = async (pct: number) => {
+    const next = Math.max(1, Math.min(100, Math.round(pct)));
+    if (next === speed) return;
+    Haptics.selectionAsync();
+    setSaving(true);
+    const r = await setArmSpeed(next);
+    setSaving(false);
+    if (r.ok && typeof r.speed_percent === 'number') {
+      setSpeed(r.speed_percent);
+      setMsg({ text: `Next tasks run at ${r.speed_percent}%` });
+    } else setMsg({ text: String(r.error ?? 'could not change speed'), bad: true });
+    setTimeout(() => setMsg(null), 4000);
+  };
+
+  if (!online) {
+    return (
+      <View style={s.speedBox}>
+        <Text style={s.k}>speed</Text>
+        <Text style={s.speedHint}>connect the arm bridge to adjust (default 10%)</Text>
+      </View>
+    );
+  }
+
+  const locked = busy || saving || speed == null;
+  return (
+    <View style={s.speedBox}>
+      <View style={s.speedHead}>
+        <Text style={s.k}>speed</Text>
+        <View style={{ flex: 1 }} />
+        <IconButton
+          icon="remove"
+          size={30}
+          label="Slower"
+          disabled={locked || (speed ?? 0) <= 1}
+          onPress={() => apply((speed ?? 10) - STEP)}
+        />
+        <Text style={s.speedValue}>{speed != null ? `${speed}%` : '—'}</Text>
+        <IconButton
+          icon="add"
+          size={30}
+          label="Faster"
+          disabled={locked || (speed ?? 100) >= 100}
+          onPress={() => apply((speed ?? 10) + STEP)}
+        />
+      </View>
+      <View style={s.track}>
+        <View style={[s.fill, { width: `${speed ?? 0}%`, backgroundColor: (speed ?? 0) > 50 ? c.warn : c.accent }]} />
+      </View>
+      <View style={s.presets}>
+        {PRESETS.map((p) => (
+          <Button
+            key={p}
+            label={`${p}%`}
+            size="sm"
+            variant={p === speed ? 'primary' : 'secondary'}
+            disabled={locked}
+            onPress={() => apply(p)}
+            style={{ flex: 1 }}
+          />
+        ))}
+      </View>
+      <Text style={[s.speedHint, msg?.bad && { color: c.bad }]}>
+        {busy ? 'task running - change the speed when it finishes' : (msg?.text ?? '% of the UR5e maximum speed')}
+      </Text>
     </View>
   );
 }
@@ -175,6 +273,13 @@ const makeStyles = (c: Colors) =>
     battTrack: { flex: 1, height: 4, borderRadius: 2, backgroundColor: c.hover, overflow: 'hidden' },
     battFill: { height: 4, borderRadius: 2 },
     overline: { ...type.overline, color: c.faint, marginTop: 4 },
+    speedBox: { backgroundColor: c.panelHi, borderRadius: radius.md, padding: 12, gap: 8 },
+    speedHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    speedValue: { ...type.stat, color: c.text, minWidth: 56, textAlign: 'center' },
+    speedHint: { ...type.caption, fontSize: 11, color: c.faint },
+    track: { height: 4, borderRadius: 2, backgroundColor: c.hover, overflow: 'hidden' },
+    fill: { height: 4, borderRadius: 2 },
+    presets: { flexDirection: 'row', gap: 6 },
     empty: { ...type.caption, fontSize: 12, color: c.faint },
     dot: { width: 6, height: 6, borderRadius: 3 },
     action: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 2 },

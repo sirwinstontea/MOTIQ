@@ -95,11 +95,14 @@ export default function Activity({ traces, status }: { traces: Trace[]; status: 
                   <Image source={{ uri: `data:image/jpeg;base64,${item.image}` }} style={s.thumb} resizeMode="cover" />
                 )}
               </View>
-              {running ? (
-                <Pill label="running" tone="accent" />
-              ) : item.ms != null ? (
-                <Text style={s.ms}>{secs(item.ms)}</Text>
-              ) : null}
+              <View style={s.side}>
+                {running ? (
+                  <Pill label="running" tone="accent" />
+                ) : item.ms != null ? (
+                  <Text style={s.ms}>{secs(item.ms)}</Text>
+                ) : null}
+                {item.speed != null && <Pill label={`${item.speed}% speed`} />}
+              </View>
             </View>
           );
         }}
@@ -169,5 +172,6 @@ const makeStyles = (c: Colors) =>
     rowSub: { ...type.caption, color: c.faint, marginTop: 2 },
     code: { fontFamily: fonts.mono },
     ms: { ...type.caption, color: c.faint },
+    side: { alignItems: 'flex-end', gap: 4 },
     thumb: { width: 140, height: 90, borderRadius: radius.sm, marginTop: 6, backgroundColor: c.page },
   });

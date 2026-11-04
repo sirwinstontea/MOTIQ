@@ -1,0 +1,759 @@
+[
+  {
+    "id": "blue_bucket_01",
+    "name": "Blue_Bucket_01",
+    "passed": true,
+    "stats": {
+      "vertices": 770,
+      "faces": 1536,
+      "volume_mm3": 818427.29,
+      "bounds_mm": [
+        [
+          -69.5,
+          -69.5,
+          0.0
+        ],
+        [
+          69.5,
+          69.5,
+          115.0
+        ]
+      ],
+      "winding_flipped_during_build": true,
+      "angular_segments": 192,
+      "stl_file": "/home/aman/Desktop/I Cavalli Hack/MOTIQ/robot_controller/objects/blue_bucket_01/model/blue_bucket_01.stl",
+      "stl_validated": "yes"
+    },
+    "checks": [
+      {
+        "name": "derived field wall_thickness_mm consistent",
+        "passed": true,
+        "detail": "stored 17.0, computed 17"
+      },
+      {
+        "name": "derived field inner_depth_mm consistent",
+        "passed": true,
+        "detail": "stored 107.0, computed 107"
+      },
+      {
+        "name": "expected_bounds_mm consistent with dimensions",
+        "passed": true,
+        "detail": "recorded [139.0, 139.0, 115.0], from dimensions [139.0, 139.0, 115.0]"
+      },
+      {
+        "name": "every dimension has a provenance status",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "generated: watertight",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "generated: winding consistent",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "generated: is_volume (outward normals, closed, manifold)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "generated: positive volume",
+        "passed": true,
+        "detail": "818427.3 mm^3"
+      },
+      {
+        "name": "generated: no degenerate faces",
+        "passed": true,
+        "detail": "min face area 1.460e+01 mm^2"
+      },
+      {
+        "name": "generated: AABB matches expected (origin at bottom-centre, z>=0)",
+        "passed": true,
+        "detail": "min [-69.5, -69.5, 0.0] max [69.5, 69.5, 115.0] mm; expected extents [139.0, 139.0, 115.0] mm"
+      },
+      {
+        "name": "generated: unit scale is millimetres (not metres)",
+        "passed": true,
+        "detail": "extent/expected ratio [1.0, 1.0, 1.0]"
+      },
+      {
+        "name": "generated volume matches analytic solid of revolution",
+        "passed": true,
+        "detail": "mesh 818427.3 vs analytic 818573.4 mm^3 (polygon factor 0.999822)"
+      },
+      {
+        "name": "open mouth: axis ray from above first meets the inner floor",
+        "passed": true,
+        "detail": "axis crossings at z=[8.0, 0.0] mm (floor expected at z=8.0)"
+      },
+      {
+        "name": "sealed bottom: exactly 2 axis crossings (floor top + base)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "cavity is empty (point on axis at mid-depth is outside the solid)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "mouth not capped (point just below rim on axis is outside)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "floor is solid (point inside bottom slab)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "wall is solid (point mid-wall)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "rim face is an annulus (no top face inside the opening)",
+        "passed": true,
+        "detail": "min radius of top-face centroids 58.16 mm, opening radius 52.5"
+      },
+      {
+        "name": "STL on disk: watertight",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: winding consistent",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: is_volume (outward normals, closed, manifold)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: positive volume",
+        "passed": true,
+        "detail": "818427.3 mm^3"
+      },
+      {
+        "name": "STL on disk: no degenerate faces",
+        "passed": true,
+        "detail": "min face area 1.460e+01 mm^2"
+      },
+      {
+        "name": "STL on disk: AABB matches expected (origin at bottom-centre, z>=0)",
+        "passed": true,
+        "detail": "min [-69.5, -69.5, 0.0] max [69.5, 69.5, 115.0] mm; expected extents [139.0, 139.0, 115.0] mm"
+      },
+      {
+        "name": "STL on disk: unit scale is millimetres (not metres)",
+        "passed": true,
+        "detail": "extent/expected ratio [1.0, 1.0, 1.0]"
+      },
+      {
+        "name": "STL on disk is up to date with config (volume, face count)",
+        "passed": true,
+        "detail": "STL 1536 faces / 818427.3 mm^3 vs config 1536 / 818427.3"
+      },
+      {
+        "name": "STL on disk: open mouth: axis ray from above first meets the inner floor",
+        "passed": true,
+        "detail": "axis crossings at z=[8.0, 0.0] mm (floor expected at z=8.0)"
+      },
+      {
+        "name": "STL on disk: sealed bottom: exactly 2 axis crossings (floor top + base)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: cavity is empty (point on axis at mid-depth is outside the solid)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: mouth not capped (point just below rim on axis is outside)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: floor is solid (point inside bottom slab)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: wall is solid (point mid-wall)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: rim face is an annulus (no top face inside the opening)",
+        "passed": true,
+        "detail": "min radius of top-face centroids 58.16 mm, opening radius 52.5"
+      }
+    ]
+  },
+  {
+    "id": "green_ring_02",
+    "name": "Green_Ring_02",
+    "passed": true,
+    "stats": {
+      "vertices": 768,
+      "faces": 1536,
+      "volume_mm3": 72761.22,
+      "bounds_mm": [
+        [
+          -69.5,
+          -69.5,
+          0.0
+        ],
+        [
+          69.5,
+          69.5,
+          7.0
+        ]
+      ],
+      "winding_flipped_during_build": true,
+      "angular_segments": 192,
+      "stl_file": "/home/aman/Desktop/I Cavalli Hack/MOTIQ/robot_controller/objects/green_ring_02/model/green_ring_02.stl",
+      "stl_validated": "yes"
+    },
+    "checks": [
+      {
+        "name": "derived field radial_width_mm consistent",
+        "passed": true,
+        "detail": "stored 30.5, computed 30.5"
+      },
+      {
+        "name": "expected_bounds_mm consistent with dimensions",
+        "passed": true,
+        "detail": "recorded [139.0, 139.0, 7.0], from dimensions [139.0, 139.0, 7.0]"
+      },
+      {
+        "name": "every dimension has a provenance status",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "generated: watertight",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "generated: winding consistent",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "generated: is_volume (outward normals, closed, manifold)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "generated: positive volume",
+        "passed": true,
+        "detail": "72761.2 mm^3"
+      },
+      {
+        "name": "generated: no degenerate faces",
+        "passed": true,
+        "detail": "min face area 4.467e+00 mm^2"
+      },
+      {
+        "name": "generated: AABB matches expected (origin at bottom-centre, z>=0)",
+        "passed": true,
+        "detail": "min [-69.5, -69.5, 0.0] max [69.5, 69.5, 7.0] mm; expected extents [139.0, 139.0, 7.0] mm"
+      },
+      {
+        "name": "generated: unit scale is millimetres (not metres)",
+        "passed": true,
+        "detail": "extent/expected ratio [1.0, 1.0, 1.0]"
+      },
+      {
+        "name": "generated volume matches analytic solid of revolution",
+        "passed": true,
+        "detail": "mesh 72761.2 vs analytic 72774.2 mm^3 (polygon factor 0.999822)"
+      },
+      {
+        "name": "through-hole: axis ray crosses no material",
+        "passed": true,
+        "detail": "axis crossings []"
+      },
+      {
+        "name": "hole edge: point just inside hole radius is outside solid",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "ring material: point just outside hole radius is inside solid",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "ring material: mid-width point is inside solid",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "hole diameter (min vertex radius x2) matches config",
+        "passed": true,
+        "detail": "78.000 mm vs 78.0 mm"
+      },
+      {
+        "name": "STL on disk: watertight",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: winding consistent",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: is_volume (outward normals, closed, manifold)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: positive volume",
+        "passed": true,
+        "detail": "72761.2 mm^3"
+      },
+      {
+        "name": "STL on disk: no degenerate faces",
+        "passed": true,
+        "detail": "min face area 4.467e+00 mm^2"
+      },
+      {
+        "name": "STL on disk: AABB matches expected (origin at bottom-centre, z>=0)",
+        "passed": true,
+        "detail": "min [-69.5, -69.5, 0.0] max [69.5, 69.5, 7.0] mm; expected extents [139.0, 139.0, 7.0] mm"
+      },
+      {
+        "name": "STL on disk: unit scale is millimetres (not metres)",
+        "passed": true,
+        "detail": "extent/expected ratio [1.0, 1.0, 1.0]"
+      },
+      {
+        "name": "STL on disk is up to date with config (volume, face count)",
+        "passed": true,
+        "detail": "STL 1536 faces / 72761.2 mm^3 vs config 1536 / 72761.2"
+      },
+      {
+        "name": "STL on disk: through-hole: axis ray crosses no material",
+        "passed": true,
+        "detail": "axis crossings []"
+      },
+      {
+        "name": "STL on disk: hole edge: point just inside hole radius is outside solid",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: ring material: point just outside hole radius is inside solid",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: ring material: mid-width point is inside solid",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: hole diameter (min vertex radius x2) matches config",
+        "passed": true,
+        "detail": "78.000 mm vs 78.0 mm"
+      }
+    ]
+  },
+  {
+    "id": "orange_screw_03",
+    "name": "Orange_Screw_03",
+    "passed": true,
+    "stats": {
+      "vertices": 7682,
+      "faces": 15360,
+      "volume_mm3": 49454.72,
+      "bounds_mm": [
+        [
+          -15.0,
+          -15.0,
+          0.0
+        ],
+        [
+          15.0,
+          15.0,
+          90.0
+        ]
+      ],
+      "winding_flipped_during_build": true,
+      "angular_segments": 192,
+      "stl_file": "/home/aman/Desktop/I Cavalli Hack/MOTIQ/robot_controller/objects/orange_screw_03/model/orange_screw_03.stl",
+      "stl_validated": "yes"
+    },
+    "checks": [
+      {
+        "name": "derived field rib_zone_length_mm consistent",
+        "passed": true,
+        "detail": "stored 73.0, computed 73"
+      },
+      {
+        "name": "derived field rib_pitch_mm consistent",
+        "passed": true,
+        "detail": "stored 9.125, computed 9.125"
+      },
+      {
+        "name": "expected_bounds_mm consistent with dimensions",
+        "passed": true,
+        "detail": "recorded [30.0, 30.0, 90.0], from dimensions [30.0, 30.0, 90.0]"
+      },
+      {
+        "name": "every dimension has a provenance status",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "generated: watertight",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "generated: winding consistent",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "generated: is_volume (outward normals, closed, manifold)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "generated: positive volume",
+        "passed": true,
+        "detail": "49454.7 mm^3"
+      },
+      {
+        "name": "generated: no degenerate faces",
+        "passed": true,
+        "detail": "min face area 1.288e-01 mm^2"
+      },
+      {
+        "name": "generated: AABB matches expected (origin at bottom-centre, z>=0)",
+        "passed": true,
+        "detail": "min [-15.0, -15.0, 0.0] max [15.0, 15.0, 90.0] mm; expected extents [30.0, 30.0, 90.0] mm"
+      },
+      {
+        "name": "generated: unit scale is millimetres (not metres)",
+        "passed": true,
+        "detail": "extent/expected ratio [1.0, 1.0, 1.0]"
+      },
+      {
+        "name": "generated volume matches analytic solid of revolution",
+        "passed": true,
+        "detail": "mesh 49454.7 vs analytic 49463.6 mm^3 (polygon factor 0.999822)"
+      },
+      {
+        "name": "blind top cavity: axis ray from above first meets cavity floor",
+        "passed": true,
+        "detail": "axis crossings z=[81.0, -0.0] (floor 81.0)"
+      },
+      {
+        "name": "closed bottom: exactly 2 axis crossings (cavity floor + base)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "cavity mouth open (axis point just below top is outside)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "core below cavity is solid",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "collar wall around cavity is solid",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "outer radius <= max everywhere",
+        "passed": true,
+        "detail": "max vertex radius 15.0000 mm (limit 15.0)"
+      },
+      {
+        "name": "rib count in ribbed zone matches config (annular ridges)",
+        "passed": true,
+        "detail": "found 8 ridges at probe radius 13.25 mm, expected 8"
+      },
+      {
+        "name": "cavity wall thickness >= 1 mm",
+        "passed": true,
+        "detail": "min wall around cavity 4.00 mm"
+      },
+      {
+        "name": "STL on disk: watertight",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: winding consistent",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: is_volume (outward normals, closed, manifold)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: positive volume",
+        "passed": true,
+        "detail": "49454.7 mm^3"
+      },
+      {
+        "name": "STL on disk: no degenerate faces",
+        "passed": true,
+        "detail": "min face area 1.288e-01 mm^2"
+      },
+      {
+        "name": "STL on disk: AABB matches expected (origin at bottom-centre, z>=0)",
+        "passed": true,
+        "detail": "min [-15.0, -15.0, 0.0] max [15.0, 15.0, 90.0] mm; expected extents [30.0, 30.0, 90.0] mm"
+      },
+      {
+        "name": "STL on disk: unit scale is millimetres (not metres)",
+        "passed": true,
+        "detail": "extent/expected ratio [1.0, 1.0, 1.0]"
+      },
+      {
+        "name": "STL on disk is up to date with config (volume, face count)",
+        "passed": true,
+        "detail": "STL 15360 faces / 49454.7 mm^3 vs config 15360 / 49454.7"
+      },
+      {
+        "name": "STL on disk: blind top cavity: axis ray from above first meets cavity floor",
+        "passed": true,
+        "detail": "axis crossings z=[81.0, 0.0] (floor 81.0)"
+      },
+      {
+        "name": "STL on disk: closed bottom: exactly 2 axis crossings (cavity floor + base)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: cavity mouth open (axis point just below top is outside)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: core below cavity is solid",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: collar wall around cavity is solid",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: outer radius <= max everywhere",
+        "passed": true,
+        "detail": "max vertex radius 15.0000 mm (limit 15.0)"
+      },
+      {
+        "name": "STL on disk: rib count in ribbed zone matches config (annular ridges)",
+        "passed": true,
+        "detail": "found 8 ridges at probe radius 13.25 mm, expected 8"
+      },
+      {
+        "name": "STL on disk: cavity wall thickness >= 1 mm",
+        "passed": true,
+        "detail": "min wall around cavity 4.00 mm"
+      }
+    ]
+  },
+  {
+    "id": "white_bucket_lid_04",
+    "name": "White_Bucket_Lid_04",
+    "passed": true,
+    "stats": {
+      "vertices": 1152,
+      "faces": 2304,
+      "volume_mm3": 259082.52,
+      "bounds_mm": [
+        [
+          -69.5,
+          -69.5,
+          0.0
+        ],
+        [
+          69.5,
+          69.5,
+          53.0
+        ]
+      ],
+      "winding_flipped_during_build": true,
+      "angular_segments": 192,
+      "stl_file": "/home/aman/Desktop/I Cavalli Hack/MOTIQ/robot_controller/objects/white_bucket_lid_04/model/white_bucket_lid_04.stl",
+      "stl_validated": "yes"
+    },
+    "checks": [
+      {
+        "name": "derived field cone_bottom_outer_diameter_mm consistent",
+        "passed": true,
+        "detail": "stored 89.0, computed 89"
+      },
+      {
+        "name": "derived field cone_height_mm consistent",
+        "passed": true,
+        "detail": "stored 45.0, computed 45"
+      },
+      {
+        "name": "expected_bounds_mm consistent with dimensions",
+        "passed": true,
+        "detail": "recorded [139.0, 139.0, 53.0], from dimensions [139.0, 139.0, 53.0]"
+      },
+      {
+        "name": "every dimension has a provenance status",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "generated: watertight",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "generated: winding consistent",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "generated: is_volume (outward normals, closed, manifold)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "generated: positive volume",
+        "passed": true,
+        "detail": "259082.5 mm^3"
+      },
+      {
+        "name": "generated: no degenerate faces",
+        "passed": true,
+        "detail": "min face area 2.454e+00 mm^2"
+      },
+      {
+        "name": "generated: AABB matches expected (origin at bottom-centre, z>=0)",
+        "passed": true,
+        "detail": "min [-69.5, -69.5, 0.0] max [69.5, 69.5, 53.0] mm; expected extents [139.0, 139.0, 53.0] mm"
+      },
+      {
+        "name": "generated: unit scale is millimetres (not metres)",
+        "passed": true,
+        "detail": "extent/expected ratio [1.0, 1.0, 1.0]"
+      },
+      {
+        "name": "generated volume matches analytic solid of revolution",
+        "passed": true,
+        "detail": "mesh 259082.5 vs analytic 259128.8 mm^3 (polygon factor 0.999822)"
+      },
+      {
+        "name": "centre through-hole: axis ray crosses no material",
+        "passed": true,
+        "detail": "axis crossings []"
+      },
+      {
+        "name": "hole wall: point just inside hole radius is outside (z=flange/2 and z=top-1)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "material next to hole is solid",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "flange is solid, space above exposed flange is empty",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "cone surface at mid-height is where the profile puts it",
+        "passed": true,
+        "detail": "expected cone radius 34.75 mm at z=30.5"
+      },
+      {
+        "name": "STL on disk: watertight",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: winding consistent",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: is_volume (outward normals, closed, manifold)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: positive volume",
+        "passed": true,
+        "detail": "259082.5 mm^3"
+      },
+      {
+        "name": "STL on disk: no degenerate faces",
+        "passed": true,
+        "detail": "min face area 2.454e+00 mm^2"
+      },
+      {
+        "name": "STL on disk: AABB matches expected (origin at bottom-centre, z>=0)",
+        "passed": true,
+        "detail": "min [-69.5, -69.5, 0.0] max [69.5, 69.5, 53.0] mm; expected extents [139.0, 139.0, 53.0] mm"
+      },
+      {
+        "name": "STL on disk: unit scale is millimetres (not metres)",
+        "passed": true,
+        "detail": "extent/expected ratio [1.0, 1.0, 1.0]"
+      },
+      {
+        "name": "STL on disk is up to date with config (volume, face count)",
+        "passed": true,
+        "detail": "STL 2304 faces / 259082.5 mm^3 vs config 2304 / 259082.5"
+      },
+      {
+        "name": "STL on disk: centre through-hole: axis ray crosses no material",
+        "passed": true,
+        "detail": "axis crossings []"
+      },
+      {
+        "name": "STL on disk: hole wall: point just inside hole radius is outside (z=flange/2 and z=top-1)",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: material next to hole is solid",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: flange is solid, space above exposed flange is empty",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "name": "STL on disk: cone surface at mid-height is where the profile puts it",
+        "passed": true,
+        "detail": "expected cone radius 34.75 mm at z=30.5"
+      }
+    ]
+  }
+]

@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0",
+  "task_id": "white_bucket_lid_04_pick_place",
+  "actions": [
+    {
+      "action_id": "a1",
+      "action": "identify_object",
+      "parameters": {
+        "object_id": "white_bucket_lid_04"
+      }
+    },
+    {
+      "action_id": "a2",
+      "action": "pick_object",
+      "parameters": {
+        "object_id": "white_bucket_lid_04"
+      }
+    },
+    {
+      "action_id": "a3",
+      "action": "place_object",
+      "parameters": {
+        "destination_id": "white_bucket_lid_04_slot"
+      }
+    },
+    {
+      "action_id": "a4",
+      "action": "perform_motion",
+      "parameters": {
+        "motion_id": "go_home"
+      }
+    }
+  ]
+}

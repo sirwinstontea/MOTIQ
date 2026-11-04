@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from .models import ErrorCode, RobotControlError
 
-BackendName = Literal["mock", "robodk_sim", "physical_disabled"]
+BackendName = Literal["mock", "robodk_sim", "ursim_sync", "physical_disabled"]
 
 
 class _Cfg(BaseModel):
@@ -55,6 +55,7 @@ class RobotConfig(_Cfg):
     gripper_kind: Literal["symbolic", "none"] = "symbolic"
     tcp_offset_m_rad: list[float] = Field(default_factory=lambda: [0, 0, 0, 0, 0, 0])
     tool_mass_kg: float = Field(ge=0, default=0.0)
+    ursim_host: str = "127.0.0.1"                 # ursim_sync backend: URSim on localhost only
     limits: ModelLimits
     capabilities: list[str] = Field(default_factory=list)
 

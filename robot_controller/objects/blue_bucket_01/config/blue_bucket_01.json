@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "units": "mm",
+  "stl_units": "mm",
+  "status_legend": {
+    "measured": "confirmed by the user / drawing",
+    "derived": "computed from other fields (validator checks consistency)",
+    "interpreted": "reading of an ambiguous drawing/photo; confirm with a measurement",
+    "estimated": "approximation from photos, NOT measured; edit freely"
+  },
+  "id": "blue_bucket_01",
+  "name": "Blue_Bucket_01",
+  "description": "Open-top cylindrical cup, constant outer diameter, sealed flat bottom.",
+  "stl_file": "../model/blue_bucket_01.stl",
+  "local_frame": {
+    "origin": "centre of the lowest flat face, (0,0,0) mm",
+    "symmetry_axis": "+Z",
+    "z_range_mm": [
+      0,
+      115
+    ],
+    "note": "mesh has z >= 0; top surface at overall height"
+  },
+  "mesh": {
+    "method": "solid_of_revolution",
+    "angular_segments": 192
+  },
+  "color_rgba": [
+    0.0,
+    0.65,
+    0.9,
+    1.0
+  ],
+  "color_name": "bright cyan-blue",
+  "dimensions": {
+    "outer_diameter_mm": {
+      "value": 139,
+      "status": "measured",
+      "note": "constant along the full height, no flange/rim. User-corrected: NOT 115."
+    },
+    "inner_opening_diameter_mm": {
+      "value": 105,
+      "status": "measured"
+    },
+    "total_height_mm": {
+      "value": 115,
+      "status": "measured"
+    },
+    "bottom_thickness_mm": {
+      "value": 8,
+      "status": "measured"
+    },
+    "wall_thickness_mm": {
+      "value": 17,
+      "status": "derived",
+      "formula": "(outer_diameter - inner_opening_diameter) / 2"
+    },
+    "inner_depth_mm": {
+      "value": 107,
+      "status": "derived",
+      "formula": "total_height - bottom_thickness"
+    }
+  },
+  "expected_bounds_mm": [
+    139,
+    139,
+    115
+  ],
+  "ignored_features": [
+    "small holes",
+    "cosmetic fillets",
+    "minor surface features"
+  ],
+  "references_dir": "references/blue_bucket/"
+}
