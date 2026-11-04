@@ -1,28 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LayoutChangeEvent, Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { ARM, ArmFrame, buildTimeline, DogFrame, H, PreviewSkill, Pt, Timeline, W } from '../preview/scene';
+import { ARM, ArmFrame, buildTimeline, DogFrame, H, Pt, Timeline, W } from '../preview/scene';
+import type { SkillDoc } from '../skills';
 import { Colors, fonts, radius, type, useStyles, useTheme } from '../theme';
 import { IconButton } from './ui';
 
-// fixed scene colours
-const CUBE = '#e5484d';
-const CUBE_EDGE = '#b4363a';
-const BOX = '#b98a5a';
-const BOX_BACK = '#6e5236';
-const SKIN = '#d9a37f';
-
-type Props = { skill: PreviewSkill; autoPlay?: boolean };
+type Props = { skill: SkillDoc; autoPlay?: boolean };
 
 // Animated 2D preview of what a skill intends to do. Conceptual only: see src/preview/scene.ts.
 export default function SkillPreview({ skill, autoPlay = true }: Props) {
   const { c } = useTheme();
   const s = useStyles(makeStyles);
   // rebuild only when the steps actually change (the editor passes a new object every render)
-  const key = JSON.stringify([skill.device, skill.steps]);
+  const key = JSON.stringify([skill.robot, skill.action_primitives, skill.environment, skill.constraints, skill.steps]);
   const tl = useMemo<Timeline>(() => {
-    const [device, steps] = JSON.parse(key);
-    return buildTimeline({ device, steps });
+    const [robot, action_primitives, environment, constraints, steps] = JSON.parse(key);
+    return buildTimeline({ ...skill, robot, action_primitives, environment, constraints, steps });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   const [t, setT] = useState(0);
   const [playing, setPlaying] = useState(autoPlay);
@@ -128,7 +123,9 @@ export default function SkillPreview({ skill, autoPlay = true }: Props) {
         })}
       </View>
 
-      <Text style={s.disclaimer}>Shows what the skill intends. Not a physics, collision or reachability check.</Text>
+      <Text style={s.disclaimer}>
+        Replays the UR5e model&apos;s dry run (limits, reach, singularities) in a 2D sketch. No collision checking.
+      </Text>
     </View>
   );
 }
@@ -226,53 +223,74 @@ function Label({ x, y, k, text, c }: { x: number; y: number; k: number; text: st
 // ---------- arm (side view) ----------
 
 function ArmScene({ f, k, c }: { f: ArmFrame; k: number; c: Colors }) {
-  const { box, hand, base, tableY } = ARM;
-  const half = ARM.cube / 2;
+  const { base, tableY } = ARM;
   const gap = 19 + (13.5 - 19) * f.grip;
   const w = f.wrist;
+  const containers = f.objects.filter((o) => o.container);
+  const things = f.objects.filter((o) => !o.container);
   return (
     <>
       <Rect x0={0} y0={tableY} x1={W} y1={H} k={k} style={{ backgroundColor: c.hover }} />
-      <Label x={120} y={tableY + 22} k={k} text="table" c={c} />
-      <Label x={(box.x0 + box.x1) / 2} y={tableY + 22} k={k} text="box" c={c} />
-      <Label x={hand.x - 30} y={hand.y + 26} k={k} text="handover" c={c} />
+      <Label x={40} y={tableY + 22} k={k} text="table" c={c} />
+      {f.objects.map((o) => (
+        <Label key={`l${o.id}`} x={o.x} y={tableY + 22} k={k} text={o.label} c={c} />
+      ))}
 
-      {/* person at the handover spot */}
-      <Rect
-        x0={-4}
-        y0={hand.y - 7}
-        x1={hand.x - 22}
-        y1={hand.y + 7}
-        k={k}
-        style={{ backgroundColor: c.lineStrong, borderRadius: 4 * k }}
-      />
-      <Rect
-        x0={hand.x - 30}
-        y0={hand.y - 12}
-        x1={hand.x - 12}
-        y1={hand.y + 12}
-        k={k}
-        style={{ backgroundColor: SKIN, borderRadius: 6 * k }}
-      />
-      <Bar a={{ x: hand.x - 22, y: hand.y - 12 }} b={{ x: hand.x - 16, y: hand.y - 20 }} w={5} k={k} color={SKIN} />
-
-      <Rect x0={box.x0} y0={box.top} x1={box.x1} y1={tableY} k={k} style={{ backgroundColor: BOX_BACK }} />
-      <Rect
-        x0={f.cube.x - half}
-        y0={f.cube.y - half}
-        x1={f.cube.x + half}
-        y1={f.cube.y + half}
-        k={k}
-        style={{
-          backgroundColor: CUBE,
-          borderColor: CUBE_EDGE,
-          borderWidth: Math.max(1, 1.5 * k),
-          borderRadius: 3 * k,
-        }}
-      />
-      <Rect x0={box.x0} y0={tableY - 14} x1={box.x1} y1={tableY} k={k} style={{ backgroundColor: BOX }} />
-      <Rect x0={box.x0} y0={box.top} x1={box.x0 + 4} y1={tableY} k={k} style={{ backgroundColor: BOX }} />
-      <Rect x0={box.x1 - 4} y0={box.top} x1={box.x1} y1={tableY} k={k} style={{ backgroundColor: BOX }} />
+      {containers.map((o) => (
+        <Rect
+          key={`b${o.id}`}
+          x0={o.x - o.w / 2}
+          y0={o.y - o.h}
+          x1={o.x + o.w / 2}
+          y1={o.y}
+          k={k}
+          style={{ backgroundColor: o.color, opacity: 0.35 }}
+        />
+      ))}
+      {things.map((o) => (
+        <Rect
+          key={`o${o.id}`}
+          x0={o.x - o.w / 2}
+          y0={o.y - o.h / 2}
+          x1={o.x + o.w / 2}
+          y1={o.y + o.h / 2}
+          k={k}
+          style={{
+            backgroundColor: o.color,
+            borderColor: c.lineStrong,
+            borderWidth: Math.max(1, k),
+            borderRadius: 2 * k,
+          }}
+        />
+      ))}
+      {containers.map((o) => (
+        <View key={`w${o.id}`}>
+          <Rect
+            x0={o.x - o.w / 2}
+            y0={o.y - 4}
+            x1={o.x + o.w / 2}
+            y1={o.y}
+            k={k}
+            style={{ backgroundColor: o.color }}
+          />
+          <Rect
+            x0={o.x - o.w / 2}
+            y0={o.y - o.h}
+            x1={o.x - o.w / 2 + 3}
+            y1={o.y}
+            k={k}
+            style={{ backgroundColor: o.color }}
+          />
+          <Rect
+            x0={o.x + o.w / 2 - 3}
+            y0={o.y - o.h}
+            x1={o.x + o.w / 2}
+            y1={o.y}
+            k={k}
+            style={{ backgroundColor: o.color }}
+          />
+        </View>
+      ))}
 
       <Rect
         x0={base.x - 20}
@@ -299,7 +317,7 @@ function ArmScene({ f, k, c }: { f: ArmFrame; k: number; c: Colors }) {
         x0={w.x - gap - 2}
         y0={w.y + 4}
         x1={w.x - gap + 2}
-        y1={w.y + 31}
+        y1={w.y + ARM.jaw}
         k={k}
         style={{ backgroundColor: c.accent, borderRadius: 1.5 * k }}
       />
@@ -307,7 +325,7 @@ function ArmScene({ f, k, c }: { f: ArmFrame; k: number; c: Colors }) {
         x0={w.x + gap - 2}
         y0={w.y + 4}
         x1={w.x + gap + 2}
-        y1={w.y + 31}
+        y1={w.y + ARM.jaw}
         k={k}
         style={{ backgroundColor: c.accent, borderRadius: 1.5 * k }}
       />

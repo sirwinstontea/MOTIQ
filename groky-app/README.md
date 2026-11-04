@@ -59,14 +59,37 @@ Grok sees one flat tool list: `dog_walk`, `dog_turn`, `dog_pose`, `arm_goto`, `a
 Light and dark theme in Settings. The camera can be switched off from the camera panel; Grok is told it's off
 instead of guessing.
 
+## Skills
+
+Skills use the MOTIQ skill format (schema 1.1.0). `src/skills/templates/pick_place_ur5e.json` is the reference: intent
+and success conditions, the robot profile, `action_primitives`, environment objects, constraints, steps
+(DETECT / PICK / PLACE / VERIFY / SEQUENCE, each with a `primitive_sequence` and a `failure_policy`), interpretation
+and safety. The arm's tools and limits are read straight from that template (`src/robot/profiles.ts`). Two app
+extensions: `robot.device` (`arm` | `dog`) and an `app` block (icon, builtin).
+
+- **Editing:** the Skills tab has a form for steps, primitives, objects and success conditions, and a JSON tab for
+  the whole file. Import pastes a skill in; the share button exports a self-contained file.
+- **Checks:** every arm primitive goes through a UR5e model (`src/robot/arm.ts`: DH kinematics, operational limits,
+  joint ranges, reach, the singularity cylinder around the base, the table plane). The editor and the preview show a
+  dry run of the whole skill. Nothing outside the limits is ever sent to the bridge, from skills or from voice.
+- **Running:** `src/skills/runner.ts`. DETECT uses the vision server (`EXPO_PUBLIC_VISION_SERVER`) if set, otherwise
+  Grok vision on the selected camera. VERIFY asks the camera to confirm the success conditions. In the simulator both
+  use the predicted scene. `RETRY_WITH_REOBSERVATION` retries a step once after looking again; the others stop.
+- **Safety gates:** a skill only moves real hardware when `review.approved` and `safety.physical_execution_allowed`
+  are both true (Review & approve on the card). Saving an edit drops the approval. With
+  `unknown_parameters_policy: NEEDS_VALIDATION` (the default), a real run refuses to move to an object whose position
+  wasn't measured by a calibrated camera; set it to `USE_SKILL_VALUES` to trust the positions in the file.
+- **Not modelled:** collisions with anything but the table, gripper fingers, payload. The UR safety configuration
+  stays the hard limit on the real cell.
+
+MOVE_ABOVE lifts straight up and then travels in joint space: from HOME, a straight line to the cube passes about
+1 cm from the base axis, which would trip a protective stop on the real arm.
+
 ## Skill preview
 
-Every skill has a 2D animated preview so you can check what it will do before anything moves. Open it with the film
-icon on a skill card, or under the steps while editing a skill (it updates as you edit). It flags steps that look
-wrong, for example a gripper closing on nothing or a camera check that would fail given where the cube ends up.
-
-It's conceptual only: no physics, collisions or real reachability. The scene is a side view for the arm (table, red
-cube, box, handover spot) and a top-down floor for the dog. The animation logic is in `src/preview/scene.ts`.
+The film icon on a skill card (or Preview in the editor) replays the dry run as a 2D side view for the arm and a
+top-down floor for the dog, and flags steps that would be refused, grasps that would close on nothing and checks
+that would fail. The arm drawing is a 2-link sketch of the real 6 joints. Logic in `src/preview/scene.ts`.
 
 ## Robot bridge
 
@@ -79,6 +102,13 @@ Each robot laptop runs a tiny HTTP server:
 
 Requests carry `X-Bridge-Key` if one is set. With no bridge URL the robot is simulated, so the whole app can be
 demoed without hardware. Tool names and arguments are in `src/devices/tools.ts`.
+
+Arm tools are the UR5e primitives in lower case: `POST /tools/move_left`, `/tools/close_gripper`,
+`/tools/move_above`... The body has the resolved parameters (defaults filled in, already checked against the limits)
+plus `urscript`, the URScript the app would run for that step, so the bridge can either execute the primitive itself
+or forward the script to the controller. Reply with `{ "ok": true }` and, ideally, `tcp_pose` (`[x, y, z, rx, ry, rz]`),
+`joints_deg` (6 numbers) and, for `close_gripper`, `object_detected`, so the app tracks the real arm instead of its
+prediction.
 
 ## Run it
 
@@ -102,6 +132,7 @@ Scan the QR code with Expo Go. On venue wifi use `npm run tunnel`, or plug the t
 | `EXPO_PUBLIC_DOG_URL`, `EXPO_PUBLIC_ARM_URL` | robot bridges, e.g. `http://192.168.1.20:8000`. Empty = simulated |
 | `EXPO_PUBLIC_BRIDGE_KEY` | sent as `X-Bridge-Key` |
 | `EXPO_PUBLIC_CAMERAS` | extra cameras, `Name=url,Name=url`, each url returns a JPEG |
+| `EXPO_PUBLIC_VISION_SERVER` | computer-vision server (`../computer-vision/API_APP.md`), used by skill DETECT steps |
 | `EXPO_PUBLIC_GROK_VOICE` | voice, default `eve` |
 | `EXPO_PUBLIC_GROK_VISION_MODEL` | model for camera questions, default `grok-4.20-0309-non-reasoning` (~1s; `grok-4.7` ~4s) |
 
@@ -118,6 +149,8 @@ src/components/      orb, camera panel, activity timeline, log, sidebar...
 src/hooks/           useVoice, useCamera, useDevices, useHistory
 src/voice/           Grok realtime session, prompt, audio
 src/devices/         robot tools, bridge client, simulator
+src/robot/           UR5e kinematics, arm model and limits, live arm state, detect/verify
+src/skills/          skill format, built-ins, validation, dry run, runner
 src/lib/             config, vision, cameras
 src/preview/         2D skill preview timeline
 ```

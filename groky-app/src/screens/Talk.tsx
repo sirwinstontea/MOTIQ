@@ -4,6 +4,7 @@ import Activity from '../components/Activity';
 import ControlBar from '../components/ControlBar';
 import Log from '../components/Log';
 import Orb from '../components/Orb';
+import { useKeyboardVisible } from '../hooks/useKeyboard';
 import type { Voice } from '../hooks/useVoice';
 import type { Status } from '../voice/types';
 import { Colors, radius, type, useStyles } from '../theme';
@@ -30,6 +31,8 @@ export default function Talk({ voice, level, wide, mobile, camera, stopButton }:
   const s = useStyles(makeStyles);
   const { height } = useWindowDimensions();
   const [logOpen, setLogOpen] = useState(false);
+  // while typing, drop the controls so the chat box sits right on the keyboard
+  const typing = useKeyboardVisible() && logOpen;
 
   const live = voice.status !== 'off';
   const lastGrok = voice.lines.findLast((l) => l.kind === 'grok');
@@ -48,8 +51,8 @@ export default function Talk({ voice, level, wide, mobile, camera, stopButton }:
         : caption[voice.status];
 
   return (
-    <View style={[s.body, mobile && s.bodyMobile]}>
-      <View style={[s.stage, !mobile && s.stageGlow]}>
+    <View style={[s.body, mobile && s.bodyMobile, typing && { paddingBottom: 0 }]}>
+      <View style={[s.stage, !mobile && s.stageGlow, typing && { paddingBottom: 0 }]}>
         {logOpen ? (
           <View style={{ flex: 1, alignSelf: 'stretch' }}>
             <Log lines={voice.lines} live={live} onSend={voice.say} />
@@ -68,15 +71,19 @@ export default function Talk({ voice, level, wide, mobile, camera, stopButton }:
 
         <View style={s.bottom}>
           {stopButton}
-          <ControlBar
-            live={live}
-            muted={voice.muted || !voice.mic}
-            logOpen={logOpen}
-            onLog={() => setLogOpen((o) => !o)}
-            onMic={onMic}
-            onEnd={voice.end}
-          />
-          <Text style={s.foot}>Motion can get things wrong. Keep a hand near the stop button.</Text>
+          {!typing && (
+            <>
+              <ControlBar
+                live={live}
+                muted={voice.muted || !voice.mic}
+                logOpen={logOpen}
+                onLog={() => setLogOpen((o) => !o)}
+                onMic={onMic}
+                onEnd={voice.end}
+              />
+              <Text style={s.foot}>Motion can get things wrong. Keep a hand near the stop button.</Text>
+            </>
+          )}
         </View>
       </View>
 

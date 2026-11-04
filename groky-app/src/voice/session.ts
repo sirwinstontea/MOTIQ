@@ -57,7 +57,43 @@ export class VoiceSession {
 
   private tools() {
     const list = this.skills?.list() ?? [];
-    return [...grokTools(), lookTool, ...(list.length ? [skillTool(list)] : [])];
+    return [...grokTools(), lookTool, ...this.visionTools, ...(list.length ? [skillTool(list)] : [])];
+  }
+
+  // computer-vision server tools (../computer-vision/API_APP.md), prefixed vision_ so they can't clash with the
+  // device tools. Empty if the server isn't configured or doesn't answer: the app works as before.
+  private visionTools: any[] = [];
+
+  private async loadVisionTools() {
+    if (!env.visionServer) return;
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 2500);
+    try {
+      const tools = await (await fetch(`${env.visionServer}/voice/tools`, { signal: ctl.signal })).json();
+      this.visionTools = (Array.isArray(tools) ? tools : []).map((x: any) => ({
+        type: 'function',
+        ...x,
+        name: `vision_${x.name}`,
+      }));
+    } catch {
+      this.visionTools = [];
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  private async runVision(name: string, args: Record<string, unknown>) {
+    try {
+      const r = await fetch(`${env.visionServer}/voice/dispatch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, arguments: args }),
+      });
+      const j = await r.json().catch(() => ({}));
+      return { ok: r.ok && j.ok !== false, ...j } as Record<string, unknown> & { ok: boolean };
+    } catch (e: any) {
+      return { ok: false, error: `vision server unreachable: ${e?.message ?? e}` };
+    }
   }
 
   setAskedHandler(fn: ((text: string, via: 'voice' | 'typed') => void) | null) {
@@ -79,7 +115,7 @@ export class VoiceSession {
     this.set('connecting');
     let token: string;
     try {
-      token = await getToken();
+      [token] = await Promise.all([getToken(), this.loadVisionTools()]);
     } catch (e: any) {
       this.error(e.message);
       this.queue = [];
@@ -149,6 +185,20 @@ export class VoiceSession {
   share(source: string, answer: string, image?: string) {
     this.trace({ kind: 'vision', title: `Showed Motion the ${source} camera`, detail: answer, image, ok: true });
     this.sendText(`[I'm showing you the ${source} camera. Vision says: ${answer}] Tell me what you think.`, false);
+  }
+
+  // live watch: slip what the camera sees into the conversation as background, no reply asked for
+  observe(source: string, answer: string, image?: string) {
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    this.trace({ kind: 'vision', title: `Watching the ${source} camera`, detail: answer, image, ok: true });
+    this.send({
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: `[Live camera (${source}), no reply needed: ${answer}]` }],
+      },
+    });
   }
 
   private sendText(text: string, record: boolean) {
@@ -285,6 +335,17 @@ export class VoiceSession {
         kind: 'tool',
         title: `Skill "${label}" ${res.ok ? 'done' : 'failed'}`,
         detail: res.ok ? undefined : String(res.error ?? res.state ?? ''),
+        ok: res.ok,
+        ms: Date.now() - t0,
+      });
+    } else if (name.startsWith('vision_')) {
+      this.trace({ id, kind: 'vision', title: `Asking vision: ${pretty(name.slice(7))}` });
+      res = await this.runVision(name.slice('vision_'.length), args);
+      this.trace({
+        id,
+        kind: 'vision',
+        title: String(res.say ?? pretty(name)),
+        detail: res.ok ? undefined : String(res.error ?? ''),
         ok: res.ok,
         ms: Date.now() - t0,
       });

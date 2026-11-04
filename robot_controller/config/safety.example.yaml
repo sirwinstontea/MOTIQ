@@ -1,0 +1,26 @@
+# Conservative EXAMPLE software limits. This is software risk reduction only,
+# NOT a certified safety configuration. Real cells rely on the robot's certified
+# safety functions, protective devices, risk assessment and a responsible operator.
+allowed_backends: [mock, robodk_sim]   # physical motion is not possible in this build
+# Speed: ONE percentage of the robot model's maximums (limits in robot.*.yaml).
+# UR5e @ 25%: TCP 0.25 m/s, 0.5 m/s^2; joints 0.785 rad/s (45 deg/s), 1.0 rad/s^2.
+speed_percent_of_model_max: 25
+# Alternative (remove the line above): all four absolute values.
+# tcp_speed_m_s: 0.25
+# tcp_accel_m_s2: 0.5
+# joint_speed_rad_s: 1.0
+# joint_accel_rad_s2: 2.0
+workspace:                       # allowed TCP box in the robot base frame (UR5e demo cell)
+  frame_id: base
+  x_m: [-0.70, -0.20]
+  y_m: [-0.40, 0.40]
+  z_m: [0.015, 0.55]
+max_state_age_ms: 500
+segment_timeout_s: 30
+action_timeout_s: 120
+min_detection_confidence: 0.6
+max_detection_age_s: 60
+max_shake_cycles: 3
+require_path_check: true
+require_collision_geometry: true   # RoboDK: reject if the station has no geometry to test
+allow_mock_detector: true          # demo only; every mock detection is labelled

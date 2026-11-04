@@ -1,4 +1,6 @@
 import env from '../lib/config';
+import { ARM_PRIMITIVES, DOG_PRIMITIVES, isRequired, limitFor } from '../robot/profiles';
+import type { Primitive } from '../skills/schema';
 
 export type DeviceId = 'dog' | 'arm';
 
@@ -14,57 +16,102 @@ const params = (props: Record<string, unknown>, required: string[] = []) => ({
   required,
 });
 
-// Names map 1:1 to POST {bridge}/tools/{name}.
-// TODO: adjust once we know the actual hardware (Wed morning hardware tour)
-const dogTools: Tool[] = [
-  {
-    name: 'walk',
-    description: 'Walk the robot dog. Positive meters forward, negative backward.',
-    parameters: params({ meters: { type: 'number', minimum: -2, maximum: 2 } }, ['meters']),
-  },
-  {
-    name: 'turn',
-    description: 'Turn in place. Positive degrees = left.',
-    parameters: params({ degrees: { type: 'number', minimum: -180, maximum: 180 } }, ['degrees']),
-  },
-  {
-    name: 'pose',
-    description: 'Put the dog in a pose.',
-    parameters: params({ pose: { type: 'string', enum: ['stand', 'sit', 'lie', 'wave'] } }, ['pose']),
-  },
-  {
-    name: 'look',
-    description: "Take a photo with the dog's camera and describe what is in front of it.",
-    parameters: params({}),
-  },
-];
+// primitive spec -> JSON schema for Grok, with the operational limits folded into min/max
+function schemaFor(p: Primitive, device: DeviceId) {
+  const props: Record<string, unknown> = {};
+  const required: string[] = [];
+  for (const [key, spec] of Object.entries(p.parameters)) {
+    const lim = device === 'arm' ? limitFor(key) : {};
+    const min = Math.max(spec.min ?? -Infinity, lim.min ?? -Infinity);
+    const max = Math.min(spec.max ?? Infinity, lim.max ?? Infinity);
+    const desc = [spec.note, spec.default !== undefined && `default ${JSON.stringify(spec.default)}`]
+      .filter(Boolean)
+      .join('; ');
+    if (spec.type === 'number')
+      props[key] = {
+        type: 'number',
+        ...(Number.isFinite(min) && { minimum: min }),
+        ...(Number.isFinite(max) && { maximum: max }),
+        ...(desc && { description: desc }),
+      };
+    else if (spec.type === 'enum') props[key] = { type: 'string', enum: spec.values };
+    else if (spec.type === 'array')
+      props[key] = { type: 'array', items: { type: 'number' }, minItems: spec.length, maxItems: spec.length };
+    else if (spec.type === 'object_id')
+      props[key] = { type: 'string', description: 'object id or name from the scene, e.g. object_cube or "red cube"' };
+    else props[key] = { type: 'string' };
+    if (isRequired(spec)) required.push(key);
+  }
+  return params(props, required);
+}
+
+// WAIT is handled locally and STOP is the global stop tool, so Grok doesn't get them per device
+const HIDDEN = new Set(['WAIT', 'STOP']);
+
+const fromPrimitives = (list: Primitive[], device: DeviceId): Tool[] =>
+  list
+    .filter((p) => !HIDDEN.has(p.id))
+    .map((p) => ({
+      name: p.id.toLowerCase(),
+      description:
+        p.description +
+        (p.voice_aliases_it?.length ? ` Italian: ${p.voice_aliases_it.map((a) => `"${a}"`).join(', ')}.` : ''),
+      parameters: schemaFor(p, device),
+    }));
+
+// Names map 1:1 to POST {bridge}/tools/{name}. Arm names are the UR5e primitives from the skill template.
+const dogTools: Tool[] = fromPrimitives(DOG_PRIMITIVES, 'dog');
+
+// High-level tasks run by robot_controller through the arm bridge (../bridge). The real arm only moves between
+// taught positions, so these are the tools that work on hardware; small step moves are simulator-only.
+export const ARM_TASK_TOOLS = new Set(['pick_and_place', 'pick', 'place', 'shake']);
+const objectParam = {
+  type: 'string',
+  description: 'object name ("red cube") or the number the vision server shows on it',
+};
+const destParam = { type: 'string', description: 'where to put it, e.g. "delivery zone" or "blue box"' };
 
 const armTools: Tool[] = [
   {
-    name: 'goto',
-    description: 'Move the arm to a named, pre-taught position.',
-    parameters: params({ place: { type: 'string', enum: ['home', 'table', 'box', 'handover'] } }, ['place']),
-  },
-  {
-    name: 'grip',
-    description: 'Open or close the gripper.',
-    parameters: params({ state: { type: 'string', enum: ['open', 'close'] } }, ['state']),
-  },
-  {
-    name: 'pick_place',
-    description: 'Pick up an object seen by the camera and put it at a target place.',
+    name: 'pick_and_place',
+    description:
+      'Whole task on the real arm: find the object with the camera, pick it, optionally shake it, place it at the destination. Preferred way to move an object.',
     parameters: params(
       {
-        object: { type: 'string', description: 'e.g. "red cube"' },
-        place: { type: 'string', enum: ['table', 'box', 'handover'] },
+        object: objectParam,
+        destination: destParam,
+        shake_cycles: { type: 'integer', minimum: 0, maximum: 3, description: 'gentle shakes before placing, default 0' },
       },
-      ['object', 'place'],
+      ['object'],
     ),
   },
   {
-    name: 'check',
-    description: 'Photo of the workspace, verified by vision. Use after pick_place to confirm it worked.',
-    parameters: params({ expect: { type: 'string' } }, ['expect']),
+    name: 'pick',
+    description: 'Find the object with the camera and pick it up (verifies the grip).',
+    parameters: params({ object: objectParam }, ['object']),
+  },
+  {
+    name: 'place',
+    description: 'Place the held object at a destination and release it.',
+    parameters: params({ destination: destParam }),
+  },
+  {
+    name: 'shake',
+    description: 'Gently shake the held object side to side.',
+    parameters: params({ cycles: { type: 'integer', minimum: 1, maximum: 3, description: 'default 2' } }),
+  },
+  ...fromPrimitives(ARM_PRIMITIVES, 'arm'),
+  {
+    name: 'detect',
+    description: 'Look for an object in the arm workspace before moving to it.',
+    parameters: params({ target: { type: 'string', description: 'object id or name, e.g. "red cube"' } }, ['target']),
+  },
+  {
+    name: 'verify',
+    description: 'Check with the camera that something is true, e.g. after placing an object.',
+    parameters: params({ expect: { type: 'string', description: 'e.g. "the red cube is inside the blue box"' } }, [
+      'expect',
+    ]),
   },
 ];
 
@@ -81,7 +128,7 @@ const stopTool: Tool = {
   parameters: params({}),
 };
 
-// Grok gets one flat list: dog_walk, arm_grip, ...
+// Grok gets one flat list: dog_walk, arm_move_left, ...
 export function grokTools() {
   const list = deviceIds.flatMap((id) =>
     devices[id].tools.map((t) => ({ type: 'function', ...t, name: `${id}_${t.name}` })),
