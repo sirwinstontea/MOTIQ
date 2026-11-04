@@ -1,4 +1,5 @@
 import env from '../lib/config';
+import { armWorld, detect, resolveObject, runArm, verify } from '../robot/runtime';
 import { simInfo, simulate } from './sim';
 import { DeviceId, deviceIds, devices, splitToolName } from './tools';
 
@@ -49,13 +50,44 @@ export async function runTool(fullName: string, args: Record<string, unknown>): 
   if (!tool) return { ok: false, error: `unknown tool ${fullName}` };
 
   const url = devices[tool.id].url;
+  if (tool.name === 'wait') {
+    await new Promise((r) => setTimeout(r, Math.min(10, Math.max(0, Number(args.seconds ?? 0.5))) * 1000));
+    return { ok: true, waited: args.seconds };
+  }
+  if (tool.id === 'arm') return runArmTool(tool.name, args, url);
   if (!url) return simulate(tool.id, tool.name, args);
   return post(`${url}/tools/${tool.name}`, args);
 }
 
+// null = simulated arm
+export function armSend() {
+  const url = devices.arm.url;
+  return url ? (tool: string, body: Record<string, unknown>) => post(`${url}/tools/${tool}`, body) : null;
+}
+
+// arm: every primitive is checked against the UR5e model first, so nothing outside the limits reaches the bridge
+async function runArmTool(name: string, args: Record<string, unknown>, url: string): Promise<ToolResult> {
+  if (name === 'detect') {
+    const id = resolveObject(String(args.target ?? ''));
+    if (!id)
+      return {
+        ok: false,
+        error: `unknown object "${args.target}"`,
+        known: Object.values(armWorld()).map((o) => o.name),
+      };
+    const d = await detect(id, !!url);
+    return { ok: d.ok, sim: !url || undefined, object: id, seen: d.note, measured: d.measured, error: d.error };
+  }
+  if (name === 'verify') {
+    const v = await verify([String(args.expect ?? '')], !!url);
+    return { ok: v.ok, sim: !url || undefined, seen: v.note, error: v.error };
+  }
+  return runArm(name.toUpperCase(), args, armSend());
+}
+
 export async function ping(id: DeviceId): Promise<Health> {
   const url = devices[id].url;
-  if (!url) return { state: 'sim', info: simInfo[id] };
+  if (!url) return { state: 'sim', info: simInfo(id) };
 
   const started = Date.now();
   try {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -12,204 +12,585 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { DeviceId, devices } from '../devices';
-import { Field, fieldsFor, Skill, skillIcons, Step, validate, WAIT } from '../skills';
+import { isRequired, limitFor, profiles } from '../robot/profiles';
+import {
+  deviceOf,
+  Device,
+  EnvObject,
+  FAILURE_POLICIES,
+  isLookStep,
+  normalizeSkill,
+  Primitive,
+  PrimitiveCall,
+  primitivesOf,
+  SkillDoc,
+  skillIcons,
+  SkillStep,
+  STEP_ACTIONS,
+  validateSkill,
+} from '../skills';
+import { dryRun } from '../skills/dryrun';
 import { Colors, fonts, radius, shadowFloat, type, useStyles, useTheme } from '../theme';
 import SkillPreview from './SkillPreview';
 import { Button, IconButton, Segmented } from './ui';
 
 type Props = {
-  initial: Skill | null; // null = new; id '' = duplicate
-  defaultDevice: DeviceId;
+  initial: SkillDoc;
+  startInJson?: boolean; // import: open on an empty JSON box
   onClose: () => void;
-  onSave: (s: Skill) => void;
+  onSave: (s: SkillDoc) => void;
 };
 
-const newId = () => `custom_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+type Field = {
+  key: string;
+  type: 'number' | 'string' | 'array';
+  options?: string[];
+  min?: number;
+  max?: number;
+  required: boolean;
+  hint?: string;
+};
 
-// new step with enum args pre-filled with their first option
-function blankStep(tool: string): Step {
-  const args: Record<string, unknown> = {};
-  for (const f of fieldsFor(tool)) {
-    if (f.options) args[f.key] = f.options[0];
-    else if (tool === WAIT) args[f.key] = 1;
-  }
-  return { tool, args };
+const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
+
+function fieldsFor(p: Primitive, device: Device, objects: string[]): Field[] {
+  return Object.entries(p.parameters).map(([key, spec]) => {
+    const lim = device === 'arm' ? limitFor(key) : {};
+    const min = Math.max(spec.min ?? -Infinity, lim.min ?? -Infinity);
+    const max = Math.min(spec.max ?? Infinity, lim.max ?? Infinity);
+    return {
+      key,
+      type: spec.type === 'number' ? 'number' : spec.type === 'array' ? 'array' : 'string',
+      options: spec.type === 'enum' ? spec.values : spec.type === 'object_id' ? objects : undefined,
+      min: Number.isFinite(min) ? min : undefined,
+      max: Number.isFinite(max) ? max : undefined,
+      required: isRequired(spec),
+      hint: spec.default !== undefined ? `default ${JSON.stringify(spec.default)}` : spec.note,
+    };
+  });
 }
 
-export default function SkillEditor({ initial, defaultDevice, onClose, onSave }: Props) {
+// text inputs hand back strings: turn them into numbers / arrays and drop empties
+function cleanCall(c: PrimitiveCall, prims: Primitive[]): PrimitiveCall {
+  const p = prims.find((x) => x.id === c.primitive);
+  if (!p || !c.parameters) return c;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(c.parameters)) {
+    if (v === '' || v == null) continue;
+    const spec = p.parameters[k];
+    if (spec?.type === 'number' && typeof v === 'string' && Number.isFinite(Number(v))) out[k] = Number(v);
+    else if (spec?.type === 'array' && typeof v === 'string')
+      out[k] = v
+        .split(/[\s,]+/)
+        .filter(Boolean)
+        .map(Number);
+    else out[k] = v;
+  }
+  return Object.keys(out).length ? { ...c, parameters: out } : { primitive: c.primitive };
+}
+
+function clean(doc: SkillDoc): SkillDoc {
+  const prims = primitivesOf(doc);
+  return {
+    ...doc,
+    skill: { ...doc.skill, name: doc.skill.name.trim(), description: doc.skill.description.trim() },
+    intent: {
+      ...doc.intent,
+      natural_language_instruction: doc.intent.natural_language_instruction || doc.skill.description.trim(),
+      success_conditions: doc.intent.success_conditions.map((x) => x.trim()).filter(Boolean),
+    },
+    environment: {
+      ...doc.environment,
+      objects: doc.environment.objects.map((o) => {
+        const loc = o.initial_state?.location ?? { x: 0, y: 0, z: 0 };
+        return {
+          ...o,
+          initial_state: {
+            ...o.initial_state,
+            location: { x: Number(loc.x) || 0, y: Number(loc.y) || 0, z: Number(loc.z) || 0 },
+          },
+        };
+      }),
+    },
+    steps: doc.steps.map((s, i) => ({
+      ...s,
+      id: s.id || `step_${String(i + 1).padStart(3, '0')}`,
+      primitive_sequence: s.primitive_sequence?.map((c) => cleanCall(c, prims)),
+    })),
+  };
+}
+
+// starting points for new steps, following the template's pick / place pattern
+function blankStep(action: string, doc: SkillDoc): SkillStep {
+  const objs = doc.environment.objects;
+  const thing = objs.find((o) => o.category !== 'container')?.id;
+  const box = objs.find((o) => o.category === 'container')?.id;
+  const id = `step_${Date.now().toString(36)}`;
+  switch (action) {
+    case 'DETECT':
+      return { id, action, target: thing, failure_policy: 'STOP_AND_REOBSERVE' };
+    case 'VERIFY':
+      return {
+        id,
+        action,
+        target: thing,
+        parameters: { check_containment: true, check_orientation: true },
+        failure_policy: 'REPORT_FAILURE',
+      };
+    case 'PICK':
+      return {
+        id,
+        action,
+        target: thing,
+        failure_policy: 'RETRY_WITH_REOBSERVATION',
+        primitive_sequence: [
+          { primitive: 'OPEN_GRIPPER' },
+          { primitive: 'MOVE_ABOVE', parameters: { target: thing, height_m: 0.15 } },
+          { primitive: 'MOVE_DOWN', parameters: { distance_m: 0.13, speed_mps: 0.05 } },
+          { primitive: 'CLOSE_GRIPPER', parameters: { force_pct: 70 } },
+          { primitive: 'MOVE_UP', parameters: { distance_m: 0.13 } },
+        ],
+      };
+    case 'PLACE':
+      return {
+        id,
+        action,
+        target: box,
+        failure_policy: 'STOP_AND_REPLAN',
+        primitive_sequence: [
+          { primitive: 'MOVE_ABOVE', parameters: { target: box, height_m: 0.15 } },
+          { primitive: 'MOVE_DOWN', parameters: { distance_m: 0.08, speed_mps: 0.05 } },
+          { primitive: 'OPEN_GRIPPER' },
+          { primitive: 'MOVE_UP', parameters: { distance_m: 0.08 } },
+        ],
+      };
+    default:
+      return { id, action: 'SEQUENCE', failure_policy: 'REPORT_FAILURE', primitive_sequence: [] };
+  }
+}
+
+export default function SkillEditor({ initial, startInJson, onClose, onSave }: Props) {
   const { c } = useTheme();
   const s = useStyles(makeStyles);
-  const [name, setName] = useState(initial?.name ?? '');
-  const [description, setDescription] = useState(initial?.description ?? '');
-  const [device, setDevice] = useState<DeviceId>(initial?.device ?? defaultDevice);
-  const [icon, setIcon] = useState(initial?.icon ?? skillIcons[0]);
-  const [steps, setSteps] = useState<Step[]>(initial?.steps ?? []);
+  const [doc, setDoc] = useState<SkillDoc>(() => clone(initial));
+  const [mode, setMode] = useState<'form' | 'json'>(startInJson ? 'json' : 'form');
+  const [json, setJson] = useState(startInJson ? '' : JSON.stringify(initial, null, 2));
+  const [jsonError, setJsonError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState(false);
 
-  const tools = [...devices[device].tools.map((t) => `${device}_${t.name}`), WAIT];
+  const device = deviceOf(doc);
+  const prims = primitivesOf(doc).filter((p) => p.id !== 'STOP');
+  const objectIds = doc.environment.objects.map((o) => o.id);
 
-  const changeDevice = (d: DeviceId) => {
-    setDevice(d);
-    setSteps((prev) => prev.filter((st) => st.tool === WAIT || st.tool.startsWith(`${d}_`)));
-  };
+  const key = JSON.stringify(doc);
+  const check = useMemo(() => {
+    const d = clean(JSON.parse(key));
+    const v = validateSkill(d);
+    const run = v.errors.length ? null : dryRun(d);
+    return { v, run };
+  }, [key]);
 
-  const update = (i: number, key: string, value: unknown) =>
-    setSteps((prev) => prev.map((st, j) => (j === i ? { ...st, args: { ...st.args, [key]: value } } : st)));
-
-  const move = (i: number, by: number) =>
-    setSteps((prev) => {
-      const j = i + by;
-      if (j < 0 || j >= prev.length) return prev;
-      const next = prev.slice();
-      [next[i], next[j]] = [next[j], next[i]];
+  const patch = (fn: (d: SkillDoc) => void) =>
+    setDoc((prev) => {
+      const next = clone(prev);
+      fn(next);
       return next;
     });
 
-  const save = () => {
-    // numbers come out of text inputs as strings
-    const clean = steps.map((st) => ({
-      ...st,
-      args: Object.fromEntries(
-        fieldsFor(st.tool)
-          .filter((f) => st.args[f.key] !== undefined && st.args[f.key] !== '')
-          .map((f) => [f.key, f.type === 'number' ? Number(st.args[f.key]) : st.args[f.key]]),
-      ),
-    }));
-    const draft = { name: name.trim(), steps };
-    const problem = validate(draft);
-    if (problem) return setError(problem);
-    onSave({
-      id: initial?.id || newId(),
-      name: draft.name,
-      description: description.trim(),
-      device,
-      icon,
-      steps: clean,
+  const changeDevice = (d: Device) =>
+    patch((x) => {
+      x.robot = { ...profiles[d].robot, device: d };
+      delete x.action_primitives;
+      const ok = new Set(profiles[d].primitives.map((p) => p.id));
+      x.steps = x.steps
+        .map((st) => ({ ...st, primitive_sequence: st.primitive_sequence?.filter((cl) => ok.has(cl.primitive)) }))
+        .filter((st) => d === 'arm' || !isLookStep(st));
     });
+
+  const switchMode = (m: 'form' | 'json') => {
+    if (m === mode) return;
+    if (m === 'json') {
+      setJson(JSON.stringify(clean(doc), null, 2));
+      setJsonError(null);
+      setMode('json');
+    } else if (applyJson()) setMode('form');
+  };
+
+  const applyJson = () => {
+    try {
+      const parsed = normalizeSkill(JSON.parse(json));
+      if (initial.skill.id && !startInJson) parsed.skill.id = initial.skill.id;
+      setDoc(parsed);
+      setJsonError(null);
+      return true;
+    } catch (e: any) {
+      setJsonError(String(e?.message ?? e));
+      return false;
+    }
+  };
+
+  const save = () => {
+    let d = doc;
+    if (mode === 'json') {
+      try {
+        d = normalizeSkill(JSON.parse(json));
+        if (initial.skill.id && !startInJson) d.skill.id = initial.skill.id;
+      } catch (e: any) {
+        return setJsonError(String(e?.message ?? e));
+      }
+    }
+    const out = clean(d);
+    const v = validateSkill(out);
+    if (v.errors.length) return setError(v.errors[0]);
+    onSave(out);
+  };
+
+  const updateStep = (i: number, fn: (st: SkillStep) => void) => patch((x) => fn(x.steps[i]));
+  const moveIn = <T,>(arr: T[], i: number, by: number) => {
+    const j = i + by;
+    if (j < 0 || j >= arr.length) return;
+    [arr[i], arr[j]] = [arr[j], arr[i]];
   };
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={s.backdrop}>
         <SafeAreaView edges={['top', 'bottom']} style={s.wrap}>
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.card}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'web' ? undefined : 'padding'} style={s.card}>
             <View style={s.head}>
-              <Text style={s.title}>{initial?.id ? 'Edit skill' : 'New skill'}</Text>
+              <Text style={s.title}>
+                {startInJson ? 'Import skill' : initial.skill.name ? 'Edit skill' : 'New skill'}
+              </Text>
+              <Segmented
+                options={[
+                  { id: 'form', label: 'Form' },
+                  { id: 'json', label: 'JSON' },
+                ]}
+                value={mode}
+                onChange={switchMode}
+              />
               <IconButton icon="close" size={32} onPress={onClose} label="Close" />
             </View>
 
-            <ScrollView contentContainerStyle={{ paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
-              <Text style={s.label}>Name</Text>
-              <TextInput
-                value={name}
-                onChangeText={setName}
-                placeholder="e.g. Tidy the table"
-                placeholderTextColor={c.faint}
-                style={s.input}
-              />
-
-              <Text style={s.label}>Description</Text>
-              <TextInput
-                value={description}
-                onChangeText={setDescription}
-                placeholder="What it does - Motion reads this to pick the right skill"
-                placeholderTextColor={c.faint}
-                style={[s.input, { height: 64, textAlignVertical: 'top', paddingTop: 10 }]}
-                multiline
-              />
-
-              <Text style={s.label}>Robot</Text>
-              <Segmented
-                options={(Object.keys(devices) as DeviceId[]).map((d) => ({ id: d, label: devices[d].label }))}
-                value={device}
-                onChange={changeDevice}
-              />
-
-              <Text style={s.label}>Icon</Text>
-              <View style={s.chips}>
-                {skillIcons.map((ic) => (
-                  <Pressable key={ic} onPress={() => setIcon(ic)} style={[s.iconOpt, icon === ic && s.iconOptOn]}>
-                    <Ionicons name={ic} size={18} color={icon === ic ? c.accent : c.dim} />
-                  </Pressable>
-                ))}
+            {mode === 'json' ? (
+              <View style={{ flex: 1, minHeight: 300 }}>
+                <Text style={s.hint}>
+                  The full skill file (schema {doc.schema_version}). Paste a skill here to import it. Anything the form
+                  doesn&apos;t show, like safety, constraints or uncertainties, can be edited here.
+                </Text>
+                <TextInput
+                  value={json}
+                  onChangeText={setJson}
+                  multiline
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  spellCheck={false}
+                  placeholder='{ "schema_version": "1.1.0", "skill": { ... }, "steps": [ ... ] }'
+                  placeholderTextColor={c.faint}
+                  style={[s.input, s.json]}
+                />
+                {jsonError && <Text style={s.error}>{jsonError}</Text>}
               </View>
+            ) : (
+              <ScrollView contentContainerStyle={{ paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
+                <Text style={s.label}>Name</Text>
+                <TextInput
+                  value={doc.skill.name}
+                  onChangeText={(v) => patch((x) => (x.skill.name = v))}
+                  placeholder="e.g. Pick red cube and place in blue box"
+                  placeholderTextColor={c.faint}
+                  style={s.input}
+                />
 
-              <Text style={s.label}>Steps</Text>
-              {steps.length === 0 && <Text style={s.hint}>Add the actions in the order the robot should do them.</Text>}
-              {steps.map((st, i) => (
-                <View key={i} style={s.step}>
-                  <View style={s.stepHead}>
-                    <Text style={s.stepNum}>{i + 1}</Text>
-                    <Text style={s.stepTool}>{st.tool === WAIT ? 'wait' : st.tool.slice(device.length + 1)}</Text>
-                    <IconButton
-                      icon="chevron-up"
-                      plain
-                      size={28}
-                      color={c.dim}
-                      disabled={i === 0}
-                      onPress={() => move(i, -1)}
-                      label="Move up"
-                    />
-                    <IconButton
-                      icon="chevron-down"
-                      plain
-                      size={28}
-                      color={c.dim}
-                      disabled={i === steps.length - 1}
-                      onPress={() => move(i, 1)}
-                      label="Move down"
-                    />
-                    <IconButton
-                      icon="trash-outline"
-                      plain
-                      size={28}
-                      color={c.faint}
-                      onPress={() => setSteps((p) => p.filter((_, j) => j !== i))}
-                      label="Remove step"
-                    />
-                  </View>
-                  {fieldsFor(st.tool).map((f) => (
-                    <ArgField key={f.key} field={f} value={st.args[f.key]} onChange={(v) => update(i, f.key, v)} />
+                <Text style={s.label}>Description</Text>
+                <TextInput
+                  value={doc.skill.description}
+                  onChangeText={(v) => patch((x) => (x.skill.description = v))}
+                  placeholder="What it does - Motion reads this to pick the right skill"
+                  placeholderTextColor={c.faint}
+                  style={[s.input, s.multi]}
+                  multiline
+                />
+
+                <Text style={s.label}>Goal</Text>
+                <TextInput
+                  value={doc.intent.goal}
+                  onChangeText={(v) => patch((x) => (x.intent.goal = v))}
+                  placeholder="e.g. Place the red cube inside the blue box."
+                  placeholderTextColor={c.faint}
+                  style={s.input}
+                />
+
+                <Text style={s.label}>Success conditions (one per line)</Text>
+                <TextInput
+                  value={doc.intent.success_conditions.join('\n')}
+                  onChangeText={(v) => patch((x) => (x.intent.success_conditions = v.split('\n')))}
+                  placeholder={'The red cube is inside the blue box.\nThe cube remains upright.'}
+                  placeholderTextColor={c.faint}
+                  style={[s.input, s.multi]}
+                  multiline
+                />
+
+                <Text style={s.label}>Robot</Text>
+                <Segmented
+                  options={(['arm', 'dog'] as Device[]).map((d) => ({
+                    id: d,
+                    label: d === 'arm' ? 'Arm (UR5e)' : 'Dog',
+                  }))}
+                  value={device}
+                  onChange={changeDevice}
+                />
+
+                <Text style={s.label}>Icon</Text>
+                <View style={s.chips}>
+                  {skillIcons.map((ic) => (
+                    <Pressable
+                      key={ic}
+                      onPress={() => patch((x) => (x.app = { ...x.app, icon: ic }))}
+                      style={[s.iconOpt, doc.app?.icon === ic && s.iconOptOn]}
+                    >
+                      <Ionicons name={ic} size={18} color={doc.app?.icon === ic ? c.accent : c.dim} />
+                    </Pressable>
                   ))}
                 </View>
-              ))}
 
-              <Text style={[s.hint, { marginTop: 10 }]}>Add step</Text>
-              <View style={s.chips}>
-                {tools.map((t) => (
-                  <Pressable key={t} onPress={() => setSteps((p) => [...p, blankStep(t)])} style={s.addChip}>
-                    <Ionicons name="add" size={14} color={c.dim} />
-                    <Text style={s.addText}>{t === WAIT ? 'wait' : t.slice(device.length + 1).replace(/_/g, ' ')}</Text>
-                  </Pressable>
-                ))}
-              </View>
+                {device === 'arm' && (
+                  <>
+                    <Text style={s.label}>Objects (metres, base frame)</Text>
+                    {doc.environment.objects.map((o, i) => (
+                      <ObjectRow
+                        key={i}
+                        obj={o}
+                        onChange={(next) => patch((x) => (x.environment.objects[i] = next))}
+                        onRemove={() => patch((x) => x.environment.objects.splice(i, 1))}
+                      />
+                    ))}
+                    <Pressable
+                      style={s.addChip}
+                      onPress={() =>
+                        patch((x) =>
+                          x.environment.objects.push({
+                            id: `object_${x.environment.objects.length + 1}`,
+                            name: '',
+                            category: 'cube',
+                            attributes: {},
+                            initial_state: { location: { x: 0.4, y: 0, z: 0.02 }, orientation: { type: 'upright' } },
+                            detection: { required: true, reidentify_before_pick: true },
+                          }),
+                        )
+                      }
+                    >
+                      <Ionicons name="add" size={14} color={c.dim} />
+                      <Text style={s.addText}>object</Text>
+                    </Pressable>
+                  </>
+                )}
 
-              {steps.length > 0 && (
-                <>
-                  <Pressable onPress={() => setPreview((v) => !v)} style={s.previewHead}>
-                    <Text style={[s.label, { marginBottom: 0 }]}>Preview</Text>
-                    <Ionicons
-                      name={preview ? 'chevron-up' : 'chevron-down'}
-                      size={14}
-                      color={c.faint}
-                      style={{ marginTop: 20 }}
-                    />
-                  </Pressable>
-                  {preview ? (
-                    <View style={{ marginTop: 8 }}>
-                      <SkillPreview skill={{ device, steps }} />
+                <Text style={s.label}>Steps</Text>
+                {doc.steps.length === 0 && (
+                  <Text style={s.hint}>Add the steps in the order the robot should do them.</Text>
+                )}
+                {doc.steps.map((st, i) => (
+                  <View key={st.id + i} style={s.step}>
+                    <View style={s.stepHead}>
+                      <Text style={s.stepNum}>{i + 1}</Text>
+                      <View style={[s.chips, { flex: 1 }]}>
+                        {STEP_ACTIONS.filter((a) => device === 'arm' || a === 'SEQUENCE').map((a) => (
+                          <Chip
+                            key={a}
+                            label={a.toLowerCase()}
+                            on={st.action === a}
+                            small
+                            onPress={() =>
+                              updateStep(i, (x) => {
+                                x.action = a;
+                                if (!isLookStep(x) && !x.primitive_sequence) x.primitive_sequence = [];
+                              })
+                            }
+                          />
+                        ))}
+                      </View>
+                      <IconButton
+                        icon="chevron-up"
+                        plain
+                        size={28}
+                        color={c.dim}
+                        disabled={i === 0}
+                        onPress={() => patch((x) => moveIn(x.steps, i, -1))}
+                        label="Move up"
+                      />
+                      <IconButton
+                        icon="chevron-down"
+                        plain
+                        size={28}
+                        color={c.dim}
+                        disabled={i === doc.steps.length - 1}
+                        onPress={() => patch((x) => moveIn(x.steps, i, 1))}
+                        label="Move down"
+                      />
+                      <IconButton
+                        icon="trash-outline"
+                        plain
+                        size={28}
+                        color={c.faint}
+                        onPress={() => patch((x) => x.steps.splice(i, 1))}
+                        label="Remove step"
+                      />
                     </View>
-                  ) : (
-                    <Text style={s.hint}>Watch a 2D animation of these steps before saving.</Text>
-                  )}
-                </>
-              )}
-            </ScrollView>
+
+                    {device === 'arm' && objectIds.length > 0 && (
+                      <View style={s.arg}>
+                        <Text style={s.argKey}>target{st.action === 'DETECT' ? '' : ' (optional)'}</Text>
+                        <View style={s.chips}>
+                          {objectIds.map((id) => (
+                            <Chip
+                              key={id}
+                              label={doc.environment.objects.find((o) => o.id === id)?.name || id}
+                              on={st.target === id}
+                              small
+                              onPress={() => updateStep(i, (x) => (x.target = x.target === id ? undefined : id))}
+                            />
+                          ))}
+                        </View>
+                      </View>
+                    )}
+
+                    <View style={s.arg}>
+                      <Text style={s.argKey}>if it fails</Text>
+                      <View style={s.chips}>
+                        {FAILURE_POLICIES.map((f) => (
+                          <Chip
+                            key={f}
+                            label={f.toLowerCase().replace(/_/g, ' ')}
+                            on={(st.failure_policy ?? 'REPORT_FAILURE') === f}
+                            small
+                            onPress={() => updateStep(i, (x) => (x.failure_policy = f))}
+                          />
+                        ))}
+                      </View>
+                    </View>
+
+                    {isLookStep(st) ? (
+                      <Text style={s.hint}>
+                        {st.action === 'DETECT'
+                          ? 'Looks for the target with the vision server or the camera before moving to it.'
+                          : 'Checks the success conditions with the camera (in the simulator: against the predicted scene).'}
+                      </Text>
+                    ) : (
+                      <>
+                        {(st.primitive_sequence ?? []).map((cl, j) => {
+                          const p = prims.find((x) => x.id === cl.primitive);
+                          return (
+                            <View key={j} style={s.prim}>
+                              <View style={s.stepHead}>
+                                <Text style={s.primName}>{cl.primitive.toLowerCase().replace(/_/g, ' ')}</Text>
+                                <IconButton
+                                  icon="chevron-up"
+                                  plain
+                                  size={26}
+                                  color={c.dim}
+                                  disabled={j === 0}
+                                  onPress={() => updateStep(i, (x) => moveIn(x.primitive_sequence!, j, -1))}
+                                  label="Move up"
+                                />
+                                <IconButton
+                                  icon="chevron-down"
+                                  plain
+                                  size={26}
+                                  color={c.dim}
+                                  disabled={j === (st.primitive_sequence?.length ?? 0) - 1}
+                                  onPress={() => updateStep(i, (x) => moveIn(x.primitive_sequence!, j, 1))}
+                                  label="Move down"
+                                />
+                                <IconButton
+                                  icon="close"
+                                  plain
+                                  size={26}
+                                  color={c.faint}
+                                  onPress={() => updateStep(i, (x) => x.primitive_sequence!.splice(j, 1))}
+                                  label="Remove primitive"
+                                />
+                              </View>
+                              {p &&
+                                fieldsFor(p, device, objectIds).map((f) => (
+                                  <ArgField
+                                    key={f.key}
+                                    field={f}
+                                    value={cl.parameters?.[f.key]}
+                                    onChange={(v) =>
+                                      updateStep(i, (x) => {
+                                        const call = x.primitive_sequence![j];
+                                        call.parameters = { ...(call.parameters ?? {}), [f.key]: v };
+                                      })
+                                    }
+                                  />
+                                ))}
+                            </View>
+                          );
+                        })}
+                        <View style={s.chips}>
+                          {prims.map((p) => (
+                            <Pressable
+                              key={p.id}
+                              onPress={() =>
+                                updateStep(
+                                  i,
+                                  (x) =>
+                                    (x.primitive_sequence = [...(x.primitive_sequence ?? []), { primitive: p.id }]),
+                                )
+                              }
+                              style={s.addChip}
+                            >
+                              <Ionicons name="add" size={12} color={c.dim} />
+                              <Text style={s.addText}>{p.id.toLowerCase().replace(/_/g, ' ')}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      </>
+                    )}
+                  </View>
+                ))}
+
+                <Text style={[s.hint, { marginTop: 10 }]}>Add step</Text>
+                <View style={s.chips}>
+                  {STEP_ACTIONS.filter((a) => device === 'arm' || a === 'SEQUENCE').map((a) => (
+                    <Pressable key={a} onPress={() => patch((x) => x.steps.push(blankStep(a, x)))} style={s.addChip}>
+                      <Ionicons name="add" size={14} color={c.dim} />
+                      <Text style={s.addText}>{a.toLowerCase()}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Checks check={check} />
+
+                {doc.steps.length > 0 && (
+                  <>
+                    <Pressable onPress={() => setPreview((v) => !v)} style={s.previewHead}>
+                      <Text style={[s.label, { marginBottom: 0 }]}>Preview</Text>
+                      <Ionicons
+                        name={preview ? 'chevron-up' : 'chevron-down'}
+                        size={14}
+                        color={c.faint}
+                        style={{ marginTop: 20 }}
+                      />
+                    </Pressable>
+                    {preview ? (
+                      <View style={{ marginTop: 8 }}>
+                        <SkillPreview skill={clean(doc)} />
+                      </View>
+                    ) : (
+                      <Text style={s.hint}>Watch the dry run before saving.</Text>
+                    )}
+                  </>
+                )}
+              </ScrollView>
+            )}
 
             {error && <Text style={s.error}>{error}</Text>}
             <View style={s.actions}>
+              {mode === 'json' && <Button label="Check JSON" variant="ghost" onPress={applyJson} />}
+              <View style={{ flex: 1 }} />
               <Button label="Cancel" variant="ghost" onPress={onClose} />
               <Button label="Save skill" variant="primary" onPress={save} />
             </View>
@@ -220,10 +601,117 @@ export default function SkillEditor({ initial, defaultDevice, onClose, onSave }:
   );
 }
 
+// validation + dry run summary
+function Checks({
+  check,
+}: {
+  check: { v: { errors: string[]; warnings: string[] }; run: ReturnType<typeof dryRun> | null };
+}) {
+  const { c } = useTheme();
+  const s = useStyles(makeStyles);
+  const { v, run } = check;
+  const rows: { tone: 'bad' | 'warn' | 'ok'; text: string }[] = [
+    ...v.errors.map((t) => ({ tone: 'bad' as const, text: t })),
+    ...(run?.error ? [{ tone: 'bad' as const, text: `Won't run as written: ${run.error}` }] : []),
+    ...(run?.warnings ?? []).map((t) => ({ tone: 'warn' as const, text: t })),
+    ...v.warnings.map((t) => ({ tone: 'warn' as const, text: t })),
+  ];
+  if (!rows.length && run)
+    rows.push({ tone: 'ok', text: 'Dry run passes: every move is within the limits and reachable.' });
+  if (!rows.length) return null;
+  return (
+    <View style={{ marginTop: 16, gap: 6 }}>
+      <Text style={[s.label, { marginTop: 0 }]}>Checks</Text>
+      {rows.map((r, i) => (
+        <View key={i} style={s.checkRow}>
+          <Ionicons
+            name={r.tone === 'bad' ? 'close-circle' : r.tone === 'warn' ? 'alert-circle' : 'checkmark-circle'}
+            size={14}
+            color={r.tone === 'bad' ? c.bad : r.tone === 'warn' ? c.warn : c.ok}
+            style={{ marginTop: 1 }}
+          />
+          <Text style={s.checkText}>{r.text}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function ObjectRow({
+  obj,
+  onChange,
+  onRemove,
+}: {
+  obj: EnvObject;
+  onChange: (o: EnvObject) => void;
+  onRemove: () => void;
+}) {
+  const { c } = useTheme();
+  const s = useStyles(makeStyles);
+  const loc = obj.initial_state?.location ?? { x: 0, y: 0, z: 0 };
+  const setLoc = (k: 'x' | 'y' | 'z', v: string) =>
+    onChange({ ...obj, initial_state: { ...obj.initial_state, location: { ...loc, [k]: v as unknown as number } } });
+  const container = obj.category === 'container';
+  return (
+    <View style={s.step}>
+      <View style={s.stepHead}>
+        <TextInput
+          value={obj.name}
+          onChangeText={(name) => onChange({ ...obj, name })}
+          placeholder="name, e.g. red cube"
+          placeholderTextColor={c.faint}
+          style={[s.input, s.argInput, { flex: 1 }]}
+        />
+        <IconButton icon="trash-outline" plain size={28} color={c.faint} onPress={onRemove} label="Remove object" />
+      </View>
+      <View style={s.chips}>
+        <Chip
+          label="object"
+          on={!container}
+          small
+          onPress={() =>
+            onChange({ ...obj, category: 'cube', detection: { required: true, reidentify_before_pick: true } })
+          }
+        />
+        <Chip
+          label="container"
+          on={container}
+          small
+          onPress={() =>
+            onChange({ ...obj, category: 'container', detection: { required: true, reidentify_before_place: true } })
+          }
+        />
+        <TextInput
+          value={String(obj.attributes?.color ?? '')}
+          onChangeText={(color) => onChange({ ...obj, attributes: { ...obj.attributes, color } })}
+          placeholder="colour"
+          placeholderTextColor={c.faint}
+          style={[s.input, s.argInput, { width: 90 }]}
+        />
+      </View>
+      <View style={s.xyz}>
+        {(['x', 'y', 'z'] as const).map((k) => (
+          <View key={k} style={{ flex: 1 }}>
+            <Text style={s.argKey}>{k}</Text>
+            <TextInput
+              value={String(loc[k] ?? '')}
+              onChangeText={(v) => setLoc(k, v)}
+              keyboardType="numbers-and-punctuation"
+              style={[s.input, s.argInput]}
+            />
+          </View>
+        ))}
+      </View>
+      <Text style={s.hint}>id: {obj.id}</Text>
+    </View>
+  );
+}
+
 function ArgField({ field, value, onChange }: { field: Field; value: unknown; onChange: (v: unknown) => void }) {
   const { c } = useTheme();
   const s = useStyles(makeStyles);
   const range = field.min != null && field.max != null ? ` (${field.min} to ${field.max})` : '';
+  const shown = Array.isArray(value) ? value.join(', ') : value === undefined ? '' : String(value);
 
   return (
     <View style={s.arg}>
@@ -234,16 +722,16 @@ function ArgField({ field, value, onChange }: { field: Field; value: unknown; on
       {field.options ? (
         <View style={s.chips}>
           {field.options.map((o) => (
-            <Chip key={o} label={o} on={value === o} onPress={() => onChange(o)} small />
+            <Chip key={o} label={o.replace(/^object_/, '')} on={value === o} onPress={() => onChange(o)} small />
           ))}
         </View>
       ) : (
         <TextInput
-          value={value === undefined ? '' : String(value)}
+          value={shown}
           onChangeText={onChange}
-          placeholder={(field.hint ?? (field.type === 'number' ? 'number' : 'text')) + range}
+          placeholder={(field.hint ?? (field.type === 'array' ? '6 numbers, comma separated' : field.type)) + range}
           placeholderTextColor={c.faint}
-          keyboardType={field.type === 'number' ? 'numbers-and-punctuation' : 'default'}
+          keyboardType={field.type === 'string' ? 'default' : 'numbers-and-punctuation'}
           style={[s.input, s.argInput]}
         />
       )}
@@ -267,15 +755,16 @@ const makeStyles = (c: Colors) =>
     wrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16 },
     card: {
       width: '100%',
-      maxWidth: 560,
+      maxWidth: 620,
       maxHeight: '100%',
+      flexShrink: 1,
       backgroundColor: c.panel,
       borderRadius: radius.lg,
-      padding: 24,
+      padding: 20,
       boxShadow: shadowFloat,
     },
-    head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
-    title: { ...type.h2, color: c.text },
+    head: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
+    title: { ...type.h2, color: c.text, flex: 1 },
     label: { ...type.overline, color: c.faint, marginTop: 20, marginBottom: 8 },
     hint: { ...type.caption, fontSize: 12, color: c.faint, marginBottom: 6 },
     input: {
@@ -283,12 +772,22 @@ const makeStyles = (c: Colors) =>
       borderRadius: radius.md,
       borderWidth: 1,
       borderColor: c.lineStrong,
-      paddingHorizontal: 16,
+      paddingHorizontal: 14,
       height: 44,
       ...type.body,
       color: c.text,
     },
-    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    multi: { height: 72, textAlignVertical: 'top', paddingTop: 10 },
+    json: {
+      flex: 1,
+      minHeight: 280,
+      height: undefined,
+      textAlignVertical: 'top',
+      paddingTop: 10,
+      fontFamily: fonts.mono,
+      fontSize: 11,
+    },
+    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' },
     chip: {
       paddingHorizontal: 12,
       height: 30,
@@ -310,23 +809,28 @@ const makeStyles = (c: Colors) =>
     step: { backgroundColor: c.panelHi, borderRadius: radius.md, padding: 12, marginBottom: 8, gap: 8 },
     stepHead: { flexDirection: 'row', alignItems: 'center', gap: 4 },
     stepNum: { fontFamily: fonts.mono, fontSize: 12, color: c.faint, width: 20 },
-    stepTool: { flex: 1, fontFamily: fonts.mono, fontSize: 13, color: c.text },
+    prim: { backgroundColor: c.panel, borderRadius: radius.sm, padding: 10, gap: 6 },
+    primName: { flex: 1, fontFamily: fonts.mono, fontSize: 12, color: c.text },
     arg: { gap: 6 },
     argKey: { ...type.caption, color: c.faint },
-    argInput: { height: 38, backgroundColor: c.panel, borderColor: c.line, fontSize: 13 },
+    argInput: { height: 36, backgroundColor: c.panel, borderColor: c.line, fontSize: 13 },
+    xyz: { flexDirection: 'row', gap: 8 },
     addChip: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 4,
-      paddingHorizontal: 12,
-      height: 30,
+      paddingHorizontal: 10,
+      height: 28,
       borderRadius: radius.pill,
       borderWidth: 1,
       borderColor: c.lineStrong,
       borderStyle: 'dashed',
+      alignSelf: 'flex-start',
     },
-    addText: { fontFamily: fonts.mono, fontSize: 12, color: c.dim },
+    addText: { fontFamily: fonts.mono, fontSize: 11, color: c.dim },
+    checkRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-start' },
+    checkText: { ...type.caption, fontSize: 12, color: c.dim, flex: 1 },
     previewHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
     error: { ...type.caption, fontSize: 12, color: c.bad, marginTop: 8 },
-    actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 16 },
+    actions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14 },
   });

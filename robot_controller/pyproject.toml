@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "robot-control"
+version = "0.1.0"
+description = "Robot-agnostic manipulation controller (Mock + RoboDK simulation only)"
+requires-python = ">=3.10"
+dependencies = [
+  "pydantic>=2.6,<3",
+  "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+api = ["fastapi>=0.110", "uvicorn>=0.29"]
+dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.110", "uvicorn>=0.29"]
+# RoboDK API: use the copy bundled with the RoboDK install (~/RoboDK/Python),
+# or `pip install robodk`. Not needed for Mock tests.
+
+[tool.setuptools.packages.find]
+include = ["robot_control*"]
+
+[tool.setuptools.package-data]
+"robot_control.api" = ["dashboard.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: needs a running RoboDK GUI; opt in with RUN_ROBODK_TESTS=1"]
+addopts = "-m 'not integration'"

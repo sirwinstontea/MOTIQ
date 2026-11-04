@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robot Live Status</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #1b1f24; --muted: #667080; --line: #e3e6ea;
+    --accent: #2563eb; --ok: #15803d; --warn: #b45309; --bad: #b91c1c; --track: #eceff3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1216; --card: #171b21; --ink: #e6e9ee; --muted: #8d96a5; --line: #262c35;
+      --accent: #60a5fa; --ok: #4ade80; --warn: #fbbf24; --bad: #f87171; --track: #222832;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 20px 16px 40px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-bottom: 14px; }
+  h1 { font-size: 18px; margin: 0; }
+  .badge { font-size: 11px; font-weight: 600; letter-spacing: .04em; padding: 2px 8px; border-radius: 999px;
+           border: 1px solid var(--line); color: var(--muted); }
+  .badge.sim { color: var(--accent); border-color: var(--accent); }
+  .muted { color: var(--muted); }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0; }
+  .card h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 8px; }
+  .big { font-size: 17px; font-weight: 600; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .bar { height: 8px; background: var(--track); border-radius: 999px; overflow: hidden; margin: 8px 0 4px; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  .state { font-weight: 600; }
+  .state.FAULT, .state.CANCELLED { color: var(--bad); }
+  .state.COMPLETED { color: var(--ok); }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 3px 0; vertical-align: top; }
+  td:first-child { color: var(--muted); width: 38%; }
+  .joints { display: grid; grid-template-columns: 26px 1fr 64px; gap: 4px 8px; align-items: center; }
+  .jt { height: 6px; background: var(--track); border-radius: 999px; position: relative; }
+  .jt > i { position: absolute; top: -2px; width: 3px; height: 10px; background: var(--accent); border-radius: 2px; }
+  ol { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow: auto; }
+  li { display: grid; grid-template-columns: 22px 34px 1fr auto; gap: 6px; padding: 5px 6px;
+       border-radius: 6px; align-items: baseline; }
+  li.running { background: color-mix(in srgb, var(--accent) 14%, transparent); font-weight: 600; }
+  li.done .ic { color: var(--ok); } li.failed .ic { color: var(--bad); } li.skipped { color: var(--muted); }
+  li .tg { color: var(--muted); font-size: 12px; }
+  .err { color: var(--bad); margin-top: 8px; }
+  .full { grid-column: 1 / -1; }
+  footer { margin-top: 12px; font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 id="title">Robot live status</h1>
+    <span class="badge sim">SIMULATION</span>
+    <span class="muted" id="meta">connecting…</span>
+  </header>
+
+  <div class="grid">
+    <section class="card">
+      <h2>Now</h2>
+      <div class="big" id="now">–</div>
+      <div class="muted mono" id="nowTarget"></div>
+      <div class="bar"><i id="prog"></i></div>
+      <div class="muted"><span id="progTxt">0 / 0</span> · state <span class="state" id="state">–</span></div>
+      <div class="err" id="err"></div>
+    </section>
+
+    <section class="card">
+      <h2>Next</h2>
+      <div class="big" id="next">–</div>
+      <div class="muted mono" id="nextTarget"></div>
+    </section>
+
+    <section class="card">
+      <h2>Robot (base frame)</h2>
+      <table class="mono">
+        <tr><td>TCP x, y, z</td><td id="tcp">–</td></tr>
+        <tr><td>Rotation vector</td><td id="rot">–</td></tr>
+        <tr><td>Gripper</td><td id="grip">–</td></tr>
+        <tr><td>Holding</td><td id="hold">–</td></tr>
+        <tr><td>Moving</td><td id="moving">–</td></tr>
+      </table>
+    </section>
+
+    <section class="card">
+      <h2>Joints (deg)</h2>
+      <div class="joints mono" id="joints"></div>
+    </section>
+
+    <section class="card full">
+      <h2>Plan</h2>
+      <ol id="steps"></ol>
+    </section>
+  </div>
+
+  <footer class="muted" id="limits"></footer>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const ICON = { done: "✓", skipped: "·", running: "▶", failed: "✗", pending: "" };
+const xyz = (v) => v ? v.map((n) => (n >= 0 ? "+" : "") + n.toFixed(3)).join(", ") + " m" : "–";
+
+function stepTarget(s) {
+  if (!s || !s.target_id) return "";
+  return `${s.motion} → ${s.target_id}  ${xyz(s.target_xyz_m)}`;
+}
+
+let lastSteps = "";
+function render(d) {
+  $("title").textContent = `${d.robot_model} · ${d.task_id || "no task"}`;
+  $("meta").textContent = `${d.backend} · updated ${new Date(d.timestamp_utc).toLocaleTimeString()}`;
+  $("state").textContent = d.state;
+  $("state").className = "state " + d.state;
+  const p = d.progress || { done: 0, total: 0 };
+  $("prog").style.width = p.total ? (100 * p.done / p.total) + "%" : "0";
+  $("progTxt").textContent = `${p.done} / ${p.total} steps`;
+  $("now").textContent = d.now ? `[${d.now.index}] ${d.now.description}` : (d.task_status || "idle");
+  $("nowTarget").textContent = stepTarget(d.now);
+  $("next").textContent = d.next ? `[${d.next.index}] ${d.next.description}` : "–";
+  $("nextTarget").textContent = stepTarget(d.next);
+  $("err").textContent = d.error ? `${d.error.code}: ${d.error.message}` : "";
+
+  const r = d.robot || {};
+  $("tcp").textContent = xyz(r.tcp_m);
+  $("rot").textContent = r.tcp_rotvec_rad ? r.tcp_rotvec_rad.map((n) => n.toFixed(3)).join(", ") + " rad" : "–";
+  $("grip").textContent = r.gripper || "–";
+  $("hold").textContent = r.holding ? `${r.holding}${r.grip_confirmed ? " (grip verified, " + r.feedback_source + ")" : ""}` : "nothing";
+  $("moving").textContent = r.moving ? "yes" : "no";
+  $("joints").innerHTML = (r.joints_deg || []).map((q, i) => {
+    const pos = Math.max(0, Math.min(100, (q + 360) / 7.2));
+    return `<span>J${i + 1}</span><div class="jt"><i style="left:calc(${pos}% - 1px)"></i></div><span style="text-align:right">${q.toFixed(1)}</span>`;
+  }).join("");
+
+  const key = JSON.stringify((d.steps || []).map((s) => s.status));
+  if (key !== lastSteps) {
+    lastSteps = key;
+    $("steps").innerHTML = (d.steps || []).map((s) =>
+      `<li class="${s.status}"><span class="ic">${ICON[s.status]}</span><span class="muted">${s.index}</span>` +
+      `<span>${s.description}</span><span class="tg mono">${s.target_id ? s.target_id : ""}</span></li>`).join("");
+    const cur = $("steps").querySelector("li.running");
+    if (cur) cur.scrollIntoView({ block: "nearest" });
+  }
+  const m = d.motion_limits;
+  if (m) $("limits").textContent =
+    `Motion limits: ${m.source} — TCP ${m.tcp_speed_m_s.toFixed(3)} m/s, joints ${(m.joint_speed_rad_s * 57.2958).toFixed(0)}°/s. ` +
+    `Simulated feedback only; not proof of physical safety.`;
+}
+
+async function poll() {
+  try {
+    const res = await fetch("/status", { cache: "no-store" });
+    if (res.ok) render(await res.json());
+    else $("meta").textContent = `status error ${res.status}`;
+  } catch (e) {
+    $("meta").textContent = "disconnected (is the demo still running?)";
+  }
+  setTimeout(poll, 300);
+}
+poll();
+</script>
+</body>
+</html>

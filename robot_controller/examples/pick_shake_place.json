@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "task_id": "demo_001",
+  "actions": [
+    {"action_id": "a1", "action": "identify_object", "parameters": {"object_id": "red_cube"}},
+    {"action_id": "a2", "action": "pick_object", "parameters": {"object_id": "red_cube"}},
+    {"action_id": "a3", "action": "shake_object", "parameters": {"pattern_id": "gentle_shake", "cycles": 2}},
+    {"action_id": "a4", "action": "place_object", "parameters": {"destination_id": "delivery_zone"}},
+    {"action_id": "a5", "action": "perform_motion", "parameters": {"motion_id": "go_home"}}
+  ]
+}

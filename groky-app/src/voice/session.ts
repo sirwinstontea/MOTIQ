@@ -151,6 +151,20 @@ export class VoiceSession {
     this.sendText(`[I'm showing you the ${source} camera. Vision says: ${answer}] Tell me what you think.`, false);
   }
 
+  // live watch: slip what the camera sees into the conversation as background, no reply asked for
+  observe(source: string, answer: string, image?: string) {
+    if (this.ws?.readyState !== WebSocket.OPEN) return;
+    this.trace({ kind: 'vision', title: `Watching the ${source} camera`, detail: answer, image, ok: true });
+    this.send({
+      type: 'conversation.item.create',
+      item: {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_text', text: `[Live camera (${source}), no reply needed: ${answer}]` }],
+      },
+    });
+  }
+
   private sendText(text: string, record: boolean) {
     if (this.ws?.readyState !== WebSocket.OPEN) {
       this.queue.push({ text, record });
