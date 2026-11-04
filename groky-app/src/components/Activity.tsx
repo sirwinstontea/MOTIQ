@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Animated, FlatList, Image, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { Status, Trace } from '../voice/types';
-import { Colors, font, useStyles, useTheme } from '../theme';
+import { Colors, fonts, radius, type, useStyles, useTheme } from '../theme';
+import { Pill } from './ui';
 
 type Icon = keyof typeof Ionicons.glyphMap;
 
@@ -24,8 +25,9 @@ const stages: { label: string; icon: Icon }[] = [
   { label: 'Speak', icon: 'volume-high-outline' },
 ];
 
-const clock = (t: number) => new Date(t).toTimeString().slice(0, 8);
+const secs = (ms: number) => (ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`);
 
+// "What Groky is doing": Hear → Reason → Act → See → Speak, then a log of each step
 export default function Activity({ traces, status }: { traces: Trace[]; status: Status }) {
   const { c } = useTheme();
   const s = useStyles(makeStyles);
@@ -35,23 +37,33 @@ export default function Activity({ traces, status }: { traces: Trace[]; status: 
   const busy = status === 'thinking' || status === 'acting' || status === 'speaking';
   const stage = !last || status === 'off' ? -1 : status === 'listening' && !busy ? 0 : kinds[last.kind].stage;
 
-  return (
-    <View style={s.wrap}>
-      <View style={s.head}>
-        <Text style={s.title}>What Groky is doing</Text>
-        {busy && <Pulse color={c.accent} />}
-      </View>
+  // stages already passed in this turn (since the last time we heard the user)
+  const turnStart = traces.findLastIndex((t) => t.kind === 'hear');
+  const passed = new Set(traces.slice(Math.max(0, turnStart)).map((t) => kinds[t.kind].stage));
 
-      <View style={s.pipe}>
+  return (
+    <View style={s.card}>
+      <Text style={s.title}>What Groky is doing</Text>
+
+      <View style={s.steps}>
+        <View style={s.hairline} />
         {stages.map((st, i) => {
-          const on = i === stage;
+          const now = i === stage;
+          const done = !now && stage >= 0 && passed.has(i) && i < stage;
           return (
-            <View key={st.label} style={s.pipeItem}>
-              <View style={[s.pipeIcon, on && { backgroundColor: c.accent, borderColor: c.accent }]}>
-                <Ionicons name={st.icon} size={15} color={on ? '#fff' : c.faint} />
-              </View>
-              <Text style={[s.pipeLabel, on && { color: c.text }]}>{st.label}</Text>
-              {i < stages.length - 1 && <View style={s.pipeLine} />}
+            <View key={st.label} style={s.step}>
+              {now ? (
+                <Halo>
+                  <View style={[s.stepIcon, { backgroundColor: c.accent }]}>
+                    <Ionicons name={st.icon} size={15} color={c.accentInk} />
+                  </View>
+                </Halo>
+              ) : (
+                <View style={[s.stepIcon, done && { backgroundColor: c.accentSoft }]}>
+                  <Ionicons name={st.icon} size={15} color={done ? c.accent : c.faint} />
+                </View>
+              )}
+              <Text style={[s.stepLabel, done && { color: c.dim }, now && { color: c.text }]}>{st.label}</Text>
             </View>
           );
         })}
@@ -62,39 +74,32 @@ export default function Activity({ traces, status }: { traces: Trace[]; status: 
         data={traces}
         keyExtractor={(t) => t.id}
         onContentSizeChange={() => list.current?.scrollToEnd({ animated: true })}
-        contentContainerStyle={{ paddingBottom: 8 }}
         ListEmptyComponent={<Text style={s.empty}>Start talking and every step shows up here.</Text>}
         renderItem={({ item, index }) => {
           const k = kinds[item.kind];
-          const color =
-            item.ok === false ? c.bad : item.ok ? c.ok : index === traces.length - 1 && busy ? c.accent : c.dim;
+          const running = index === traces.length - 1 && busy && item.ok === undefined;
+          const color = item.ok === false ? c.bad : running ? c.accent : c.dim;
           return (
-            <View style={s.row}>
-              <View style={s.rail}>
-                <View style={[s.node, { borderColor: color }]}>
-                  <Ionicons name={k.icon} size={13} color={color} />
-                </View>
-                {index < traces.length - 1 && <View style={s.railLine} />}
-              </View>
-              <View style={s.body}>
-                <View style={s.titleRow}>
-                  <Text style={s.rowTitle} numberOfLines={1}>
-                    {item.title}
-                  </Text>
-                  <Text style={s.meta}>
-                    {item.ms != null ? `${item.ms}ms  ` : ''}
-                    {clock(item.at)}
-                  </Text>
-                </View>
+            <View style={[s.row, index === traces.length - 1 && { borderBottomWidth: 0 }]}>
+              <Ionicons name={k.icon} size={15} color={color} style={{ marginTop: 1 }} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[s.rowTitle, item.ok === false && { color: c.bad }]} numberOfLines={1}>
+                  {item.title}
+                </Text>
                 {!!item.detail && (
-                  <Text style={[s.detail, item.kind === 'plan' && s.code]} numberOfLines={3}>
-                    {item.detail}
+                  <Text style={[s.rowSub, item.kind === 'plan' && s.code]} numberOfLines={3}>
+                    {item.kind === 'hear' ? `“${item.detail}”` : item.detail}
                   </Text>
                 )}
                 {!!item.image && (
                   <Image source={{ uri: `data:image/jpeg;base64,${item.image}` }} style={s.thumb} resizeMode="cover" />
                 )}
               </View>
+              {running ? (
+                <Pill label="running" tone="accent" />
+              ) : item.ms != null ? (
+                <Text style={s.ms}>{secs(item.ms)}</Text>
+              ) : null}
             </View>
           );
         }}
@@ -103,69 +108,66 @@ export default function Activity({ traces, status }: { traces: Trace[]; status: 
   );
 }
 
-function Pulse({ color }: { color: string }) {
-  const v = useState(() => new Animated.Value(0))[0];
+// current step: accent fill with a pulsing 5px accent-soft halo
+function Halo({ children }: { children: React.ReactNode }) {
+  const { c } = useTheme();
+  const [v] = useState(() => new Animated.Value(0));
   useEffect(() => {
-    const loop = Animated.loop(Animated.timing(v, { toValue: 1, duration: 1100, useNativeDriver: true }));
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(v, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(v, { toValue: 0, duration: 900, useNativeDriver: true }),
+      ]),
+    );
     loop.start();
     return () => loop.stop();
   }, [v]);
   return (
-    <View style={{ width: 12, height: 12, alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center' }}>
       <Animated.View
         style={{
           position: 'absolute',
-          width: 12,
-          height: 12,
-          borderRadius: 6,
-          backgroundColor: color,
-          opacity: v.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] }),
-          transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1.8] }) }],
+          width: 44,
+          height: 44,
+          borderRadius: 22,
+          backgroundColor: c.accentSoft,
+          opacity: v.interpolate({ inputRange: [0, 1], outputRange: [1, 0.45] }),
+          transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1.08] }) }],
         }}
       />
-      <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: color }} />
+      {children}
     </View>
   );
 }
 
 const makeStyles = (c: Colors) =>
   StyleSheet.create({
-    wrap: { flex: 1, backgroundColor: c.panel, borderRadius: 18, padding: 14, borderWidth: 1, borderColor: c.line },
-    head: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
-    title: { color: c.text, fontSize: 15, fontWeight: '700' },
-    pipe: { flexDirection: 'row', marginBottom: 14 },
-    pipeItem: { flex: 1, alignItems: 'center' },
-    pipeIcon: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: c.line,
-      backgroundColor: c.bg,
+    card: { flex: 1, backgroundColor: c.panel, borderRadius: radius.lg, padding: 16, gap: 16 },
+    title: { ...type.cardTitle, color: c.text },
+    steps: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 4 },
+    hairline: { position: 'absolute', left: 24, right: 24, top: 17, height: 1, backgroundColor: c.lineStrong },
+    step: { alignItems: 'center', gap: 6, minWidth: 44 },
+    stepIcon: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      backgroundColor: c.panelHi,
       alignItems: 'center',
       justifyContent: 'center',
-      zIndex: 1,
     },
-    pipeLabel: { color: c.faint, fontSize: 11, fontWeight: '600', marginTop: 4 },
-    pipeLine: { position: 'absolute', top: 16, left: '60%', right: '-40%', height: 1, backgroundColor: c.line },
-    empty: { color: c.faint, fontSize: 13, textAlign: 'center', marginTop: 20 },
-    row: { flexDirection: 'row', gap: 10 },
-    rail: { alignItems: 'center', width: 26 },
-    node: {
-      width: 26,
-      height: 26,
-      borderRadius: 13,
-      borderWidth: 1.5,
-      alignItems: 'center',
-      justifyContent: 'center',
-      backgroundColor: c.bg,
+    stepLabel: { fontFamily: fonts.medium, fontSize: 10, lineHeight: 12, color: c.faint },
+    empty: { ...type.caption, fontSize: 12, color: c.faint, textAlign: 'center', marginVertical: 24 },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 12,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: c.line,
     },
-    railLine: { flex: 1, width: 1.5, backgroundColor: c.line, marginVertical: 2 },
-    body: { flex: 1, paddingBottom: 14 },
-    titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 26 },
-    rowTitle: { flex: 1, color: c.text, fontSize: 14, fontWeight: '600' },
-    meta: { color: c.faint, fontSize: 11, fontFamily: font.mono },
-    detail: { color: c.dim, fontSize: 13, lineHeight: 18, marginTop: 2 },
-    code: { fontFamily: font.mono, fontSize: 12 },
-    thumb: { width: 140, height: 90, borderRadius: 8, marginTop: 6, backgroundColor: '#000' },
+    rowTitle: { ...type.label, color: c.text },
+    rowSub: { ...type.caption, color: c.faint, marginTop: 2 },
+    code: { fontFamily: fonts.mono },
+    ms: { ...type.caption, color: c.faint },
+    thumb: { width: 140, height: 90, borderRadius: radius.sm, marginTop: 6, backgroundColor: c.page },
   });

@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { Line } from '../voice/types';
-import { Colors, font, useStyles, useTheme } from '../theme';
+import { Colors, radius, type, useStyles, useTheme } from '../theme';
 
 type Props = { lines: Line[]; canSend: boolean; onSend: (t: string) => void };
 
@@ -53,7 +53,9 @@ export default function Log({ lines, canSend, onSend }: Props) {
           returnKeyType="send"
         />
         <Pressable onPress={send} hitSlop={8}>
-          <Ionicons name="arrow-up-circle" size={30} color={draft.trim() && canSend ? c.text : c.faint} />
+          <View style={[s.send, { backgroundColor: draft.trim() && canSend ? c.accent : c.panelHi }]}>
+            <Ionicons name="arrow-up" size={16} color={draft.trim() && canSend ? c.accentInk : c.faint} />
+          </View>
         </Pressable>
       </View>
     </View>
@@ -74,7 +76,7 @@ function Row({ line }: { line: Line }) {
   const { c } = useTheme();
   const s = useStyles(makeStyles);
   if (line.kind === 'tool') {
-    const color = line.ok === undefined ? c.warn : line.ok ? c.ok : c.bad;
+    const color = line.ok === undefined ? c.accent : line.ok ? c.ok : c.bad;
     return (
       <View style={s.tool}>
         <View style={[s.toolDot, { backgroundColor: color }]} />
@@ -98,31 +100,34 @@ function Row({ line }: { line: Line }) {
 
 const makeStyles = (c: Colors) =>
   StyleSheet.create({
-    wrap: { flex: 1, paddingHorizontal: 16 },
+    wrap: { flex: 1 },
     stats: { flexDirection: 'row', gap: 8, marginBottom: 6 },
-    stat: { flex: 1, backgroundColor: c.panel, borderRadius: 12, paddingVertical: 8, alignItems: 'center' },
-    statValue: { color: c.text, fontSize: 18, fontWeight: '700', fontFamily: font.mono },
-    statLabel: { color: c.dim, fontSize: 11, marginTop: 2 },
-    empty: { color: c.faint, textAlign: 'center', marginTop: 40 },
+    stat: { flex: 1, backgroundColor: c.panelHi, borderRadius: radius.md, padding: 10, alignItems: 'center' },
+    statValue: { ...type.stat, color: c.text },
+    statLabel: { fontFamily: type.caption.fontFamily, fontSize: 10, lineHeight: 13, color: c.faint, marginTop: 2 },
+    empty: { ...type.caption, fontSize: 12, color: c.faint, textAlign: 'center', marginTop: 40 },
     bubble: { maxWidth: '85%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 18 },
-    me: { alignSelf: 'flex-end', backgroundColor: c.panelHi, borderBottomRightRadius: 6 },
+    me: { alignSelf: 'flex-end', backgroundColor: c.accentSoft, borderBottomRightRadius: 6 },
     them: { alignSelf: 'flex-start', backgroundColor: c.panel, borderBottomLeftRadius: 6 },
-    bubbleText: { color: c.text, fontSize: 15, lineHeight: 21 },
+    bubbleText: { ...type.body, color: c.text },
     tool: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 6 },
     toolDot: { width: 6, height: 6, borderRadius: 3 },
-    toolText: { flex: 1, color: c.dim, fontFamily: font.mono, fontSize: 12 },
-    toolMs: { color: c.faint, fontFamily: font.mono, fontSize: 11 },
-    err: { color: c.bad, fontSize: 13, paddingHorizontal: 6 },
+    toolText: { flex: 1, ...type.mono, color: c.dim },
+    toolMs: { ...type.mono, fontSize: 10, color: c.faint },
+    err: { ...type.caption, fontSize: 12, color: c.bad, paddingHorizontal: 6 },
     input: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: 8,
       backgroundColor: c.panel,
-      borderRadius: 22,
-      paddingLeft: 16,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: c.lineStrong,
+      paddingLeft: 14,
       paddingRight: 6,
       height: 44,
       marginVertical: 10,
     },
-    field: { flex: 1, color: c.text, fontSize: 15 },
+    field: { flex: 1, ...type.body, color: c.text, outlineStyle: 'none' } as any,
+    send: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
   });

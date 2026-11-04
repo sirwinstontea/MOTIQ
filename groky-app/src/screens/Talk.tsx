@@ -6,7 +6,7 @@ import Log from '../components/Log';
 import Orb from '../components/Orb';
 import type { Voice } from '../hooks/useVoice';
 import type { Status } from '../voice/types';
-import { Colors, useStyles } from '../theme';
+import { Colors, radius, type, useStyles } from '../theme';
 
 const caption: Record<Status, string> = {
   off: 'Tap the mic to wake me up',
@@ -21,11 +21,12 @@ type Props = {
   voice: Voice;
   level: Animated.Value;
   wide: boolean;
+  mobile: boolean;
   camera: (height: number) => ReactNode;
   stopButton: ReactNode;
 };
 
-export default function Talk({ voice, level, wide, camera, stopButton }: Props) {
+export default function Talk({ voice, level, wide, mobile, camera, stopButton }: Props) {
   const s = useStyles(makeStyles);
   const { height } = useWindowDimensions();
   const [logOpen, setLogOpen] = useState(false);
@@ -40,36 +41,41 @@ export default function Talk({ voice, level, wide, camera, stopButton }: Props) 
   };
 
   return (
-    <View style={s.row}>
-      <View style={{ flex: 1 }}>
+    <View style={[s.body, mobile && s.bodyMobile]}>
+      <View style={[s.stage, !mobile && s.stageGlow]}>
         {logOpen ? (
-          <Log lines={voice.lines} canSend={live} onSend={voice.say} />
+          <View style={{ flex: 1, alignSelf: 'stretch' }}>
+            <Log lines={voice.lines} canSend={live} onSend={voice.say} />
+          </View>
         ) : (
-          <View style={s.stage}>
-            <Text style={s.headline} numberOfLines={4}>
+          <>
+            <Text style={[s.headline, mobile && { fontSize: 22, lineHeight: 27 }]} numberOfLines={4}>
               {headline}
             </Text>
-            <Orb status={voice.status} level={level} />
-            <Text style={s.caption}>{voice.muted && live ? 'Muted' : caption[voice.status]}</Text>
-          </View>
+            <View style={s.center}>
+              <Orb status={voice.status} level={level} size={mobile ? 110 : 130} />
+              <Text style={s.caption}>{voice.muted && live ? 'Muted' : caption[voice.status]}</Text>
+            </View>
+          </>
         )}
 
-        {stopButton}
-
-        <ControlBar
-          live={live}
-          muted={voice.muted}
-          logOpen={logOpen}
-          onLog={() => setLogOpen((o) => !o)}
-          onMic={onMic}
-          onEnd={voice.end}
-        />
-        <Text style={s.foot}>Grok can get things wrong. Keep a hand near the stop button.</Text>
+        <View style={s.bottom}>
+          {stopButton}
+          <ControlBar
+            live={live}
+            muted={voice.muted}
+            logOpen={logOpen}
+            onLog={() => setLogOpen((o) => !o)}
+            onMic={onMic}
+            onEnd={voice.end}
+          />
+          <Text style={s.foot}>Groky can get things wrong. Keep a hand near the stop button.</Text>
+        </View>
       </View>
 
       {wide && (
         <View style={s.side}>
-          {camera(Math.min(260, height * 0.32))}
+          {camera(Math.min(200, height * 0.25))}
           <Activity traces={voice.traces} status={voice.status} />
         </View>
       )}
@@ -79,10 +85,25 @@ export default function Talk({ voice, level, wide, camera, stopButton }: Props) 
 
 const makeStyles = (c: Colors) =>
   StyleSheet.create({
-    row: { flex: 1, flexDirection: 'row' },
-    stage: { flex: 1, alignItems: 'center', justifyContent: 'space-evenly', paddingHorizontal: 28 },
-    headline: { color: c.text, fontSize: 26, lineHeight: 36, textAlign: 'center', fontWeight: '500', maxWidth: 640 },
-    caption: { color: c.dim, fontSize: 16, fontWeight: '600', letterSpacing: 0.3 },
-    foot: { color: c.faint, fontSize: 11, textAlign: 'center', marginTop: 10, marginBottom: 4 },
-    side: { width: 380, paddingRight: 16, paddingTop: 8, paddingBottom: 12, gap: 12 },
+    body: { flex: 1, flexDirection: 'row', gap: 16, paddingHorizontal: 24, paddingTop: 8, paddingBottom: 24 },
+    bodyMobile: { paddingHorizontal: 16, paddingBottom: 12 },
+    stage: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      borderRadius: radius.lg,
+      paddingTop: 28,
+      paddingBottom: 16,
+      paddingHorizontal: 16,
+    },
+    stageGlow: {
+      backgroundColor: c.bg,
+      backgroundImage: `radial-gradient(60% 45% at 50% 55%, ${c.accentSoft}, ${c.bg} 75%)`,
+    },
+    headline: { ...type.greeting, color: c.text, textAlign: 'center', maxWidth: 640 },
+    center: { alignItems: 'center', gap: 6 },
+    caption: { ...type.caption, fontSize: 12, color: c.faint },
+    bottom: { alignSelf: 'stretch', alignItems: 'center', gap: 8 },
+    foot: { fontFamily: type.caption.fontFamily, fontSize: 10, lineHeight: 13, color: c.faint, textAlign: 'center' },
+    side: { width: 340, gap: 16 },
   });

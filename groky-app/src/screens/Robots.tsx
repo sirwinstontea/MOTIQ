@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { devices, DeviceId, stopDevice } from '../devices';
 import { useDevices } from '../hooks/useDevices';
 import type { Line } from '../voice/types';
-import { Colors, font, useStyles, useTheme } from '../theme';
+import { Button, IconChip, Pill } from '../components/ui';
+import { Colors, fonts, radius, type, useStyles, useTheme } from '../theme';
 import { ago } from '../lib/time';
 
 type ToolLine = Extract<Line, { kind: 'tool' }>;
@@ -16,7 +16,7 @@ export default function Robots({ lines }: { lines: Line[] }) {
   const twoCols = width >= 1000;
 
   return (
-    <ScrollView contentContainerStyle={s.page}>
+    <ScrollView contentContainerStyle={[s.page, width < 641 && { paddingHorizontal: 16 }]}>
       <Text style={s.title}>Robots</Text>
       <Text style={s.sub}>Live status, refreshed every few seconds.</Text>
       <View style={[s.grid, twoCols && { flexDirection: 'row' }]}>
@@ -43,7 +43,6 @@ function Card({ id, lines }: { id: DeviceId; lines: Line[] }) {
   const running = actions.find((a) => a.ok === undefined);
   const recent = actions.slice(-5).reverse();
 
-  const color = !ready ? c.faint : { online: c.ok, sim: c.warn, offline: c.bad }[st.state];
   const info = Object.entries(st.info ?? {}).filter(([k]) => k !== 'ok');
   const battery = typeof st.info?.battery === 'number' ? (st.info.battery as number) : null;
 
@@ -54,65 +53,75 @@ function Card({ id, lines }: { id: DeviceId; lines: Line[] }) {
     setStopping(false);
   };
 
+  const badge = !ready ? 'checking' : st.state;
+  const badgeTone = st.state === 'offline' ? 'bad' : st.state === 'online' ? 'ok' : 'accent';
+
   return (
     <View style={s.card}>
       <View style={s.cardHead}>
-        <Ionicons name={id === 'dog' ? 'paw-outline' : 'construct-outline'} size={22} color={c.text} />
+        <IconChip icon={id === 'dog' ? 'paw-outline' : 'construct-outline'} />
         <Text style={s.name}>{d.label}</Text>
-        <View style={[s.pill, { backgroundColor: color + '22' }]}>
-          <View style={[s.dot, { backgroundColor: color }]} />
-          <Text style={[s.pillText, { color }]}>{ready ? st.state : 'checking'}</Text>
-        </View>
+        <Pill label={badge} tone={badgeTone} dot={st.state !== 'sim'} style={{ height: 22 }} />
         <View style={{ flex: 1 }} />
-        <Pressable onPress={stop} style={s.stop} disabled={stopping}>
-          <Ionicons name="hand-left" size={14} color="#fff" />
-          <Text style={s.stopText}>{stopping ? '...' : 'Stop'}</Text>
-        </Pressable>
+        <Button
+          label={stopping ? '...' : 'Stop'}
+          icon="hand-left"
+          variant="danger"
+          size="sm"
+          onPress={stop}
+          disabled={stopping}
+        />
       </View>
 
-      <Text style={s.url}>
+      <Text style={s.url} numberOfLines={1}>
         {d.url || 'simulated - set EXPO_PUBLIC_' + id.toUpperCase() + '_URL to connect'}
         {st.ms != null && `  ·  ${st.ms} ms`}
         {st.state === 'offline' && `  ·  last seen ${ago(st.lastOnline)}`}
       </Text>
 
-      <View style={s.stats}>
+      <View style={s.tiles}>
         <Stat label="succeeded" value={`${ok}/${done.length}`} />
-        <Stat label="avg time" value={avg != null ? `${avg}ms` : '-'} />
-        <Stat label="now" value={running ? running.name.slice(id.length + 1) : 'idle'} hot={!!running} />
+        <Stat label="avg time" value={avg != null ? `${avg}ms` : '—'} />
+        <Stat label="now" value={running ? running.name.slice(id.length + 1) : 'idle'} hot />
       </View>
 
-      {battery != null && (
-        <View style={s.battRow}>
-          <Text style={s.k}>battery</Text>
-          <View style={s.battTrack}>
-            <View
-              style={[
-                s.battFill,
-                { width: `${Math.max(0, Math.min(100, battery))}%`, backgroundColor: battery < 20 ? c.bad : c.ok },
-              ]}
-            />
+      <View>
+        {battery != null && (
+          <View style={s.kv}>
+            <Text style={s.k}>battery</Text>
+            <View style={s.battRow}>
+              <View style={s.battTrack}>
+                <View
+                  style={[
+                    s.battFill,
+                    {
+                      width: `${Math.max(0, Math.min(100, battery))}%`,
+                      backgroundColor: battery < 20 ? c.warn : c.accent,
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={[s.v, battery < 20 && { color: c.warn }]}>{battery}%</Text>
+            </View>
           </View>
-          <Text style={s.v}>{battery}%</Text>
-        </View>
-      )}
+        )}
+        {info
+          .filter(([k]) => k !== 'battery')
+          .map(([k, v]) => (
+            <View key={k} style={s.kv}>
+              <Text style={s.k}>{k}</Text>
+              <Text style={s.v} numberOfLines={1}>
+                {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+              </Text>
+            </View>
+          ))}
+      </View>
 
-      {info
-        .filter(([k]) => k !== 'battery')
-        .map(([k, v]) => (
-          <View key={k} style={s.kv}>
-            <Text style={s.k}>{k}</Text>
-            <Text style={s.v} numberOfLines={1}>
-              {typeof v === 'object' ? JSON.stringify(v) : String(v)}
-            </Text>
-          </View>
-        ))}
-
-      <Text style={s.section}>Recent actions</Text>
+      <Text style={s.overline}>Recent actions</Text>
       {recent.length === 0 && <Text style={s.empty}>Nothing yet.</Text>}
       {recent.map((a) => (
         <View key={a.id} style={s.action}>
-          <View style={[s.dot, { backgroundColor: a.ok === undefined ? c.warn : a.ok ? c.ok : c.bad }]} />
+          <View style={[s.dot, { backgroundColor: a.ok === undefined ? c.accent : a.ok ? c.ok : c.bad }]} />
           <Text style={s.actionName} numberOfLines={1}>
             {a.name.slice(id.length + 1)}
             <Text style={{ color: c.faint }}> {a.args !== '{}' ? a.args : ''}</Text>
@@ -139,61 +148,36 @@ function Stat({ label, value, hot }: { label: string; value: string; hot?: boole
 
 const makeStyles = (c: Colors) =>
   StyleSheet.create({
-    page: { padding: 24, paddingBottom: 40 },
-    title: { color: c.text, fontSize: 28, fontWeight: '700' },
-    sub: { color: c.dim, fontSize: 14, marginTop: 4, marginBottom: 20 },
+    page: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 40 },
+    title: { ...type.title, color: c.text },
+    sub: { ...type.caption, fontSize: 12, color: c.faint, marginTop: 6, marginBottom: 20 },
     grid: { gap: 16 },
-    card: {
-      flex: 1,
-      backgroundColor: c.panel,
-      borderRadius: 20,
-      padding: 18,
-      borderWidth: 1,
-      borderColor: c.line,
-    },
+    card: { flex: 1, backgroundColor: c.panel, borderRadius: radius.lg, padding: 20, gap: 12 },
     cardHead: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    name: { color: c.text, fontSize: 20, fontWeight: '700' },
-    pill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, height: 24, borderRadius: 12 },
-    pillText: { fontSize: 12, fontWeight: '700' },
-    dot: { width: 7, height: 7, borderRadius: 4 },
-    stop: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 5,
-      backgroundColor: c.bad,
-      paddingHorizontal: 12,
-      height: 30,
-      borderRadius: 15,
-    },
-    stopText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-    url: { color: c.faint, fontSize: 12, fontFamily: font.mono, marginTop: 8 },
-    stats: { flexDirection: 'row', gap: 8, marginTop: 14, marginBottom: 6 },
-    stat: { flex: 1, backgroundColor: c.bg, borderRadius: 12, paddingVertical: 10, alignItems: 'center' },
-    statValue: { color: c.text, fontSize: 17, fontWeight: '700', fontFamily: font.mono },
-    statLabel: { color: c.dim, fontSize: 11, marginTop: 2 },
-    battRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8 },
-    battTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: c.panelHi, overflow: 'hidden' },
-    battFill: { height: 6, borderRadius: 3 },
+    name: { ...type.cardTitle, fontSize: 17, color: c.text },
+    url: { ...type.mono, color: c.faint, marginTop: -4 },
+    tiles: { flexDirection: 'row', gap: 8 },
+    stat: { flex: 1, backgroundColor: c.panelHi, borderRadius: radius.md, padding: 12, alignItems: 'center' },
+    statValue: { ...type.stat, color: c.text },
+    statLabel: { fontFamily: fonts.medium, fontSize: 10, lineHeight: 13, color: c.faint, marginTop: 2 },
     kv: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      paddingVertical: 8,
+      alignItems: 'center',
+      gap: 12,
+      paddingVertical: 10,
       borderBottomWidth: 1,
       borderBottomColor: c.line,
     },
-    k: { color: c.dim, fontSize: 13, width: 80 },
-    v: { color: c.text, fontSize: 13, fontWeight: '500', flexShrink: 1 },
-    section: {
-      color: c.dim,
-      fontSize: 12,
-      fontWeight: '600',
-      textTransform: 'uppercase',
-      letterSpacing: 0.8,
-      marginTop: 16,
-      marginBottom: 6,
-    },
-    empty: { color: c.faint, fontSize: 13 },
-    action: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 5 },
-    actionName: { flex: 1, color: c.text, fontFamily: font.mono, fontSize: 13 },
-    actionMeta: { color: c.faint, fontSize: 11, fontFamily: font.mono },
+    k: { ...type.caption, fontSize: 12, color: c.faint },
+    v: { ...type.label, fontSize: 12, color: c.text, flexShrink: 1 },
+    battRow: { flexDirection: 'row', alignItems: 'center', gap: 10, width: '60%' },
+    battTrack: { flex: 1, height: 4, borderRadius: 2, backgroundColor: c.hover, overflow: 'hidden' },
+    battFill: { height: 4, borderRadius: 2 },
+    overline: { ...type.overline, color: c.faint, marginTop: 4 },
+    empty: { ...type.caption, fontSize: 12, color: c.faint },
+    dot: { width: 6, height: 6, borderRadius: 3 },
+    action: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 2 },
+    actionName: { flex: 1, ...type.mono, fontSize: 12, color: c.text },
+    actionMeta: { ...type.mono, fontSize: 10, color: c.faint },
   });

@@ -5,12 +5,14 @@ import type { Voice } from '../hooks/useVoice';
 
 type Props = { voice: Voice; wide: boolean; camera: (height: number) => ReactNode };
 
+// camera card (~60%) + step tracker on desktop; full-width camera on mobile
 export default function Cameras({ voice, wide, camera }: Props) {
-  const { height } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
+  const mobile = width < 641;
 
   return (
-    <View style={[s.page, wide && { flexDirection: 'row' }]}>
-      <View style={wide && { flex: 1.5 }}>{camera(wide ? height - 190 : 260)}</View>
+    <View style={[s.page, mobile && s.pageMobile, wide && { flexDirection: 'row' }]}>
+      <View style={wide && { flex: 1.6 }}>{camera(wide ? Math.max(260, height - 260) : 260)}</View>
       <View style={s.activity}>
         <Activity traces={voice.traces} status={voice.status} />
       </View>
@@ -19,6 +21,7 @@ export default function Cameras({ voice, wide, camera }: Props) {
 }
 
 const s = StyleSheet.create({
-  page: { flex: 1, padding: 16, gap: 16 },
+  page: { flex: 1, paddingHorizontal: 24, paddingTop: 8, paddingBottom: 24, gap: 16 },
+  pageMobile: { paddingHorizontal: 16, paddingBottom: 12 },
   activity: { flex: 1, minHeight: 300 },
 });

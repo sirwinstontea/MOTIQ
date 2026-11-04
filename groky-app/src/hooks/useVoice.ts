@@ -4,7 +4,7 @@ import { requestRecordingPermissionsAsync, setAudioModeAsync, useAudioStream } f
 import { SAMPLE_RATE } from '../lib/config';
 import { level, resample } from '../voice/pcm';
 import { VoiceSession } from '../voice/session';
-import type { Line, Looker, Status, Trace } from '../voice/types';
+import type { Line, Looker, SkillRunner, Status, Trace } from '../voice/types';
 
 type Options = {
   onLevel?: (v: number) => void;
@@ -82,6 +82,8 @@ export function useVoice({ onLevel, onAsked }: Options = {}) {
       say: (text: string) => session.say(text),
       share: (source: string, answer: string, image?: string) => session.share(source, answer, image),
       setLooker: (fn: Looker | null) => session.setLooker(fn),
+      setSkills: (runner: SkillRunner | null) => session.setSkills(runner),
+      refreshTools: () => session.refreshTools(),
       emergencyStop: () => session.emergencyStop(),
       clear: () => {
         setLines([]);
