@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import { requestRecordingPermissionsAsync, setAudioModeAsync, useAudioStream } from 'expo-audio';
 import { SAMPLE_RATE } from '../lib/config';
 import { level, resample } from '../voice/pcm';
 import { VoiceSession } from '../voice/session';
+import { startWebMic, WebMic } from '../voice/webMic';
 import type { Line, Looker, SkillRunner, Status, Trace } from '../voice/types';
+import type { VoiceCommand } from '../skills/fromVoice';
 
 type Options = {
   onLevel?: (v: number) => void;
   onAsked?: (text: string, via: 'voice' | 'typed') => void;
+  // a spoken request moved a robot; called again as more of its actions finish
+  onCommand?: (cmd: VoiceCommand) => void;
 };
 
 // add or replace by id, keep the last `max`
@@ -20,7 +24,7 @@ function upsert<T extends { id: string }>(list: T[], item: T, max: number, merge
   return next;
 }
 
-export function useVoice({ onLevel, onAsked }: Options = {}) {
+export function useVoice({ onLevel, onAsked, onCommand }: Options = {}) {
   const [status, setStatus] = useState<Status>('off');
   const [lines, setLines] = useState<Line[]>([]);
   const [traces, setTraces] = useState<Trace[]>([]);
@@ -48,29 +52,62 @@ export function useVoice({ onLevel, onAsked }: Options = {}) {
     session.setAskedHandler(onAsked ?? null);
   }, [session, onAsked]);
 
-  const { stream } = useAudioStream({
+  useEffect(() => {
+    session.setCommandHandler(onCommand ?? null);
+  }, [session, onCommand]);
+
+  const onBuffer = (b: { data: ArrayBuffer; sampleRate: number }) => {
+    if (mutedRef.current) return levelRef.current?.(0);
+    levelRef.current?.(session.wantsAudio ? level(b.data) : 0);
+    // iOS often ignores the requested rate and hands us 48k; browsers give 44.1k/48k
+    session.appendAudio(resample(b.data, b.sampleRate, SAMPLE_RATE));
+  };
+  const onBufferRef = useRef(onBuffer);
+  onBufferRef.current = onBuffer;
+
+  // native: expo-audio's stream. On web it is null, so the browser mic (webMic) is used instead.
+  const { stream: nativeStream } = useAudioStream({
     sampleRate: SAMPLE_RATE,
     channels: 1,
     encoding: 'int16',
-    onBuffer: (b) => {
-      if (mutedRef.current) return levelRef.current?.(0);
-      levelRef.current?.(session.wantsAudio ? level(b.data) : 0);
-      // iOS often ignores the requested rate and hands us 48k
-      session.appendAudio(resample(b.data, b.sampleRate, SAMPLE_RATE));
-    },
+    onBuffer: (b) => onBufferRef.current(b),
   });
+  const webMic = useRef<WebMic | null>(null);
+  const stream = useMemo(
+    () => ({
+      start: async () => {
+        if (Platform.OS === 'web') webMic.current = await startWebMic((b) => onBufferRef.current(b));
+        else await nativeStream.start();
+      },
+      stop: () => {
+        if (Platform.OS === 'web') {
+          webMic.current?.stop();
+          webMic.current = null;
+        } else nativeStream.stop();
+      },
+    }),
+    [nativeStream],
+  );
 
   // voice: connect if needed, then turn the mic on (also upgrades a typed-only session)
   const start = useCallback(async () => {
-    const perm = await requestRecordingPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Microphone', 'Motion needs the mic to hear you.');
-      return;
+    if (Platform.OS !== 'web') {
+      const perm = await requestRecordingPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('Microphone', 'Motion needs the mic to hear you.');
+        return;
+      }
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
     }
-    await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
     await session.start();
     if (session.status === 'off') return; // couldn't connect, the error is already in the log
-    await stream.start();
+    try {
+      await stream.start();
+    } catch (e) {
+      session.stop();
+      session.fail?.(`Microphone: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
     streaming.current = true;
     setMic(true);
     setMuted(false);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, KeyboardAvoidingView, Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -26,6 +26,7 @@ import { useHistory } from './src/hooks/useHistory';
 import { useKeyboardVisible } from './src/hooks/useKeyboard';
 import { NotifyProvider } from './src/hooks/useNotify';
 import { useSkills } from './src/hooks/useSkills';
+import type { VoiceCommand } from './src/skills/fromVoice';
 import { useVoice } from './src/hooks/useVoice';
 import Cameras from './src/screens/Cameras';
 import History from './src/screens/History';
@@ -75,9 +76,13 @@ function Main() {
   const [level] = useState(() => new Animated.Value(0));
   const onLevel = useCallback((v: number) => level.setValue(v), [level]);
   const history = useHistory();
-  const voice = useVoice({ onLevel, onAsked: history.add });
+  // robot requests given by voice are saved as skills (useSkills is created after useVoice, hence the ref)
+  const saveVoiceRef = useRef<((cmd: VoiceCommand) => void) | null>(null);
+  const onCommand = useCallback((cmd: VoiceCommand) => saveVoiceRef.current?.(cmd), []);
+  const voice = useVoice({ onLevel, onAsked: history.add, onCommand });
   const cam = useCamera(voice);
   const skills = useSkills();
+  saveVoiceRef.current = skills.saveVoice;
   useAlerts(voice.lines);
 
   // let Grok run skills by voice, and tell it when the list changes

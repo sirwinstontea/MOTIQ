@@ -1,9 +1,12 @@
+import { Platform } from 'react-native';
 import env, { SAMPLE_RATE } from '../lib/config';
 import { grokTools, runTool } from '../devices';
 import { fromBase64, toBase64 } from './pcm';
 import { Player } from './player';
 import { lookTool, PROMPT, skillTool } from './prompt';
 import { getToken } from './token';
+import { isRobotTool } from '../skills/fromVoice';
+import type { VoiceCommand } from '../skills/fromVoice';
 import type { Line, Looker, SkillRunner, Status, Trace } from './types';
 
 type Events = {
@@ -31,6 +34,9 @@ export class VoiceSession {
   private looker: Looker | null = null;
   private skills: SkillRunner | null = null;
   private onAsked: ((text: string, via: 'voice' | 'typed') => void) | null = null;
+  // the robot actions that ran for the latest spoken request, handed to the app so it can save them as a skill
+  private cmd: VoiceCommand | null = null;
+  private onCommand: ((cmd: VoiceCommand) => void) | null = null;
 
   constructor(private on: Events) {
     this.player.onDone = () => {
@@ -48,6 +54,10 @@ export class VoiceSession {
 
   setSkills(runner: SkillRunner | null) {
     this.skills = runner;
+  }
+
+  setCommandHandler(fn: ((cmd: VoiceCommand) => void) | null) {
+    this.onCommand = fn;
   }
 
   // skills changed while connected: let Grok know about the new list
@@ -125,9 +135,12 @@ export class VoiceSession {
 
     const url = `wss://api.x.ai/v1/realtime?model=${encodeURIComponent(env.voiceModel)}`;
     // RN's WebSocket accepts headers, unlike the browser one
-    const ws = new (WebSocket as any)(url, null, {
-      headers: { Authorization: `Bearer ${token}` },
-    }) as WebSocket;
+    // browsers can't set headers: the client secret goes in the subprotocol list instead
+    const ws = (
+      Platform.OS === 'web'
+        ? new WebSocket(url, [`xai-client-secret.${token}`])
+        : new (WebSocket as any)(url, null, { headers: { Authorization: `Bearer ${token}` } })
+    ) as WebSocket;
     this.ws = ws;
 
     ws.onopen = () => {
@@ -207,6 +220,7 @@ export class VoiceSession {
       return;
     }
     if (record) {
+      this.cmd = null; // typed requests aren't saved as voice skills
       this.onAsked?.(text, 'typed');
       this.line({ id: uid(), kind: 'user', text });
       this.trace({ kind: 'hear', title: 'Got a typed request', detail: text });
@@ -296,6 +310,7 @@ export class VoiceSession {
 
   private flushHeard() {
     if (this.heard) {
+      this.cmd = { id: uid(), text: this.heard, calls: [] }; // robot calls from here on belong to this request
       this.onAsked?.(this.heard, 'voice');
       this.trace({ kind: 'hear', title: 'Understood', detail: this.heard });
     }
@@ -330,6 +345,11 @@ export class VoiceSession {
       const label = skill?.name ?? String(args.skill);
       this.trace({ id, kind: 'plan', title: `Running skill "${label}"`, detail: skill?.description });
       res = this.skills ? await this.skills.run(String(args.skill)) : { ok: false, error: 'skills unavailable' };
+      // a spoken request that ran a skill: tell the app (it saves a copy as a new skill)
+      if (res.ok && this.cmd && !this.cmd.skillId) {
+        this.cmd.skillId = String(args.skill);
+        this.onCommand?.({ ...this.cmd, calls: [...this.cmd.calls] });
+      }
       this.trace({
         id,
         kind: 'tool',
@@ -352,6 +372,11 @@ export class VoiceSession {
     } else {
       this.trace({ id, kind: 'tool', title: `Running ${pretty(name)}` });
       res = await runTool(name, args);
+      // a spoken request that moved a robot: tell the app (it saves this as a skill)
+      if (res.ok && this.cmd && isRobotTool(name)) {
+        this.cmd.calls.push({ name, args });
+        this.onCommand?.({ ...this.cmd, calls: [...this.cmd.calls] });
+      }
       this.trace({
         id,
         kind: 'tool',
@@ -425,6 +450,10 @@ export class VoiceSession {
 
   private trace(t: Omit<Trace, 'id' | 'at'> & { id?: string }) {
     this.on.trace({ ...t, id: t.id ?? uid(), at: Date.now() });
+  }
+
+  fail(text: string) {
+    this.error(text);
   }
 
   private error(text: string) {

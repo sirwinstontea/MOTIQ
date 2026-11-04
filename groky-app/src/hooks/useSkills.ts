@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { devices, stopDevice, ToolResult } from '../devices';
 import { approved, builtinSkills, deviceOf, fromV1, revoked, SkillDoc, touched } from '../skills';
+import { copyForVoice, isRobotTool, skillFromVoice, voiceSignature } from '../skills/fromVoice';
+import type { VoiceCommand } from '../skills/fromVoice';
+import { nameSkill } from '../skills/nameSkill';
 import { Progress, runSkill, StepResult, Token } from '../skills/runner';
 import { useNotify } from './useNotify';
 
@@ -88,6 +91,65 @@ export function useSkills() {
   }, []);
 
   const remove = useCallback((id: string) => setCustom((prev) => prev.filter((s) => s.skill.id !== id)), []);
+
+  // A spoken request moved a robot: keep what ran as a skill in the Skills tab (tap it to run it again).
+  // Called again as more actions of the same request finish, so it updates one skill; an identical command already
+  // saved is not saved twice.
+  // Grok-written names for voice skills, by skill id (kept across the updates of one request)
+  const aiNames = useRef<Record<string, string>>({});
+  const nameTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const giveName = useCallback((doc: SkillDoc, said: string) => {
+    const id = doc.skill.id;
+    clearTimeout(nameTimers.current[id]);
+    // wait a moment so the later actions of the same request are in the skill before it is named
+    nameTimers.current[id] = setTimeout(async () => {
+      const name = await nameSkill(doc, said);
+      if (!name) return;
+      aiNames.current[id] = name;
+      setCustom((prev) => prev.map((s) => (s.skill.id === id ? { ...s, skill: { ...s.skill, name } } : s)));
+    }, 1500);
+  }, []);
+
+  const saveVoice = useCallback(
+    (cmd: VoiceCommand) => {
+      const id = `voice_${cmd.id}`;
+      if (cmd.skillId) {
+        // "run <skill>" by voice: save a copy as a new skill (same words for the same skill = one copy)
+        const src = skillsRef.current.find((s) => s.skill.id === cmd.skillId);
+        if (!src || skillsRef.current.some((s) => s.skill.id === id)) return;
+        const copy = copyForVoice(src, cmd, id);
+        if (skillsRef.current.some((s) => s.skill.source?.signature === copy.skill.source?.signature)) return;
+        setCustom((prev) => [...prev, copy]);
+        giveName(copy, cmd.text);
+        notify({ kind: 'ok', title: 'Saved to Skills', body: `"${copy.skill.name}": copied as a new skill`, silent: true });
+        return;
+      }
+      const sig = voiceSignature(cmd.calls.filter((c) => isRobotTool(c.name)));
+      const dup = skillsRef.current.some(
+        (s) => s.skill.id !== id && s.skill.source?.type === 'voice' && s.skill.source?.signature === sig,
+      );
+      if (dup) {
+        setCustom((prev) => prev.filter((s) => s.skill.id !== id)); // drop the partial one from this same request
+        return;
+      }
+      const doc = skillFromVoice(cmd, id);
+      if (!doc) return;
+      const isNew = !skillsRef.current.some((s) => s.skill.id === id);
+      setCustom((prev) =>
+        prev.some((s) => s.skill.id === id)
+          ? prev.map((s) =>
+              s.skill.id === id
+                ? { ...doc, skill: { ...doc.skill, created_at: s.skill.created_at, name: aiNames.current[id] ?? doc.skill.name } }
+                : s,
+            )
+          : [...prev, doc],
+      );
+      giveName(doc, cmd.text);
+      if (isNew)
+        notify({ kind: 'ok', title: 'Saved to Skills', body: `"${doc.skill.name}": tap it in the Skills tab to run it again`, silent: true });
+    },
+    [notify, giveName],
+  );
 
   const setDoc = useCallback((doc: SkillDoc) => {
     if (doc.app?.builtin) {
@@ -204,6 +266,7 @@ export function useSkills() {
     run,
     running: run?.state === 'running',
     save,
+    saveVoice,
     remove,
     approve,
     revoke,
