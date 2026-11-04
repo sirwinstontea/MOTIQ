@@ -1,5 +1,8 @@
 ultralytics>=8.3.0
 opencv-python>=4.10.0
+onnxruntime>=1.17.0
+# camera RealSense (USB-C): wheel solo per Windows e Linux x86_64; su Mac `pip install pyrealsense2-macosx`
+pyrealsense2>=2.55; sys_platform == "win32" or (sys_platform == "linux" and platform_machine == "x86_64")
 numpy>=1.26.0
 pydantic>=2.0.0
 fastapi>=0.115.0

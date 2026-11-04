@@ -361,3 +361,19 @@ def test_depth_estimation_and_badge():
     objs = tracker.process_frame(frame)
     assert len(objs) > 0
     assert all(o.distance_m is not None and o.distance_m > 0 for o in objs)
+
+
+def test_demo_default_camera_realsense_first_then_pc_webcam(monkeypatch):
+    import demo_live
+    from vision.eyes.capture.realsense import RealSenseError
+
+    monkeypatch.setattr(demo_live, "list_devices", lambda: [{"name": "RealSense D435", "serial": "1", "usb": "3.2"}])
+    assert demo_live.default_camera(0)[2] == "realsense"
+
+    monkeypatch.setattr(demo_live, "list_devices", lambda: [])                 # USB-C staccata
+    assert demo_live.default_camera(0)[1:3] == (0, "webcam")
+
+    def missing():
+        raise RealSenseError("pyrealsense2 non è installato")
+    monkeypatch.setattr(demo_live, "list_devices", missing)                     # pacchetto assente (es. Mac)
+    assert demo_live.default_camera(0)[1:3] == (0, "webcam")
