@@ -513,7 +513,9 @@ def _fake_pipeline():
     from vision.eyes.pipeline import EyePipeline
 
     pl = EyePipeline()
-    node = pl.add_source("arm", mode="realsense", use_mock_tracker=True)
+    # "synthetic", non "realsense": il lettore vero viene subito sostituito dal finto, e aprirlo
+    # richiede pyrealsense2 (non in requirements) facendo fallire il test su chi non ce l'ha.
+    node = pl.add_source("arm", mode="synthetic", use_mock_tracker=True)
     node.reader = _fake_realsense()
     obj = EyeObject(id=1, label="anello_verde", conf=0.9, bbox=(300 / W, 200 / H, 80 / W, 60 / H), distance_m=9.9)
     node.tracker.process_frame = lambda f, apply_calibration=False: [obj] if node.reader.has_obj else []

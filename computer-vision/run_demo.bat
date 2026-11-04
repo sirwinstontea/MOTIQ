@@ -5,9 +5,13 @@ echo  Avvio Demo Live: Visione A (Occhi) + Visione B (Grok)
 echo ========================================================
 echo.
 rem Usa il Python del .venv (dove setup.bat installa i pacchetti), non quello di sistema
-set "PY=python"
-if exist ".venv\Scripts\python.exe" set "PY=.venv\Scripts\python.exe"
-if "%PY%"=="python" echo [Attenzione] .venv non trovato: esegui prima setup.bat
+rem (.venv e' in .gitignore: in un clone nuovo va creato con setup.bat)
+set "PY=.venv\Scripts\python.exe"
+if not exist "%PY%" (
+    echo [ERRORE] .venv non trovato: esegui prima setup.bat
+    pause
+    exit /b 1
+)
 "%PY%" demo_live.py %*
 if errorlevel 1 (
     echo.
