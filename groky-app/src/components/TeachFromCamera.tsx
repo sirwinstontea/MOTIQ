@@ -4,7 +4,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import env from '../lib/config';
 import { frameUrl } from '../lib/cameras';
 import type { SkillDoc } from '../skills';
-import { Observation, skillFromVision, summarize, visionHealthy, watch } from '../skills/fromVision';
+import * as DocumentPicker from 'expo-document-picker';
+import {
+  Observation,
+  skillFromVideo,
+  skillFromVision,
+  summarize,
+  teachReady,
+  visionHealthy,
+  visionReady,
+  watch,
+} from '../skills/fromVision';
 import { Colors, radius, shadowFloat, type, useStyles, useTheme } from '../theme';
 import { Button, IconButton } from './ui';
 
@@ -22,10 +32,11 @@ export default function TeachFromCamera({ onClose, onDraft }: Props) {
   const [tick, setTick] = useState(0);
   const [obs, setObs] = useState<Observation | null>(null);
   const [note, setNote] = useState('');
+  const [videoName, setVideoName] = useState<string | null>(null);
   const job = useRef<ReturnType<typeof watch> | null>(null);
 
   useEffect(() => {
-    visionHealthy().then(setError);
+    if (visionReady()) visionHealthy().then(setError);
     const t = setInterval(() => setTick((n) => n + 1), 500);
     return () => {
       clearInterval(t);
@@ -72,6 +83,24 @@ export default function TeachFromCamera({ onClose, onDraft }: Props) {
     }
   };
 
+  // a recorded demonstration instead of a live one: the planner on the teach server reads it
+  const upload = async () => {
+    const pick = await DocumentPicker.getDocumentAsync({ type: 'video/*', copyToCacheDirectory: true });
+    if (pick.canceled || !pick.assets?.[0]) return;
+    const a = pick.assets[0];
+    setPhase('writing');
+    setError(null);
+    setVideoName(a.name);
+    try {
+      const out = await skillFromVideo({ uri: a.uri, file: a.file, mimeType: a.mimeType, name: a.name }, note);
+      if (out.problems.length) setError(`Draft has problems to fix in the editor: ${out.problems[0]}`);
+      onDraft(out.doc);
+    } catch (e: any) {
+      setError(String(e?.message ?? e));
+      setPhase(obs ? 'review' : 'ready');
+    }
+  };
+
   const summary = obs ? summarize(obs) : null;
 
   return (
@@ -87,7 +116,11 @@ export default function TeachFromCamera({ onClose, onDraft }: Props) {
               <Text style={s.hint}>
                 Press Start, do the task by hand in front of the arm camera (for example: put the red cube in the blue
                 box), then press Stop. Grok writes a skill from what moved where. You review it before saving.
+                {teachReady() ? ' Or upload a recorded demonstration video (talking while you do it helps).' : ''}
               </Text>
+              {phase === 'writing' && videoName && (
+                <Text style={[s.status, { color: c.accent }]}>Reading {videoName}: keyframes, speech, actions…</Text>
+              )}
               {env.visionServer ? (
                 <Image
                   source={{ uri: frameUrl(`${env.visionServer}/frame/arm.jpg?raw=false`, tick) }}
@@ -121,11 +154,14 @@ export default function TeachFromCamera({ onClose, onDraft }: Props) {
               {error && <Text style={[s.body, { color: c.bad }]}>{error}</Text>}
             </ScrollView>
             <View style={s.foot}>
+              {teachReady() && phase !== 'watching' && (
+                <Button label="Upload video" icon="film-outline" onPress={upload} disabled={phase === 'writing'} />
+              )}
               {phase === 'watching' ? (
                 <Button label="Stop" icon="stop" variant="primary" onPress={stop} />
-              ) : (
+              ) : visionReady() ? (
                 <Button label={obs ? 'Record again' : 'Start'} icon="videocam-outline" onPress={start} disabled={phase === 'writing'} />
-              )}
+              ) : null}
               {obs && phase !== 'watching' && (
                 <Button label="Make skill" icon="sparkles-outline" variant="primary" loading={phase === 'writing'} onPress={write} />
               )}
