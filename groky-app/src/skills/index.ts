@@ -350,7 +350,63 @@ const pickPlace: SkillDoc = {
 };
 delete pickPlace.action_primitives; // same as the profile
 
+// Skills that run on the real arm through robot_controller (../bridge). PICK / PLACE steps become one controller
+// task each when the arm is connected; their primitive_sequence is what the simulator runs.
+const templateSteps = template.steps as unknown as SkillStep[];
+const armObjects = clone(template.environment.objects) as unknown as EnvObject[];
+const simSeq = (stepId: string) => clone(templateSteps.find((s) => s.id === stepId)?.primitive_sequence ?? []);
+
+const controllerSkills: SkillDoc[] = [
+  makeSkill({
+    id: 'arm_visit_cube',
+    name: 'Visit the cube',
+    description: 'Move above the red cube, pause, and go back home. No camera needed: a safe first test.',
+    device: 'arm',
+    icon: 'search-outline',
+    builtin: true,
+    objects: armObjects,
+    steps: [
+      seq('step_001', 'Go above the cube and pause.', [
+        { primitive: 'MOVE_ABOVE', parameters: { target: 'object_cube' } },
+        { primitive: 'WAIT', parameters: { seconds: 1 } },
+      ]),
+      seq('step_002', 'Back home.', [{ primitive: 'HOME' }]),
+    ],
+  }),
+  makeSkill({
+    id: 'arm_controller_pick_place',
+    name: 'Pick & place (arm controller)',
+    description:
+      'The camera confirms the object, the arm picks it, places it in the delivery zone and goes home. Each step is one checked controller task.',
+    device: 'arm',
+    icon: 'gift-outline',
+    builtin: true,
+    objects: armObjects,
+    success: ['The object is in the delivery zone.', 'The gripper is open and the arm is home.'],
+    steps: [
+      {
+        id: 'step_001',
+        action: 'PICK',
+        target: 'object_cube',
+        description: 'Find it with the camera and pick it up (grip verified).',
+        primitive_sequence: simSeq('step_002'),
+        failure_policy: 'REPORT_FAILURE',
+      },
+      {
+        id: 'step_002',
+        action: 'PLACE',
+        target: 'object_box',
+        description: 'Place it in the delivery zone and release.',
+        primitive_sequence: simSeq('step_003'),
+        failure_policy: 'REPORT_FAILURE',
+      },
+      seq('step_003', 'Back home.', [{ primitive: 'HOME' }]),
+    ],
+  }),
+];
+
 export const builtinSkills: SkillDoc[] = [
+  ...controllerSkills,
   pickPlace,
   makeSkill({
     id: 'handover',

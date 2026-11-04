@@ -87,6 +87,21 @@ export async function runSkill(
       const v = await verify(conds, real, device === 'arm' ? verifyCheck(doc, step) : undefined);
       return { ok: v.ok, note: v.note, error: v.error };
     }
+    // Real arm: the controller only moves between taught positions, so a whole PICK / PLACE step is one checked
+    // controller task via the bridge (which also confirms with the vision server that the object is there).
+    // The primitive_sequence is what the simulator runs.
+    if (device === 'arm' && real && (step.action === 'PICK' || step.action === 'PLACE') && step.target) {
+      const r =
+        step.action === 'PICK'
+          ? await runTool('arm_pick', { object: step.target })
+          : await runTool('arm_place', { destination: step.target });
+      return {
+        ok: r.ok,
+        note: typeof r.did === 'string' ? r.did : undefined,
+        error: r.ok ? undefined : String(r.error ?? r.status ?? 'failed'),
+        refused: !!r.refused,
+      };
+    }
     // re-identify the target right before touching it, if the skill asks for it
     const obj = doc.environment?.objects?.find((o) => o.id === step.target);
     const reid =

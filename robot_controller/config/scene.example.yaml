@@ -27,7 +27,8 @@ objects:
     approach_target: pick_approach
     grasp_target: pick_grasp
     lift_target: pick_lift
-    class_labels: [red_cube, cube, red cube, cubo rosso]   # vision labels mapped to this ID
+    # vision labels mapped to this ID. vite_arancione = the trained model's orange screw (stand-in for testing)
+    class_labels: [red_cube, cube, red cube, cubo rosso, vite_arancione, vite arancione, orange screw]
     station_item: red_cube
 
 destinations:
