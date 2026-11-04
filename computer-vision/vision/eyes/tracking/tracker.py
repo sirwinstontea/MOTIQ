@@ -1,0 +1,465 @@
+"""Rilevamento e tracciamento oggetti (YOLO + ByteTrack) per Visione A ("Occhi").
+
+Caratteristiche:
+- Integrazione nativa con `ultralytics.YOLO` + `bytetrack.yaml` per ID stabili.
+- Tracker IoU/ByteTrack leggero (`SimpleByteTracker`) integrato sia come fallback
+  quando YOLO non assegna ancora un ID al primo frame, sia in modalità `mock=True`
+  (segmentazione OpenCV + tracking) per test rapidi senza GPU o pesi scaricati.
+- Stima locale del colore dominante in italiano (`rosso`, `blu`, `verde`, `giallo`, ...)
+  per abilitare subito la scorciatoia locale di Visione B (`local_resolver.py`).
+"""
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Callable
+
+import cv2
+import numpy as np
+
+from ..depth.estimator import DepthSmoother
+from ..schemas import CoordsMM, EyeObject
+
+COCO_CLASSES = [
+    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
+    "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
+    "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
+    "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
+    "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
+    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
+    "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
+    "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
+    "hair drier", "toothbrush"
+]
+
+# Modello addestrato da noi sui pezzi della demo (tappo_bianco, anello_verde, vite_arancione, secchio_blu).
+# Per tornare al COCO generico: YOLO_MODEL=data/models/yolov8n.onnx nel .env.
+DEFAULT_MODEL = Path(__file__).resolve().parents[3] / "data" / "models" / "oggetti_best.onnx"
+
+
+def onnx_class_names(path: Path) -> list[str]:
+    """Classi scritte da Ultralytics nei metadati dell'ONNX ("{0: 'tappo_bianco', ...}"); COCO se mancano."""
+    try:
+        import ast
+
+        import onnx  # type: ignore
+
+        meta = {p.key: p.value for p in onnx.load(str(path), load_external_data=False).metadata_props}
+        names = ast.literal_eval(meta["names"])
+        return [names[i] for i in sorted(names)]
+    except Exception:
+        return COCO_CLASSES
+
+
+def compute_iou(box_a: tuple[float, float, float, float], box_b: tuple[float, float, float, float]) -> float:
+    """Calcola l'Intersection over Union (IoU) tra due bbox `[x, y, w, h]`."""
+    ax1, ay1, aw, ah = box_a
+    bx1, by1, bw, bh = box_b
+    ax2, ay2 = ax1 + aw, ay1 + ah
+    bx2, by2 = bx1 + bw, by1 + bh
+
+    inter_x1 = max(ax1, bx1)
+    inter_y1 = max(ay1, by1)
+    inter_x2 = min(ax2, bx2)
+    inter_y2 = min(ay2, by2)
+
+    inter_w = max(0.0, inter_x2 - inter_x1)
+    inter_h = max(0.0, inter_y2 - inter_y1)
+    inter_area = inter_w * inter_h
+
+    area_a = max(0.0, aw * ah)
+    area_b = max(0.0, bw * bh)
+    union = area_a + area_b - inter_area
+    if union <= 1e-9:
+        return 0.0
+    return inter_area / union
+
+
+def estimate_dominant_color_it(frame_bgr: np.ndarray, bbox: tuple[float, float, float, float]) -> str | None:
+    """Stima il colore dominante dell'oggetto in italiano usando lo spazio HSV.
+    
+    Campiona la zona centrale (40%) escludendo bordi e pixel con saturazione
+    troppo bassa o luminosità estrema (riflessi/sfondo).
+    """
+    h_img, w_img = frame_bgr.shape[:2]
+    x, y, w, h = bbox
+    cx1 = max(0, int((x + 0.30 * w) * w_img))
+    cy1 = max(0, int((y + 0.30 * h) * h_img))
+    cx2 = min(w_img, int((x + 0.70 * w) * w_img))
+    cy2 = min(h_img, int((y + 0.70 * h) * h_img))
+
+    if cx2 <= cx1 or cy2 <= cy1:
+        return None
+
+    roi = frame_bgr[cy1:cy2, cx1:cx2]
+    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+    
+    # Filtra pixel con saturazione e valore validi (evita rumore e riflessi di luce)
+    valid_mask = (hsv[:, :, 1] > 40) & (hsv[:, :, 2] > 45)
+    
+    if np.count_nonzero(valid_mask) < 20:
+        mean_v = float(np.mean(hsv[:, :, 2]))
+        if mean_v < 50:
+            return "nero"
+        if mean_v > 190:
+            return "bianco"
+        return "grigio"
+
+    valid_h = hsv[:, :, 0][valid_mask]
+    mean_h = float(np.median(valid_h))
+
+    # Hue in OpenCV è [0, 179]
+    if mean_h < 10 or mean_h >= 165:
+        return "rosso"
+    if 10 <= mean_h < 22:
+        return "arancione"
+    if 22 <= mean_h < 36:
+        return "giallo"
+    if 36 <= mean_h < 85:
+        return "verde"
+    if 85 <= mean_h < 135:
+        return "blu"
+    if 135 <= mean_h < 165:
+        return "viola"
+    return None
+
+
+@dataclass
+class _TrackSlot:
+    track_id: int
+    label: str
+    bbox: tuple[float, float, float, float]
+    conf: float
+    missed: int = 0
+    hits: int = 1
+
+
+class SimpleByteTracker:
+    """Tracker stile ByteTrack a due stadi con EMA smoothing e filtro di persistenza."""
+
+    def __init__(self, iou_threshold: float = 0.25, max_missed: int = 15, ema_alpha: float = 0.65, min_hits: int = 1):
+        self.iou_threshold = iou_threshold
+        self.max_missed = max_missed
+        self.ema_alpha = ema_alpha  # 1.0 = nessun smoothing, 0.5 = smoothing marcato
+        self.min_hits = min_hits
+        self._next_id: int = 1
+        self._tracks: dict[int, _TrackSlot] = {}
+
+    def reset(self) -> None:
+        self._next_id = 1
+        self._tracks.clear()
+
+    def _smooth_bbox(self, old_box: tuple[float, float, float, float], new_box: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+        a = self.ema_alpha
+        ox, oy, ow, oh = old_box
+        nx, ny, nw, nh = new_box
+        return (
+            round(a * nx + (1.0 - a) * ox, 4),
+            round(a * ny + (1.0 - a) * oy, 4),
+            round(a * nw + (1.0 - a) * ow, 4),
+            round(a * nh + (1.0 - a) * oh, 4),
+        )
+
+    def update(
+        self,
+        detections: list[tuple[str, float, tuple[float, float, float, float]]],
+    ) -> list[tuple[int, str, float, tuple[float, float, float, float]]]:
+        """Associa le detection `(label, conf, bbox)` agli ID attivi e restituisce `(id, label, conf, bbox)`."""
+        for trk in self._tracks.values():
+            trk.missed += 1
+
+        assigned_det: set[int] = set()
+        assigned_trk: set[int] = set()
+        results: list[tuple[int, str, float, tuple[float, float, float, float]]] = []
+
+        # Costruisci coppie (iou, trk_id, det_idx)
+        candidates: list[tuple[float, int, int]] = []
+        for trk_id, trk in self._tracks.items():
+            for d_idx, (label, _conf, bbox) in enumerate(detections):
+                iou = compute_iou(trk.bbox, bbox)
+                score = iou + (0.1 if trk.label == label and iou > 0.05 else 0.0)
+                if iou >= self.iou_threshold:
+                    candidates.append((score, trk_id, d_idx))
+
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        for _score, trk_id, d_idx in candidates:
+            if trk_id in assigned_trk or d_idx in assigned_det:
+                continue
+            label, conf, bbox = detections[d_idx]
+            trk = self._tracks[trk_id]
+            trk.bbox = self._smooth_bbox(trk.bbox, bbox)
+            trk.conf = conf
+            trk.label = label
+            trk.missed = 0
+            trk.hits += 1
+            assigned_trk.add(trk_id)
+            assigned_det.add(d_idx)
+            if trk.hits >= self.min_hits:
+                results.append((trk_id, label, conf, trk.bbox))
+
+        # Nuove tracce per le detection non associate
+        for d_idx, (label, conf, bbox) in enumerate(detections):
+            if d_idx in assigned_det:
+                continue
+            new_id = self._next_id
+            self._next_id += 1
+            self._tracks[new_id] = _TrackSlot(track_id=new_id, label=label, bbox=bbox, conf=conf, missed=0, hits=1)
+            if self.min_hits <= 1:
+                results.append((new_id, label, conf, bbox))
+
+        # Rimuovi tracce perse da troppi frame
+        stale = [tid for tid, trk in self._tracks.items() if trk.missed > self.max_missed]
+        for tid in stale:
+            del self._tracks[tid]
+
+        results.sort(key=lambda r: r[0])
+        return results
+
+
+class ObjectTracker:
+    """Rilevatore e tracker unificato (YOLO + ByteTrack con modalità mock/fallback)."""
+
+    def __init__(
+        self,
+        model_name: str | None = None,
+        conf_threshold: float = 0.40,
+        use_mock: bool | None = None,
+        calibrator_fn: Callable[[np.ndarray, tuple[float, float, float, float]], CoordsMM | None] | None = None,
+        ema_alpha: float = 0.70,
+        min_hits: int = 1,
+    ):
+        self.model_name = model_name or os.getenv("YOLO_MODEL", str(DEFAULT_MODEL))
+        self.conf_threshold = conf_threshold
+        self.calibrator_fn = calibrator_fn
+        self.ema_alpha = ema_alpha
+        self.min_hits = min_hits
+        self._fallback_tracker = SimpleByteTracker(ema_alpha=ema_alpha, min_hits=min_hits)
+        self._depth_smoother = DepthSmoother(alpha=0.35)
+        # Smoothing anche per le coordinate YOLO
+        self._yolo_smoothed_boxes: dict[int, tuple[float, float, float, float]] = {}
+        # Memoria dei nomi/colori assegnati da Grok per ciascun ID tracciato
+        self._custom_names: dict[int, tuple[str | None, str | None]] = {}
+
+        if use_mock is None:
+            use_mock = os.getenv("EYES_MOCK", "0") == "1"
+        self.use_mock = use_mock
+        self._yolo_model = None
+        self._onnx_net = None
+        self._onnx_names: list[str] = COCO_CLASSES
+
+        if not self.use_mock:
+            # 1. Prova prima con Ultralytics YOLO se presente
+            try:
+                from ultralytics import YOLO  # type: ignore
+
+                self._yolo_model = YOLO(self.model_name)
+            except Exception:
+                self._yolo_model = None
+
+            # 2. Se ultralytics non è disponibile, prova con OpenCV DNN + ONNX
+            if self._yolo_model is None:
+                candidates = [
+                    Path(self.model_name).with_suffix(".onnx"),
+                    DEFAULT_MODEL.with_name("yolov8n.onnx"),
+                ]
+                for p in candidates:
+                    if p.exists():
+                        try:
+                            self._onnx_net = cv2.dnn.readNetFromONNX(str(p))
+                            self._onnx_names = onnx_class_names(p)
+                            break
+                        except Exception:
+                            pass
+
+            # 3. Fallback a mock solo se esplicitamente richiesto o se né YOLO né ONNX sono disponibili
+            if self._yolo_model is None and self._onnx_net is None and use_mock is None:
+                self.use_mock = True
+
+    def _smooth_yolo_bbox(self, obj_id: int, bbox: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
+        if obj_id not in self._yolo_smoothed_boxes:
+            self._yolo_smoothed_boxes[obj_id] = bbox
+            return bbox
+        ox, oy, ow, oh = self._yolo_smoothed_boxes[obj_id]
+        nx, ny, nw, nh = bbox
+        a = self.ema_alpha
+        smoothed = (
+            round(a * nx + (1.0 - a) * ox, 4),
+            round(a * ny + (1.0 - a) * oy, 4),
+            round(a * nw + (1.0 - a) * ow, 4),
+            round(a * nh + (1.0 - a) * oh, 4),
+        )
+        self._yolo_smoothed_boxes[obj_id] = smoothed
+        return smoothed
+
+    def set_object_metadata(self, obj_id: int, name: str | None = None, color: str | None = None) -> None:
+        """Salva nome descrittivo e colore (es. ricevuti da `name_objects` di Grok) per l'ID specificato."""
+        prev_name, prev_color = self._custom_names.get(obj_id, (None, None))
+        self._custom_names[obj_id] = (name or prev_name, color or prev_color)
+
+    def _detect_mock(self, frame_bgr: np.ndarray) -> list[tuple[str, float, tuple[float, float, float, float]]]:
+        """Rileva oggetti colorati sul tavolo o sagome tramite OpenCV (modalità leggera/test)."""
+        h_img, w_img = frame_bgr.shape[:2]
+        hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
+
+        # Maschera per oggetti con saturazione significativa o molto scuri rispetto allo sfondo chiaro
+        sat_mask = cv2.inRange(hsv, (0, 50, 40), (180, 255, 255))
+        dark_mask = cv2.inRange(hsv, (0, 0, 0), (180, 100, 110))
+        mask = cv2.bitwise_or(sat_mask, dark_mask)
+
+        kernel = np.ones((5, 5), np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        raw_dets: list[tuple[str, float, tuple[float, float, float, float]]] = []
+
+        min_area = (w_img * h_img) * 0.003
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area < min_area:
+                continue
+            x, y, w, h = cv2.boundingRect(cnt)
+            nx, ny, nw, nh = x / w_img, y / h_img, w / w_img, h / h_img
+
+            # Euristica della classe in base alle proporzioni e dimensioni (per simulazione/test)
+            if nh > 0.55 and nw > 0.20:
+                label = "person"
+                conf = 0.92
+            elif h / max(1, w) > 1.6:
+                label = "bottle"
+                conf = 0.89
+            else:
+                color = estimate_dominant_color_it(frame_bgr, (nx, ny, nw, nh))
+                label = "cup" if color in ("rosso", "giallo", "arancione") else "box"
+                conf = 0.87
+
+            raw_dets.append((label, conf, (nx, ny, nw, nh)))
+
+        return raw_dets
+
+    def _detect_onnx(self, frame_bgr: np.ndarray) -> list[tuple[str, float, tuple[float, float, float, float]]]:
+        """Inferenzia YOLOv8 ONNX via OpenCV DNN per un'accurata object detection senza PyTorch."""
+        if self._onnx_net is None or frame_bgr is None or frame_bgr.size == 0:
+            return []
+
+        h_img, w_img = frame_bgr.shape[:2]
+        blob = cv2.dnn.blobFromImage(frame_bgr, 1.0 / 255.0, (640, 640), swapRB=True, crop=False)
+        self._onnx_net.setInput(blob)
+        preds = self._onnx_net.forward()[0]  # shape (4 + n_classi, 8400)
+        preds = preds.transpose()            # shape (8400, 4 + n_classi)
+
+        boxes = []
+        confidences = []
+        class_ids = []
+
+        for row in preds:
+            classes_scores = row[4:]
+            max_score_idx = int(np.argmax(classes_scores))
+            max_score = float(classes_scores[max_score_idx])
+            if max_score >= self.conf_threshold:
+                cx, cy, w, h = row[0:4]
+                x1 = int((cx - w / 2.0) * (w_img / 640.0))
+                y1 = int((cy - h / 2.0) * (h_img / 640.0))
+                bw = int(w * (w_img / 640.0))
+                bh = int(h * (h_img / 640.0))
+                boxes.append([x1, y1, bw, bh])
+                confidences.append(max_score)
+                class_ids.append(max_score_idx)
+
+        if not boxes:
+            return []
+
+        indices = cv2.dnn.NMSBoxes(boxes, confidences, self.conf_threshold, 0.45)
+        raw_dets: list[tuple[str, float, tuple[float, float, float, float]]] = []
+        for idx in indices:
+            i = int(idx)
+            x1, y1, bw, bh = boxes[i]
+            cid = class_ids[i]
+            label = self._onnx_names[cid] if 0 <= cid < len(self._onnx_names) else "object"
+            conf = confidences[i]
+            nx = max(0.0, min(1.0, x1 / w_img))
+            ny = max(0.0, min(1.0, y1 / h_img))
+            nw = max(0.0, min(1.0 - nx, bw / w_img))
+            nh = max(0.0, min(1.0 - ny, bh / h_img))
+            raw_dets.append((label, conf, (nx, ny, nw, nh)))
+
+        return raw_dets
+
+    def process_frame(self, frame_bgr: np.ndarray, apply_calibration: bool = False) -> list[EyeObject]:
+        """Rileva e traccia gli oggetti nel frame restituendo una lista di `EyeObject`."""
+        if frame_bgr is None or frame_bgr.size == 0:
+            return []
+
+        h_img, w_img = frame_bgr.shape[:2]
+        tracked_items: list[tuple[int, str, float, tuple[float, float, float, float]]] = []
+
+        if not self.use_mock and self._yolo_model is not None:
+            results = self._yolo_model.track(
+                frame_bgr,
+                persist=True,
+                conf=self.conf_threshold,
+                tracker="bytetrack.yaml",
+                verbose=False,
+            )
+            if results and len(results) > 0:
+                r = results[0]
+                boxes = r.boxes
+                if boxes is not None and len(boxes) > 0:
+                    xyxyn = boxes.xyxyn.cpu().numpy()
+                    confs = boxes.conf.cpu().numpy()
+                    clss = boxes.cls.cpu().numpy().astype(int)
+                    ids = boxes.id.cpu().numpy().astype(int) if boxes.id is not None else None
+
+                    raw_for_fallback: list[tuple[str, float, tuple[float, float, float, float]]] = []
+                    for i in range(len(xyxyn)):
+                        x1, y1, x2, y2 = [float(v) for v in xyxyn[i]]
+                        bbox = (
+                            max(0.0, min(1.0, x1)),
+                            max(0.0, min(1.0, y1)),
+                            max(0.0, min(1.0, x2 - x1)),
+                            max(0.0, min(1.0, y2 - y1)),
+                        )
+                        label = str(r.names.get(int(clss[i]), "object"))
+                        conf = float(confs[i])
+                        if ids is not None:
+                            smooth_b = self._smooth_yolo_bbox(int(ids[i]), bbox)
+                            tracked_items.append((int(ids[i]), label, conf, smooth_b))
+                        else:
+                            raw_for_fallback.append((label, conf, bbox))
+
+                    if raw_for_fallback:
+                        tracked_items.extend(self._fallback_tracker.update(raw_for_fallback))
+        elif not self.use_mock and self._onnx_net is not None:
+            raw_dets = self._detect_onnx(frame_bgr)
+            tracked_items = self._fallback_tracker.update(raw_dets)
+        elif self.use_mock:
+            raw_dets = self._detect_mock(frame_bgr)
+            tracked_items = self._fallback_tracker.update(raw_dets)
+        else:
+            # use_mock=False e nessun modello disponibile: non allucinare falsi box
+            tracked_items = []
+
+        eye_objects: list[EyeObject] = []
+        for obj_id, label, conf, bbox in tracked_items:
+            detected_color = estimate_dominant_color_it(frame_bgr, bbox)
+            saved_name, saved_color = self._custom_names.get(obj_id, (None, None))
+            coords_mm = None
+            if apply_calibration and self.calibrator_fn is not None:
+                coords_mm = self.calibrator_fn(frame_bgr, bbox)
+            dist_m = self._depth_smoother.update(obj_id, label, bbox)
+
+            eye_objects.append(
+                EyeObject(
+                    id=obj_id,
+                    label=label,
+                    name=saved_name,
+                    conf=round(conf, 3),
+                    bbox=bbox,
+                    color=saved_color or detected_color,
+                    coords_mm=coords_mm,
+                    distance_m=dist_m,
+                )
+            )
+
+        return eye_objects
