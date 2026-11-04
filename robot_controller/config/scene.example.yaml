@@ -1,0 +1,70 @@
+# Allowlisted scene for the UR5e demo cell. Units: m, rad (rotation vector).
+# Frame: robot base. This UR5e model faces -X at its home pose, so the work
+# area is at negative X. Tool-down orientation = rotation vector [pi, 0, 0].
+# Targets here are "taught" into the RoboDK demo station by `setup-station`;
+# on a real cell they must be re-taught with the teach pendant.
+home_target: home
+
+targets:
+  home:
+    joints_rad: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
+    pose_m_rad: [-0.49195, -0.1333, 0.3379, 2.2214, 2.2214, 0.0]   # expected TCP (FK), used by mock
+    description: safe home posture
+  pick_approach:   {pose_m_rad: [-0.45, -0.20, 0.150, 3.14159, 0, 0]}
+  pick_grasp:      {pose_m_rad: [-0.45, -0.20, 0.025, 3.14159, 0, 0]}
+  pick_lift:       {pose_m_rad: [-0.45, -0.20, 0.250, 3.14159, 0, 0]}
+  shake_center:    {pose_m_rad: [-0.45,  0.00, 0.300, 3.14159, 0, 0]}
+  shake_left:      {pose_m_rad: [-0.45,  0.04, 0.300, 3.14159, 0, 0]}
+  shake_right:     {pose_m_rad: [-0.45, -0.04, 0.300, 3.14159, 0, 0]}
+  delivery_approach: {pose_m_rad: [-0.45, 0.20, 0.150, 3.14159, 0, 0]}
+  delivery_place:    {pose_m_rad: [-0.45, 0.20, 0.028, 3.14159, 0, 0]}
+  delivery_retreat:  {pose_m_rad: [-0.45, 0.20, 0.200, 3.14159, 0, 0]}
+
+objects:
+  red_cube:
+    dimensions_m: [0.05, 0.05, 0.05]
+    mass_kg: 0.1
+    approach_target: pick_approach
+    grasp_target: pick_grasp
+    lift_target: pick_lift
+    # vision labels mapped to this ID. vite_arancione = the trained model's orange screw (stand-in for testing)
+    class_labels: [red_cube, cube, red cube, cubo rosso, vite_arancione, vite arancione, orange screw]
+    station_item: red_cube
+
+destinations:
+  delivery_zone:
+    approach_target: delivery_approach
+    place_target: delivery_place
+    retreat_target: delivery_retreat
+
+patterns:
+  gentle_shake:
+    description: "+/-40 mm side-to-side at 0.30 m height, linear moves at configured speed"
+    max_cycles: 3
+    requires_grip: true
+    max_payload_kg: 0.5
+    start_target: shake_center
+    cycle_targets: [shake_left, shake_right]
+    end_target: shake_center
+
+motions:
+  go_home:
+    targets: [home]
+    description: return to home posture
+
+# DEMO station geometry (RoboDK only). A stand-in for the real cell.
+station_geometry:
+  table:
+    size_m: [0.50, 0.80, 0.02]
+    pose_m_rad: [-0.45, 0.0, -0.02, 0, 0, 0]
+    color: [0.55, 0.40, 0.25, 1.0]
+  delivery_pad:
+    size_m: [0.12, 0.12, 0.003]
+    pose_m_rad: [-0.45, 0.20, 0.0, 0, 0, 0]
+    color: [0.20, 0.70, 0.30, 1.0]
+    no_collision_with: [table]
+  red_cube:
+    size_m: [0.05, 0.05, 0.05]
+    pose_m_rad: [-0.45, -0.20, 0.0, 0, 0, 0]
+    color: [0.90, 0.15, 0.15, 1.0]
+    no_collision_with: [table, delivery_pad]
