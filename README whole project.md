@@ -54,26 +54,11 @@ Human demonstration (video + voice)
                v
         Versioned Skill JSON
                |
-        +------+-------+
-        |              |
-        v              v
-  2D task preview   Hardware capability check
-        |              |
-        +------+-------+
-               v
-       User review / revision
-               |
-               v
-        Approved skill
-               |
-               v
-       Robot planner (Part C)
-               |
-               v
- Deterministic validation + operator authorization
-               |
-               v
-      Robot SDK / mock adapter
+       robodk script
+---->
+robodk simulation
+if simulation approved --->
+send to robot
                |
                v
        Observe and verify
