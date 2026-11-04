@@ -1,0 +1,499 @@
+import { useEffect, useMemo, useState } from 'react';
+import { LayoutChangeEvent, Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { ARM, ArmFrame, buildTimeline, DogFrame, H, PreviewSkill, Pt, Timeline, W } from '../preview/scene';
+import { Colors, fonts, radius, type, useStyles, useTheme } from '../theme';
+import { IconButton } from './ui';
+
+// fixed scene colours
+const CUBE = '#e5484d';
+const CUBE_EDGE = '#b4363a';
+const BOX = '#b98a5a';
+const BOX_BACK = '#6e5236';
+const SKIN = '#d9a37f';
+
+type Props = { skill: PreviewSkill; autoPlay?: boolean };
+
+// Animated 2D preview of what a skill intends to do. Conceptual only: see src/preview/scene.ts.
+export default function SkillPreview({ skill, autoPlay = true }: Props) {
+  const { c } = useTheme();
+  const s = useStyles(makeStyles);
+  // rebuild only when the steps actually change (the editor passes a new object every render)
+  const key = JSON.stringify([skill.device, skill.steps]);
+  const tl = useMemo<Timeline>(() => {
+    const [device, steps] = JSON.parse(key);
+    return buildTimeline({ device, steps });
+  }, [key]);
+  const [t, setT] = useState(0);
+  const [playing, setPlaying] = useState(autoPlay);
+  const [width, setWidth] = useState(0);
+
+  // restart when the steps change
+  const [shownKey, setShownKey] = useState(key);
+  if (shownKey !== key) {
+    setShownKey(key);
+    setT(0);
+  }
+
+  useEffect(() => {
+    if (!playing) return;
+    let raf = 0;
+    let last = 0;
+    const tick = (now: number) => {
+      if (last) {
+        const dt = Math.min(0.1, (now - last) / 1000);
+        setT((prev) => (prev + dt > tl.duration ? 0 : prev + dt));
+      }
+      last = now;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, tl]);
+
+  const f = tl.sample(Math.min(t, tl.duration));
+  const k = width / W;
+  const cur = tl.steps[f.step];
+  const caption =
+    f.step < 0
+      ? { title: 'Ready', note: 'Starting position', warn: false }
+      : !cur
+        ? doneCaption(tl)
+        : { title: `${f.step + 1}. ${cur.label}`, note: cur.note, warn: cur.warn };
+
+  return (
+    <View style={s.wrap}>
+      <View style={s.scene} onLayout={(e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width)}>
+        {width > 0 && (f.device === 'arm' ? <ArmScene f={f} k={k} c={c} /> : <DogScene f={f} tl={tl} k={k} c={c} />)}
+        <View style={s.badge}>
+          <Text style={s.badgeText}>CONCEPTUAL 2D</Text>
+        </View>
+      </View>
+
+      <View style={s.track}>
+        <View style={[s.fill, { width: `${(100 * f.t) / tl.duration}%` }]} />
+      </View>
+
+      <View style={s.controls}>
+        <IconButton
+          icon={playing ? 'pause' : 'play'}
+          size={32}
+          onPress={() => setPlaying((p) => !p)}
+          label={playing ? 'Pause' : 'Play'}
+        />
+        <IconButton
+          icon="refresh"
+          size={32}
+          plain
+          color={c.dim}
+          onPress={() => {
+            setT(0);
+            setPlaying(true);
+          }}
+          label="Restart"
+        />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={s.capTitle} numberOfLines={1}>
+            {caption.title}
+          </Text>
+          <Text style={[s.capNote, caption.warn && { color: c.warn }]} numberOfLines={2}>
+            {caption.note}
+          </Text>
+        </View>
+        <Text style={s.time}>
+          {f.t.toFixed(1)} / {tl.duration.toFixed(1)}s
+        </Text>
+      </View>
+
+      <View style={s.chips}>
+        {tl.steps.map((st) => {
+          const on = st.index === f.step;
+          const done = st.index < f.step;
+          return (
+            <Pressable
+              key={st.index}
+              onPress={() => setT(st.start + 0.001)}
+              style={[s.chip, on && { backgroundColor: c.accentSoft }, st.warn && done && { borderColor: c.warn }]}
+            >
+              {done ? (
+                <Ionicons name={st.warn ? 'alert' : 'checkmark'} size={12} color={st.warn ? c.warn : c.accent} />
+              ) : (
+                <Text style={[s.chipNum, on && { color: c.accent }]}>{st.index + 1}</Text>
+              )}
+              <Text style={[s.chipText, on && { color: c.text }]} numberOfLines={1}>
+                {st.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      <Text style={s.disclaimer}>Shows what the skill intends. Not a physics, collision or reachability check.</Text>
+    </View>
+  );
+}
+
+function doneCaption(tl: Timeline) {
+  const warns = tl.steps.filter((x) => x.warn).length;
+  return {
+    title: 'Done',
+    note: warns ? `${tl.steps.length} steps · ${warns} to review` : `${tl.steps.length} steps, nothing flagged`,
+    warn: warns > 0,
+  };
+}
+
+// ---------- drawing primitives (absolute Views in scene units * k) ----------
+
+function Rect({
+  x0,
+  y0,
+  x1,
+  y1,
+  k,
+  style,
+}: {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  k: number;
+  style: ViewStyle;
+}) {
+  return (
+    <View
+      style={[{ position: 'absolute', left: x0 * k, top: y0 * k, width: (x1 - x0) * k, height: (y1 - y0) * k }, style]}
+    />
+  );
+}
+
+function Dot({ p, r, k, color }: { p: Pt; r: number; k: number; color: string }) {
+  return (
+    <View
+      style={{
+        position: 'absolute',
+        left: (p.x - r) * k,
+        top: (p.y - r) * k,
+        width: 2 * r * k,
+        height: 2 * r * k,
+        borderRadius: r * k,
+        backgroundColor: color,
+      }}
+    />
+  );
+}
+
+// rounded bar from a to b
+function Bar({ a, b, w, k, color, opacity }: { a: Pt; b: Pt; w: number; k: number; color: string; opacity?: number }) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.hypot(dx, dy) + w; // + w for round caps
+  return (
+    <View
+      style={{
+        position: 'absolute',
+        left: ((a.x + b.x) / 2 - len / 2) * k,
+        top: ((a.y + b.y) / 2 - w / 2) * k,
+        width: len * k,
+        height: w * k,
+        borderRadius: (w * k) / 2,
+        backgroundColor: color,
+        opacity,
+        transform: [{ rotate: `${Math.atan2(dy, dx)}rad` }],
+      }}
+    />
+  );
+}
+
+function Label({ x, y, k, text, c }: { x: number; y: number; k: number; text: string; c: Colors }) {
+  return (
+    <Text
+      style={{
+        position: 'absolute',
+        left: (x - 40) * k,
+        top: (y - 6) * k,
+        width: 80 * k,
+        textAlign: 'center',
+        fontFamily: fonts.mono,
+        fontSize: Math.max(8, 10 * k),
+        color: c.faint,
+      }}
+    >
+      {text}
+    </Text>
+  );
+}
+
+// ---------- arm (side view) ----------
+
+function ArmScene({ f, k, c }: { f: ArmFrame; k: number; c: Colors }) {
+  const { box, hand, base, tableY } = ARM;
+  const half = ARM.cube / 2;
+  const gap = 19 + (13.5 - 19) * f.grip;
+  const w = f.wrist;
+  return (
+    <>
+      <Rect x0={0} y0={tableY} x1={W} y1={H} k={k} style={{ backgroundColor: c.hover }} />
+      <Label x={120} y={tableY + 22} k={k} text="table" c={c} />
+      <Label x={(box.x0 + box.x1) / 2} y={tableY + 22} k={k} text="box" c={c} />
+      <Label x={hand.x - 30} y={hand.y + 26} k={k} text="handover" c={c} />
+
+      {/* person at the handover spot */}
+      <Rect
+        x0={-4}
+        y0={hand.y - 7}
+        x1={hand.x - 22}
+        y1={hand.y + 7}
+        k={k}
+        style={{ backgroundColor: c.lineStrong, borderRadius: 4 * k }}
+      />
+      <Rect
+        x0={hand.x - 30}
+        y0={hand.y - 12}
+        x1={hand.x - 12}
+        y1={hand.y + 12}
+        k={k}
+        style={{ backgroundColor: SKIN, borderRadius: 6 * k }}
+      />
+      <Bar a={{ x: hand.x - 22, y: hand.y - 12 }} b={{ x: hand.x - 16, y: hand.y - 20 }} w={5} k={k} color={SKIN} />
+
+      <Rect x0={box.x0} y0={box.top} x1={box.x1} y1={tableY} k={k} style={{ backgroundColor: BOX_BACK }} />
+      <Rect
+        x0={f.cube.x - half}
+        y0={f.cube.y - half}
+        x1={f.cube.x + half}
+        y1={f.cube.y + half}
+        k={k}
+        style={{
+          backgroundColor: CUBE,
+          borderColor: CUBE_EDGE,
+          borderWidth: Math.max(1, 1.5 * k),
+          borderRadius: 3 * k,
+        }}
+      />
+      <Rect x0={box.x0} y0={tableY - 14} x1={box.x1} y1={tableY} k={k} style={{ backgroundColor: BOX }} />
+      <Rect x0={box.x0} y0={box.top} x1={box.x0 + 4} y1={tableY} k={k} style={{ backgroundColor: BOX }} />
+      <Rect x0={box.x1 - 4} y0={box.top} x1={box.x1} y1={tableY} k={k} style={{ backgroundColor: BOX }} />
+
+      <Rect
+        x0={base.x - 20}
+        y0={base.y - 44}
+        x1={base.x + 20}
+        y1={base.y}
+        k={k}
+        style={{ backgroundColor: c.lineStrong, borderRadius: 6 * k }}
+      />
+      <Bar a={f.shoulder} b={f.elbow} w={14} k={k} color="#8b8e94" />
+      <Bar a={f.elbow} b={w} w={11} k={k} color="#8b8e94" />
+      <Dot p={f.shoulder} r={6} k={k} color={c.text} />
+      <Dot p={f.elbow} r={5} k={k} color={c.text} />
+
+      <Rect
+        x0={w.x - gap - 3}
+        y0={w.y + 4}
+        x1={w.x + gap + 3}
+        y1={w.y + 8}
+        k={k}
+        style={{ backgroundColor: c.accent }}
+      />
+      <Rect
+        x0={w.x - gap - 2}
+        y0={w.y + 4}
+        x1={w.x - gap + 2}
+        y1={w.y + 31}
+        k={k}
+        style={{ backgroundColor: c.accent, borderRadius: 1.5 * k }}
+      />
+      <Rect
+        x0={w.x + gap - 2}
+        y0={w.y + 4}
+        x1={w.x + gap + 2}
+        y1={w.y + 31}
+        k={k}
+        style={{ backgroundColor: c.accent, borderRadius: 1.5 * k }}
+      />
+      <Dot p={w} r={7} k={k} color={c.text} />
+
+      {f.scan > 0.01 && <Scan scan={f.scan} k={k} c={c} label="camera check" />}
+    </>
+  );
+}
+
+function Scan({ scan, k, c, label }: { scan: number; k: number; c: Colors; label: string }) {
+  return (
+    <>
+      <Rect x0={0} y0={0} x1={W} y1={H} k={k} style={{ backgroundColor: c.accent, opacity: 0.12 * scan }} />
+      <Rect
+        x0={6}
+        y0={6}
+        x1={W - 6}
+        y1={H - 6}
+        k={k}
+        style={{ borderColor: c.accent, borderWidth: 2, borderRadius: 10 * k, opacity: scan }}
+      />
+      <Text
+        style={{
+          position: 'absolute',
+          left: 14 * k,
+          top: 12 * k,
+          fontFamily: fonts.mono,
+          fontSize: 11,
+          color: c.accent,
+          opacity: scan,
+        }}
+      >
+        ● {label}
+      </Text>
+    </>
+  );
+}
+
+// ---------- dog (top-down) ----------
+
+function DogScene({ f, tl, k, c }: { f: DogFrame; tl: Timeline; k: number; c: Colors }) {
+  const sc = f.scale;
+  const size = 260 * sc; // local box, dog centred in it (room for the camera beam)
+  const mid = size / 2;
+  const L = f.len;
+  const Wd = f.wid;
+  const local = (x: number, y: number): Pt => ({ x: mid + x * sc, y: mid + y * sc });
+  const head = L * 22 + 4;
+  const waveAng = -Math.PI / 3 - f.wave;
+  const pawStart = { x: L * 14, y: -Wd * 12 };
+  const pawEnd = { x: pawStart.x + 16 * Math.cos(waveAng), y: pawStart.y + 16 * Math.sin(waveAng) };
+
+  return (
+    <>
+      {tl.grid.xs.map((x) => (
+        <Rect key={`x${x}`} x0={x} y0={0} x1={x + 1 / k} y1={H} k={k} style={{ backgroundColor: c.line }} />
+      ))}
+      {tl.grid.ys.map((y) => (
+        <Rect key={`y${y}`} x0={0} y0={y} x1={W} y1={y + 1 / k} k={k} style={{ backgroundColor: c.line }} />
+      ))}
+      <Text
+        style={{ position: 'absolute', left: 12 * k, top: 8 * k, fontFamily: fonts.mono, fontSize: 11, color: c.dim }}
+      >
+        pose: {f.pose}
+      </Text>
+      <Rect x0={12} y0={H - 15} x1={12 + 50 * sc} y1={H - 13} k={k} style={{ backgroundColor: c.faint }} />
+      <Text
+        style={{
+          position: 'absolute',
+          left: (18 + 50 * sc) * k,
+          top: (H - 21) * k,
+          fontFamily: fonts.mono,
+          fontSize: 10,
+          color: c.faint,
+        }}
+      >
+        0.5 m
+      </Text>
+
+      {f.trail.slice(1).map((p, i) => (
+        <Bar key={i} a={f.trail[i]} b={p} w={3} k={k} color={c.accent} opacity={0.55} />
+      ))}
+      <Dot p={f.trail[0]} r={4} k={k} color={c.accent} />
+
+      {/* the dog, drawn facing right in a local box, then rotated */}
+      <View
+        style={{
+          position: 'absolute',
+          left: (f.pos.x - mid) * k,
+          top: (f.pos.y - mid) * k,
+          width: size * k,
+          height: size * k,
+          transform: [{ rotate: `${-f.heading}deg` }],
+        }}
+      >
+        {f.scan > 0.01 && (
+          <Rect
+            x0={mid + (head + 8) * sc}
+            y0={mid - 30 * sc}
+            x1={mid + (head + 80) * sc}
+            y1={mid + 30 * sc}
+            k={k}
+            style={{
+              backgroundColor: c.accent,
+              opacity: 0.3 * f.scan,
+              borderTopRightRadius: 30 * sc * k,
+              borderBottomRightRadius: 30 * sc * k,
+            }}
+          />
+        )}
+        {[L * 14, -L * 14].flatMap((lx) =>
+          [-(Wd * 13 + 1), Wd * 13 + 1].map((ly) => (
+            <Dot key={`${lx}${ly}`} p={local(lx, ly)} r={4 * sc} k={k} color={c.dim} />
+          )),
+        )}
+        {f.wave > 0.01 && (
+          <Bar a={local(pawStart.x, pawStart.y)} b={local(pawEnd.x, pawEnd.y)} w={5 * sc} k={k} color={c.accent} />
+        )}
+        <Bar a={local(-L * 16, 0)} b={local(L * 16, 0)} w={22 * Wd * sc} k={k} color="#d6d3ce" />
+        <Dot p={local(head, 0)} r={10 * sc} k={k} color={c.text} />
+        <Dot p={local(head + 4, -4)} r={1.6 * sc} k={k} color={c.accentInk} />
+        <Dot p={local(head + 4, 4)} r={1.6 * sc} k={k} color={c.accentInk} />
+        <Dot p={local(head + 10, 0)} r={2.2 * sc} k={k} color={c.accent} />
+      </View>
+
+      {f.scan > 0.01 && (
+        <Text
+          style={{
+            position: 'absolute',
+            right: 14 * k,
+            top: 8 * k,
+            fontFamily: fonts.mono,
+            fontSize: 11,
+            color: c.accent,
+            opacity: f.scan,
+          }}
+        >
+          ● camera
+        </Text>
+      )}
+    </>
+  );
+}
+
+const makeStyles = (c: Colors) =>
+  StyleSheet.create({
+    wrap: { gap: 10 },
+    scene: {
+      width: '100%',
+      aspectRatio: W / H,
+      backgroundColor: c.panelHi,
+      borderRadius: radius.md,
+      overflow: 'hidden',
+    },
+    badge: {
+      position: 'absolute',
+      right: 8,
+      bottom: 8,
+      paddingHorizontal: 8,
+      height: 20,
+      borderRadius: radius.pill,
+      justifyContent: 'center',
+      backgroundColor: c.accentSoft,
+    },
+    badgeText: { ...type.overline, fontSize: 9, color: c.accent },
+    track: { height: 4, borderRadius: 2, backgroundColor: c.hover, overflow: 'hidden' },
+    fill: { height: 4, borderRadius: 2, backgroundColor: c.accent },
+    controls: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    capTitle: { ...type.label, color: c.text },
+    capNote: { ...type.caption, fontSize: 12, color: c.dim, marginTop: 2 },
+    time: { ...type.mono, color: c.faint },
+    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+    chip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      maxWidth: '100%',
+      paddingHorizontal: 10,
+      height: 26,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: 'transparent',
+      backgroundColor: c.hover,
+    },
+    chipNum: { fontFamily: fonts.mono, fontSize: 10, color: c.faint },
+    chipText: { fontFamily: fonts.mono, fontSize: 11, color: c.dim, flexShrink: 1 },
+    disclaimer: { ...type.caption, color: c.faint },
+  });

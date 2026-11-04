@@ -5,7 +5,7 @@ import { Colors, radius, type, useStyles, useTheme } from '../theme';
 
 export type IconName = keyof typeof Ionicons.glyphMap;
 
-// Shared building blocks from the Groky design system.
+// Shared building blocks from the MOTIQ design system.
 
 type ButtonProps = {
   label: string;

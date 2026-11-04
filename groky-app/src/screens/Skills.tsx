@@ -3,6 +3,7 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, Vi
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import SkillEditor from '../components/SkillEditor';
+import SkillPreview from '../components/SkillPreview';
 import { Button, IconButton, IconChip, Pill, Segmented } from '../components/ui';
 import { DeviceId, devices } from '../devices';
 import { useDevices } from '../hooks/useDevices';
@@ -36,7 +37,7 @@ export default function Skills({ skills }: { skills: SkillsApi }) {
         <View style={s.head}>
           <View style={{ flex: 1 }}>
             <Text style={s.title}>Skills</Text>
-            <Text style={s.sub}>Reusable multi-step tasks. Run one here, or just ask Groky to do it.</Text>
+            <Text style={s.sub}>Reusable multi-step tasks. Run one here, or just ask Motion to do it.</Text>
           </View>
           <Button label="New skill" icon="add" variant="primary" onPress={() => setEditing('new')} />
         </View>
@@ -81,6 +82,7 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
   const busy = skills.running && !active;
   const offline = ready && status[skill.device].state === 'offline';
   const [showSteps, setShowSteps] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   const start = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -120,6 +122,14 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
         </View>
         {statusPill && <Pill label={statusPill.label} tone={statusPill.tone} dot={statusPill.tone !== 'accent'} />}
         <IconButton
+          icon={showPreview ? 'film' : 'film-outline'}
+          plain
+          size={32}
+          color={showPreview ? c.accent : c.faint}
+          onPress={() => setShowPreview((v) => !v)}
+          label={showPreview ? 'Hide preview' : 'Preview'}
+        />
+        <IconButton
           icon={skill.builtin ? 'copy-outline' : 'create-outline'}
           plain
           size={32}
@@ -133,6 +143,8 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
       </View>
 
       <Text style={s.desc}>{skill.description || 'No description.'}</Text>
+
+      {showPreview && <SkillPreview skill={skill} />}
 
       {run && (
         <View style={s.progress}>
@@ -184,7 +196,7 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
 function runSummary(run: Run) {
   const secs = (((run.endedAt ?? Date.now()) - run.startedAt) / 1000).toFixed(1);
   const label = { done: 'finished', failed: 'failed', stopped: 'stopped', running: 'running' }[run.state];
-  return `${label} in ${secs}s${run.via === 'voice' ? ' · by Groky' : ''}`;
+  return `${label} in ${secs}s${run.via === 'voice' ? ' · by Motion' : ''}`;
 }
 
 function Steps({ skill, run }: { skill: Skill; run: Run | null }) {

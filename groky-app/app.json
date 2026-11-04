@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Groky",
+    "name": "MOTIQ",
     "slug": "groky-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,8 +9,8 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Groky listens so you can talk to the robots.",
-        "NSCameraUsageDescription": "Groky uses the camera so Grok can see what the robots see."
+        "NSMicrophoneUsageDescription": "Motion listens so you can talk to the robots.",
+        "NSCameraUsageDescription": "MOTIQ uses the camera so Motion can see what the robots see."
       }
     },
     "android": {
@@ -29,7 +29,7 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Groky listens so you can talk to the robots."
+          "microphonePermission": "Motion listens so you can talk to the robots."
         }
       ],
       "expo-font",
@@ -37,7 +37,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Groky uses the camera so Grok can see what the robots see.",
+          "cameraPermission": "MOTIQ uses the camera so Motion can see what the robots see.",
           "recordAudioAndroid": false
         }
       ]

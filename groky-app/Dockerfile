@@ -12,7 +12,7 @@ COPY . .
 ENV CI=1 \
     EXPO_NO_TELEMETRY=1 \
     PORT=8081
-# Set in Coolify to your public URL, e.g. https://groky.example.com
+# Set in Coolify to your public URL, e.g. https://motiq.example.com
 # (bundle/asset URLs in the manifest point here instead of the container IP).
 # EXPO_PACKAGER_PROXY_URL=
 
