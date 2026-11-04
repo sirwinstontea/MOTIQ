@@ -36,6 +36,8 @@ COCO_CLASSES = [
 # Modello addestrato da noi sui pezzi della demo (tappo_bianco, anello_verde, vite_arancione, secchio_blu).
 # Per tornare al COCO generico: YOLO_MODEL=data/models/yolov8n.onnx nel .env.
 DEFAULT_MODEL = Path(__file__).resolve().parents[3] / "data" / "models" / "oggetti_best.onnx"
+TRACKER_CFG = Path(__file__).with_name("bytetrack_motiq.yaml")  # soglie di ByteTrack, da regolare sul tavolo
+TRACK_MIN_CONF = 0.1  # = track_low_thresh nel yaml
 
 
 def onnx_class_names(path: Path) -> list[str]:
@@ -238,6 +240,7 @@ class ObjectTracker:
         self._depth_smoother = DepthSmoother(alpha=0.35)
         # Smoothing anche per le coordinate YOLO
         self._yolo_smoothed_boxes: dict[int, tuple[float, float, float, float]] = {}
+        self._yolo_conf: dict[int, float] = {}  # confidenza media (EMA) per ID
         # Memoria dei nomi/colori assegnati da Grok per ciascun ID tracciato
         self._custom_names: dict[int, tuple[str | None, str | None]] = {}
 
@@ -395,11 +398,14 @@ class ObjectTracker:
         tracked_items: list[tuple[int, str, float, tuple[float, float, float, float]]] = []
 
         if not self.use_mock and self._yolo_model is not None:
+            # Soglia bassa: le rilevazioni deboli servono a ByteTrack per continuare le tracce esistenti
+            # (gli ID nuovi li decide new_track_thresh nel yaml). Il filtro su conf_threshold si fa dopo,
+            # sulla confidenza media per ID, così un oggetto non lampeggia quando un frame è incerto.
             results = self._yolo_model.track(
                 frame_bgr,
                 persist=True,
-                conf=self.conf_threshold,
-                tracker="bytetrack.yaml",
+                conf=min(TRACK_MIN_CONF, self.conf_threshold),
+                tracker=str(TRACKER_CFG),
                 verbose=False,
             )
             if results and len(results) > 0:
@@ -409,10 +415,12 @@ class ObjectTracker:
                     xyxyn = boxes.xyxyn.cpu().numpy()
                     confs = boxes.conf.cpu().numpy()
                     clss = boxes.cls.cpu().numpy().astype(int)
-                    ids = boxes.id.cpu().numpy().astype(int) if boxes.id is not None else None
+                    # Senza ID = ByteTrack non ha confermato niente: ultralytics restituisce le rilevazioni
+                    # grezze (track.py, len(tracks) == 0). Si scartano: darle al tracker di riserva creava
+                    # ID nuovi a ogni falso positivo, che partivano da 1 come quelli di ByteTrack (doppioni).
+                    ids = boxes.id.cpu().numpy().astype(int) if boxes.id is not None else []
 
-                    raw_for_fallback: list[tuple[str, float, tuple[float, float, float, float]]] = []
-                    for i in range(len(xyxyn)):
+                    for i in range(len(ids)):
                         x1, y1, x2, y2 = [float(v) for v in xyxyn[i]]
                         bbox = (
                             max(0.0, min(1.0, x1)),
@@ -422,14 +430,12 @@ class ObjectTracker:
                         )
                         label = str(r.names.get(int(clss[i]), "object"))
                         conf = float(confs[i])
-                        if ids is not None:
-                            smooth_b = self._smooth_yolo_bbox(int(ids[i]), bbox)
-                            tracked_items.append((int(ids[i]), label, conf, smooth_b))
-                        else:
-                            raw_for_fallback.append((label, conf, bbox))
-
-                    if raw_for_fallback:
-                        tracked_items.extend(self._fallback_tracker.update(raw_for_fallback))
+                        tid = int(ids[i])
+                        smooth_b = self._smooth_yolo_bbox(tid, bbox)
+                        prev = self._yolo_conf.get(tid, conf)
+                        conf = self._yolo_conf[tid] = self.ema_alpha * conf + (1.0 - self.ema_alpha) * prev
+                        if conf >= self.conf_threshold:
+                            tracked_items.append((tid, label, conf, smooth_b))
         elif not self.use_mock and self._onnx_net is not None:
             raw_dets = self._detect_onnx(frame_bgr)
             tracked_items = self._fallback_tracker.update(raw_dets)

@@ -386,3 +386,77 @@ def test_cli_run_auto_opens_only_arm_on_default_camera(monkeypatch):
     monkeypatch.setattr(cli.uvicorn, "run", lambda app, **kw: seen.append(sorted(app.state.pipeline.nodes)))
     assert cli.main(["run", "--mock-tracker"]) == 0
     assert seen == [["arm"]]                                                    # niente "dog" senza --dog-target
+
+
+def test_calibration_markers_file_and_resolution_guard(tmp_path):
+    from vision.eyes.calibration.aruco_calib import load_marker_coords
+
+    markers = tmp_path / "markers_mm.json"
+    markers.write_text('{"_nota": "x", "0": [100, 50], "1": [400, 50], "2": [400, 250], "3": [100, 250]}')
+    coords = load_marker_coords(markers)
+    assert coords[0] == (100.0, 50.0) and len(coords) == 4                     # "_nota" ignorata
+    assert load_marker_coords(tmp_path / "manca.json")[1] == (300.0, 0.0)      # senza file: default
+
+    board, centers = render_aruco_workspace()                                  # 640x480
+    calib = ArmCalibrator()
+    assert calib.calibrate_from_aruco(board, coords)[0]
+    x, y = calib.pixel_to_mm(*centers[0])
+    assert abs(x - 100) < 1 and abs(y - 50) < 1                                # usa le posizioni del file
+
+    loaded = ArmCalibrator.load(calib.save(tmp_path / "calib.json"))
+    assert loaded.image_size == (640, 480)
+    box = (0.4, 0.4, 0.1, 0.1)
+    assert loaded.compute_object_coords(board, box) is not None
+    other_res = cv2.resize(board, (848, 480))                                  # USB 3 invece di USB 2
+    assert loaded.compute_object_coords(other_res, box) is None                # mm sbagliati: meglio niente
+
+
+def test_cli_generate_board_does_not_write_calibration(tmp_path):
+    from vision.eyes import cli
+
+    out = tmp_path / "calibration_arm.json"
+    assert cli.main(["calibrate-arm", "--generate-board", str(tmp_path / "a4.png"), "--output", str(out)]) == 0
+    assert (tmp_path / "a4.png").exists() and not out.exists()
+
+
+class _FakeT:
+    def __init__(self, a):
+        self.a = np.asarray(a, dtype=float)
+
+    def cpu(self):
+        return self
+
+    def numpy(self):
+        return self.a
+
+
+class _FakeYolo:
+    """Restituisce i frame preparati: (xyxyn, conf, id o None) come `model.track` di ultralytics."""
+
+    def __init__(self, frames):
+        self.frames = list(frames)
+
+    def track(self, frame, **kw):
+        dets = self.frames.pop(0)
+        boxes = type("B", (), {})()
+        boxes.xyxyn = _FakeT([d[0] for d in dets] or np.zeros((0, 4)))
+        boxes.conf = _FakeT([d[1] for d in dets])
+        boxes.cls = _FakeT([0] * len(dets))
+        ids = [d[2] for d in dets]
+        boxes.id = None if not dets or ids[0] is None else _FakeT(ids)
+        type(boxes).__len__ = lambda self: len(dets)
+        return [type("R", (), {"boxes": boxes, "names": {0: "tappo_bianco"}})()]
+
+
+def test_tracker_keeps_id_on_weak_frame_and_drops_unconfirmed():
+    box = [0.4, 0.4, 0.5, 0.5]
+    t = ObjectTracker(conf_threshold=0.40, use_mock=False)
+    t._yolo_model = _FakeYolo([
+        [(box, 0.30, None)],            # ByteTrack non ha confermato niente: rilevazione grezza senza ID
+        [(box, 0.90, 7)],
+        [(box, 0.20, 7)],               # un frame incerto: lo stesso oggetto non deve sparire
+        [(box, 0.90, 7)],
+    ])
+    frame = np.zeros((480, 640, 3), np.uint8)
+    seen = [[o.id for o in t.process_frame(frame)] for _ in range(4)]
+    assert seen == [[], [7], [7], [7]]

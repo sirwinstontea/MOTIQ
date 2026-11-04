@@ -12,6 +12,8 @@
   [C]          -> Dimentica tutto: oggetti di Grok e classi imparate (che altrimenti restano
                   in logs/vocab.json e tornano al prossimo avvio)
   [1-9]        -> Seleziona l'oggetto con quel numero e zooma
+  [A]          -> Calibra il braccio sui 4 marker ArUco inquadrati: da lì gli oggetti hanno le coordinate in mm
+                  (posizioni dei marker in data/calibration/markers_mm.json)
   [K]          -> Mostra/nascondi percentuale di confidenza
   [+] / [-]    -> Alza/abbassa la soglia minima di confidenza (+/- 5%)
   [T]          -> Imposta target per il cane robotico
@@ -44,6 +46,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from vision.eyes.calibration.aruco_calib import load_marker_coords
 from vision.eyes.capture.realsense import default_camera
 from vision.eyes.depth import CLASS_PRIORS_CM, estimate_distance_m, format_distance
 from vision.eyes.marks import draw_marks
@@ -64,6 +67,8 @@ WIN = "Grok Hackathon - Occhi + Cervello Live"
 LOGS_DIR = Path("logs")
 VOCAB_PATH = LOGS_DIR / "vocab.json"          # classi imparate da Grok, ricaricate al prossimo avvio
 SELECTION_PATH = LOGS_DIR / "selection.json"  # ultima scelta, letta dal braccio (formato in vision/grok/handoff.py)
+CALIB_PATH = Path("data/calibration/calibration_arm.json")  # omografia pixel -> mm, scritta dal tasto A
+MARKERS_PATH = Path("data/calibration/markers_mm.json")     # dove sono i marker nel sistema del braccio
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 STATUS_COLOR = {"ok": (90, 220, 90), "wait": (0, 200, 255), "err": (70, 70, 255)}  # BGR
 HELP = [
@@ -78,6 +83,7 @@ HELP = [
     "B         telecamera precedente",
     "M         layout telecamere (singola / griglia N-cam / PiP)",
     "C       dimentica tutto (oggetti di Grok e classi imparate)",
+    "A       calibra il braccio sui 4 marker ArUco (mm reali)",
     "+/-     soglia confidenza    K  mostra %",
     "T       target cane",
     "H       chiudi aiuto    Q/Esc  esci",
@@ -261,6 +267,9 @@ def _draw_panel(frame, obj, sel_id, last_cmd):
                  (f"colore: {obj.get('color') or '-'}", (230, 230, 230)),
                  (f"distanza: {format_distance(_distance(obj))}", (230, 230, 230)),
                  (f"sicurezza: {int(round(obj.get('conf', 0) * 100))}%", (230, 230, 230))]
+        c = obj.get("coords_mm")
+        lines.append((f"braccio: x={c['x']:.0f} y={c['y']:.0f} mm  {c['angle_deg']:.0f} gradi", (90, 220, 90))
+                     if c else ("braccio: non calibrato (A)", (0, 200, 255)))
         if obj.get("tags"):
             lines.append((f"tag: {', '.join(obj['tags'][:4])}", (230, 230, 230)))
         if last_cmd and last_cmd.get("target_id") == obj["id"]:
@@ -360,6 +369,7 @@ def main() -> None:
             model_name=args.model,
             conf_threshold=0.25,
             ema_alpha=0.65,
+            calibration_file=CALIB_PATH,  # solo per "arm"; senza file le coordinate in mm restano vuote (tasto A)
         )
 
     # Avvia acquisizione fluida in background per tutte le sorgenti registrate
@@ -823,6 +833,19 @@ def main() -> None:
                     ov.forget()
                 save_vocab(VOCAB_PATH, {})
                 set_status("Dimenticato tutto: oggetti di Grok e classi imparate. G = ricomincia.")
+
+            # A: calibra il braccio sui 4 marker ArUco inquadrati ora (posizioni in data/calibration/markers_mm.json)
+            elif key in (ord("a"), ord("A")):
+                calib = cur_node.calibrator if cur_node and active_src == "arm" else None
+                if calib is None:
+                    set_status("Calibrazione: passa alla camera ARM (V)", "err")
+                else:
+                    ok, seen = calib.calibrate_from_aruco(raw, load_marker_coords(MARKERS_PATH))
+                    if ok:
+                        calib.save(CALIB_PATH)
+                        set_status(f"Braccio calibrato a {raw.shape[1]}x{raw.shape[0]}: coordinate in mm attive")
+                    else:
+                        set_status(f"Calibrazione fallita: visti i marker {sorted(seen)}, servono 0 1 2 3", "err")
 
             elif key in (ord("k"), ord("K")):
                 show_conf = not show_conf
