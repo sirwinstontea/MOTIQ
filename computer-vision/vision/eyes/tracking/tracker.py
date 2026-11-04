@@ -242,7 +242,11 @@ class ObjectTracker:
         calibrator_fn: Callable[[np.ndarray, tuple[float, float, float, float]], CoordsMM | None] | None = None,
         ema_alpha: float = 0.70,
         min_hits: int = 1,
+        color_labels: dict[str, str] | None = None,
     ):
+        # Solo con il rilevatore mock (per colore): colore italiano -> etichetta, es. {"arancione": "vite_arancione"}.
+        # Serve in simulazione (RoboDK), dove YOLO non riconosce gli oggetti renderizzati, e per il cubo rosso di prova.
+        self.color_labels = {k.lower(): v for k, v in (color_labels or {}).items()}
         self.model_name = model_name or os.getenv("YOLO_MODEL", str(DEFAULT_MODEL))
         self.conf_threshold = conf_threshold
         self.calibrator_fn = calibrator_fn
@@ -336,6 +340,12 @@ class ObjectTracker:
                 continue
             x, y, w, h = cv2.boundingRect(cnt)
             nx, ny, nw, nh = x / w_img, y / h_img, w / w_img, h / h_img
+
+            if self.color_labels:  # etichette per colore: niente euristiche di forma, il resto si scarta
+                color = estimate_dominant_color_it(frame_bgr, (nx, ny, nw, nh))
+                if color in self.color_labels:
+                    raw_dets.append((self.color_labels[color], 0.9, (nx, ny, nw, nh)))
+                continue
 
             # Euristica della classe in base alle proporzioni e dimensioni (per simulazione/test)
             if nh > 0.55 and nw > 0.20:

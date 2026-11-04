@@ -43,11 +43,12 @@ def _get_aruco_dict(dict_name: str = "DICT_4X4_50"):
     return cv2.aruco.getPredefinedDictionary(dict_id)
 
 
-def detect_aruco_centers(
+def detect_aruco_corners(
     frame_bgr: np.ndarray,
     dict_name: str = "DICT_4X4_50",
-) -> dict[int, tuple[float, float]]:
-    """Rileva i marker ArUco nel frame e restituisce `{marker_id: (cx_px, cy_px)}`."""
+) -> dict[int, np.ndarray]:
+    """Rileva i marker ArUco e restituisce `{marker_id: corner (4, 2) px}` nell'ordine di OpenCV:
+    alto-sinistra, alto-destra, basso-destra, basso-sinistra del marker stampato."""
     gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY) if frame_bgr.ndim == 3 else frame_bgr
     aruco_dict = _get_aruco_dict(dict_name)
 
@@ -59,15 +60,20 @@ def detect_aruco_centers(
         params = cv2.aruco.DetectorParameters_create()
         corners, ids, _ = cv2.aruco.detectMarkers(gray, aruco_dict, parameters=params)
 
-    centers: dict[int, tuple[float, float]] = {}
+    found: dict[int, np.ndarray] = {}
     if ids is not None and len(ids) > 0:
         for marker_corners, marker_id_val in zip(corners, np.asarray(ids).flatten()):
-            m_id = int(marker_id_val)
-            pts = np.asarray(marker_corners).reshape((4, 2))
-            cx = float(np.mean(pts[:, 0]))
-            cy = float(np.mean(pts[:, 1]))
-            centers[m_id] = (cx, cy)
-    return centers
+            found[int(marker_id_val)] = np.asarray(marker_corners, dtype=np.float64).reshape((4, 2))
+    return found
+
+
+def detect_aruco_centers(
+    frame_bgr: np.ndarray,
+    dict_name: str = "DICT_4X4_50",
+) -> dict[int, tuple[float, float]]:
+    """Rileva i marker ArUco nel frame e restituisce `{marker_id: (cx_px, cy_px)}`."""
+    return {m_id: (float(np.mean(pts[:, 0])), float(np.mean(pts[:, 1])))
+            for m_id, pts in detect_aruco_corners(frame_bgr, dict_name).items()}
 
 
 def render_aruco_workspace(

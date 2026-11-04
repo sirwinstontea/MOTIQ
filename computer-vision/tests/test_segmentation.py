@@ -338,6 +338,11 @@ def test_depth_distance_and_size_from_mask(table, scene):
     expected_mm = 2 * CAP["r"] * 580 / FX                        # diametro 80 px a 580 mm
     assert out.size_mm is not None
     assert all(abs(s - expected_mm) <= 4.0 for s in out.size_mm)
+    # Punto 3D nel frame camera: centro del tappo deproiettato a 580 mm; tappo rotondo, quindi niente asse
+    u, v = CAP["center"]
+    x, y, z = out.xyz_cam_m
+    assert abs(x - (u - W / 2) * 0.58 / FX) <= 0.002 and abs(y - (v - H / 2) * 0.58 / FY) <= 0.002
+    assert abs(z - 0.580) <= 0.002 and out.axis_cam is None
 
 
 def test_depth_ignores_flying_pixels_and_holes(table):

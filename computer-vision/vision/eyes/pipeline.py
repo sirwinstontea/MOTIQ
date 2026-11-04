@@ -13,13 +13,15 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Sequence
+from typing import Any, Callable, Literal, Sequence
 
 import numpy as np
 
 from .calibration.aruco_calib import ArmCalibrator
+from .calibration.hand_eye import FIXED_POSE, ControllerTcp, FixedTcp, HandEye, TcpReading, still_for_frame
 from .capture.reader import SourceMode, VideoReader
 from .capture.realsense import RealSenseReader
 from .dog.telemetry import DogNavigator, check_hand_safety_stop, check_person_safety_stop
@@ -31,17 +33,22 @@ from .tracking.tracker import ObjectTracker
 from .zoom.manager import DigitalZoomManager
 
 # `realsense`: colore + profondità allineati (D415/D435); `target` è il seriale, oppure 0/None = la prima
-PipelineMode = SourceMode | Literal["realsense"]
+PipelineMode = SourceMode | Literal["realsense", "robodk"]
 
 
 # Frame di tavolo vuoto per la mediana (il piano ne prevedeva 15: 10 bastano e la registrazione dura meno)
 BG_FRAMES = 10
 
 
+def _calibration_id(path: str | Path) -> str:
+    p = Path(path)
+    return f"{p.stem}_{time.strftime('%Y%m%d-%H%M', time.localtime(p.stat().st_mtime))}"
+
+
 @dataclass
 class SourceNode:
     source: str
-    reader: VideoReader | RealSenseReader
+    reader: VideoReader | RealSenseReader | Any
     tracker: ObjectTracker
     calibrator: ArmCalibrator | None = None
     dog_navigator: DogNavigator | None = None
@@ -53,7 +60,38 @@ class SourceNode:
     extra_cache: MaskCache = field(default_factory=MaskCache)    # oggetti aggiunti fuori (YOLO-World, Grok)
     recording_bg: bool = False
     last_depth: np.ndarray | None = None  # profondità (mm) dell'ultimo frame di `step`, None senza RealSense
+    # Camera sul braccio: con la hand-eye e una posa TCP, `xyz_cam_m` diventa `xyz_base_m` (vedi calibration/hand_eye)
+    hand_eye: HandEye | None = None
+    tcp_fn: Callable[[], TcpReading | None] | None = None
+    tcp_readings: deque = field(default_factory=lambda: deque(maxlen=10))
+    robot_still: TcpReading | None = None  # posa del robot fermo durante l'ultimo frame, None se in moto o ignota
+    calibration_id: str | None = None      # file di calibrazione + data, riportato da /locate
+    camera_name: str = ""
     _bg_frame_id: int = -1
+
+    def to_base(self, objects: Sequence[EyeObject | dict], frame_ts: float) -> list[EyeObject | dict]:
+        """Aggiunge `xyz_base_m` / `yaw_base_deg` agli oggetti con `xyz_cam_m`, solo se il robot era fermo durante il
+        frame. Senza hand-eye o senza posa TCP restituisce gli oggetti così come sono."""
+        if self.hand_eye is None or self.tcp_fn is None:
+            return list(objects)
+        reading = self.tcp_fn()
+        if reading is not None:
+            self.tcp_readings.append(reading)
+        self.robot_still = still_for_frame(self.tcp_readings, frame_ts) if reading is not None else None
+        if self.robot_still is None:
+            return list(objects)
+        out: list[EyeObject | dict] = []
+        for o in objects:
+            get = o.get if isinstance(o, dict) else lambda k, _o=o: getattr(_o, k)
+            xyz = get("xyz_cam_m")
+            if xyz is None:
+                out.append(o)
+                continue
+            p, yaw = self.hand_eye.to_base(xyz, get("axis_cam"), self.robot_still.pose)
+            update = {"xyz_base_m": tuple(round(v, 4) for v in p),
+                      "yaw_base_deg": round(yaw, 1) if yaw is not None else None}
+            out.append({**o, **update} if isinstance(o, dict) else o.model_copy(update=update))
+        return out
 
     def record_empty_table(self) -> None:
         """Comincia a registrare il tavolo vuoto: i prossimi `BG_FRAMES` frame di `step`, senza oggetti sul tavolo."""
@@ -110,11 +148,56 @@ class EyePipeline:
         ema_alpha: float = 0.70,
         min_hits: int = 1,
         masks: bool | None = None,
+        hand_eye_file: str | Path | None = None,
+        controller_url: str | None = None,
+        look_pose: Sequence[float] | None = None,
+        fixed_pose_file: str | Path | None = None,
+        robot_pose: Literal["controller", "robodk"] = "controller",
+        color_labels: dict[str, str] | None = None,
+        robodk_options: dict | None = None,
     ) -> SourceNode:
-        """Configura e registra una sorgente (`arm` o `dog`). `masks`: sagome e misure; di default solo per `arm`."""
+        """Configura e registra una sorgente (`arm` o `dog`). `masks`: sagome e misure; di default solo per `arm`.
+
+        Camera sul braccio, posa fissa: con `fixed_pose_file` esistente (`calibrate-look-pose`) le coordinate in base
+        sono `T_base_cam · xyz_cam_m`, senza leggere il robot; ha la precedenza sulla hand-eye.
+        Camera sul braccio, pose qualsiasi: con `hand_eye_file` esistente la posa TCP arriva da `look_pose` (fissa, m e rad) se data,
+        altrimenti da `controller_url` (robot_controller, sola lettura) o, con `robot_pose="robodk"`, dalla flangia in
+        RoboDK. L'omografia fissa del tavolo non si usa più: con la camera che si muove darebbe millimetri sbagliati.
+        `mode="robodk"`: camera D435 simulata sulla flangia (`capture.robodk`, opzioni in `robodk_options`).
+        `color_labels`: con il tracker mock, colore (italiano) -> etichetta, es. {"arancione": "vite_arancione"}.
+        """
+        calibration_id = None
+        hand_eye = tcp_fn = None
+        if fixed_pose_file is not None and Path(fixed_pose_file).exists():
+            # Posa fissa: T_base_cam costante, nessuna posa del robot da leggere (vedi hand_eye.calibrate_fixed)
+            hand_eye, tcp_fn = HandEye.load(fixed_pose_file), FixedTcp(FIXED_POSE)
+            if hand_eye.tcp_source != "fixed":
+                raise ValueError(f"{fixed_pose_file} non è una calibrazione a posa fissa (calibrate-look-pose)")
+            ex = hand_eye.extra
+            print(f"[Posa fissa] {fixed_pose_file}: riproiezione {ex.get('reproj_px', '?')} px, tavolo dalla "
+                  f"profondità {ex.get('table_check_mm', '?')} mm. Misure valide solo con il braccio nella posa "
+                  "di osservazione")
+            calibration_file, calibrator = None, None
+            calibration_id = _calibration_id(fixed_pose_file)
+        elif hand_eye_file is not None and Path(hand_eye_file).exists():
+            hand_eye = HandEye.load(hand_eye_file)
+            if look_pose:
+                tcp_fn, runtime_src = FixedTcp(look_pose), "manual"
+            elif robot_pose == "robodk":
+                from .capture.robodk import RoboDKFlange
+                tcp_fn, runtime_src = RoboDKFlange((robodk_options or {}).get("robot_name")), "robodk"
+            else:
+                tcp_fn, runtime_src = ControllerTcp(controller_url or "http://127.0.0.1:8765"), "controller"
+            print(f"[Hand-eye] {hand_eye_file}: {hand_eye.n_samples} pose, dispersione "
+                  f"{hand_eye.spread_mm if hand_eye.spread_mm is not None else '?'} mm, posa TCP da {runtime_src}")
+            if hand_eye.tcp_source != runtime_src:
+                print(f"[Hand-eye] ATTENZIONE: calibrata con la posa TCP da '{hand_eye.tcp_source}', ora da "
+                      f"'{runtime_src}': se i due TCP non coincidono le coordinate in base sono sbagliate")
+            calibration_file, calibrator = None, None
+            calibration_id = _calibration_id(hand_eye_file)
         if calibrator is None and calibration_file is not None and Path(calibration_file).exists():
             calibrator = ArmCalibrator.load(calibration_file)
-        elif calibrator is None and source == "arm":
+        elif calibrator is None and source == "arm" and hand_eye is None:
             calibrator = ArmCalibrator()
 
         calib_fn = calibrator.compute_object_coords if (calibrator and source == "arm") else None
@@ -125,8 +208,12 @@ class EyePipeline:
             calibrator_fn=calib_fn,
             ema_alpha=ema_alpha,
             min_hits=min_hits,
+            color_labels=color_labels,
         )
-        if mode == "realsense":
+        if mode == "robodk":
+            from .capture.robodk import RoboDKCameraReader
+            reader = RoboDKCameraReader(source_name=source, **(robodk_options or {}))
+        elif mode == "realsense":
             serial = str(target) if target not in (None, "", 0, "0") else None
             reader = RealSenseReader(source_name=source, serial=serial)
         else:
@@ -142,6 +229,10 @@ class EyePipeline:
             dog_navigator=dog_nav,
             zoom=zoom_mgr,
             masks=(source == "arm") if masks is None else bool(masks),
+            hand_eye=hand_eye,
+            tcp_fn=tcp_fn,
+            calibration_id=calibration_id,
+            camera_name=getattr(reader, "device_name", "") or str(mode),
         )
         self.nodes[source] = node
         return node
@@ -160,7 +251,7 @@ class EyePipeline:
         node = self.nodes[source]
 
         depth = None
-        if isinstance(node.reader, RealSenseReader):  # colore e profondità dello stesso frame
+        if hasattr(node.reader, "get_frames"):  # RealSense o RoboDK: colore e profondità dello stesso frame
             if node.reader._running:
                 _ok, frame, depth, frame_id, ts = node.reader.get_frames()
             else:
@@ -177,6 +268,7 @@ class EyePipeline:
         if node.recording_bg:
             node._feed_background(frame, depth, frame_id)
         objects = node.attach(objects, frame)
+        objects = node.to_base(objects, ts)
 
         dog_telemetry = None
         if node.dog_navigator is not None:

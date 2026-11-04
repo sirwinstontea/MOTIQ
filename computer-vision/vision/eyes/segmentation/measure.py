@@ -70,6 +70,71 @@ def focal_px(intrinsics: Any) -> tuple[float, float] | None:
     return float(fx), float(fy)
 
 
+def principal_px(intrinsics: Any) -> tuple[float, float] | None:
+    """(cx, cy) in pixel, come `focal_px`. `None` se gli intrinseci non li hanno (es. tupla con solo fx, fy)."""
+    if intrinsics is None:
+        return None
+    if isinstance(intrinsics, dict):
+        cx, cy = intrinsics.get("cx"), intrinsics.get("cy")
+    elif hasattr(intrinsics, "cx"):
+        cx, cy = intrinsics.cx, intrinsics.cy
+    else:
+        seq = list(intrinsics)
+        cx, cy = (seq[2], seq[3]) if len(seq) >= 4 else (None, None)
+    if cx is None or cy is None:
+        return None
+    return float(cx), float(cy)
+
+
+def deproject(u: float, v: float, z_m: float, intrinsics: Any) -> tuple[float, float, float] | None:
+    """Pixel (u, v) alla profondità `z_m` -> punto (x, y, z) in m nel frame camera (x destra, y giù, z avanti).
+
+    Pinhole senza distorsione: è quello che fa `rs2_deproject_pixel_to_point` sul colore della D435, che ha i
+    coefficienti a zero (`capture.realsense` avvisa se non lo sono).
+    """
+    f, c = focal_px(intrinsics), principal_px(intrinsics)
+    if f is None or c is None or z_m is None or z_m <= 0:
+        return None
+    return ((u - c[0]) * z_m / f[0], (v - c[1]) * z_m / f[1], float(z_m))
+
+
+def surface_centroid(depth_mm: np.ndarray, inner: np.ndarray, intrinsics: Any, min_px: int = MIN_DEPTH_PX,
+                     min_fraction: float = MIN_DEPTH_FRACTION) -> tuple[tuple[float, float, float], int, float] | None:
+    """Centroide 3D della **superficie visibile**: ogni pixel della maschera erosa con una profondità valida diventa un
+    punto 3D (frame camera, m), e si prende la mediana per asse, robusta ai pixel volanti.
+
+    Restituisce `(xyz, punti_validi, frazione_valida)`, oppure `None` se i punti validi sono troppo pochi. Non è il
+    centro geometrico dell'oggetto: è il centro di quello che la camera vede (la parte superiore, guardando dall'alto).
+    """
+    f, c = focal_px(intrinsics), principal_px(intrinsics)
+    if depth_mm is None or f is None or c is None or depth_mm.shape[:2] != inner.shape[:2]:
+        return None
+    vs, us = np.nonzero(inner)
+    if len(vs) == 0:
+        return None
+    z = depth_mm[vs, us].astype(np.float64) / 1000.0
+    ok = z > 0
+    n = int(ok.sum())
+    if n < max(min_px, int(min_fraction * len(vs))):
+        return None
+    z, us, vs = z[ok], us[ok], vs[ok]
+    pts = np.column_stack([(us - c[0]) * z / f[0], (vs - c[1]) * z / f[1], z])
+    xyz = np.median(pts, axis=0)
+    return (float(xyz[0]), float(xyz[1]), float(xyz[2])), n, n / len(ok)
+
+
+def axis_cam_from(angle_deg: float, fx: float, fy: float) -> tuple[float, float, float]:
+    """Versore dell'asse lungo nel frame camera, per un asse con angolo `angle_deg` nell'immagine (y giù).
+
+    A Z costante uno spostamento di (du, dv) pixel vale (du·Z/fx, dv·Z/fy): Z si semplifica nel versore. Vale per
+    un oggetto piatto più o meno parallelo all'immagine, cioè camera che guarda il tavolo dall'alto.
+    """
+    a = math.radians(angle_deg)
+    x, y = math.cos(a) / fx, math.sin(a) / fy
+    n = math.hypot(x, y)
+    return (x / n, y / n, 0.0)
+
+
 def side_angle_rad(length_px: float, angle_deg: float, fx: float, fy: float) -> float:
     """Ampiezza angolare (tangente) di un segmento lungo `length_px` con direzione `angle_deg` nell'immagine.
 
@@ -129,3 +194,7 @@ class Measures:
     distance_source: str | None = None   # "depth" o "mono"
     size_mm: tuple[float, float] | None = None
     angle_deg: float | None = None
+    xyz_cam_m: tuple[float, float, float] | None = None   # centroide della superficie visibile, frame camera (m)
+    axis_cam: tuple[float, float, float] | None = None
+    depth_points: int | None = None        # punti 3D validi usati per xyz_cam_m
+    depth_valid_ratio: float | None = None  # frazione della maschera erosa con profondità valida

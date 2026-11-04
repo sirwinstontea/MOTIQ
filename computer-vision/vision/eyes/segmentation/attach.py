@@ -16,6 +16,8 @@ Misure (vedi `measure.py`), ricalcolate a ogni frame anche quando la maschera vi
 - `size_mm`: solo con profondità e intrinseci, e solo se nessun lato è tagliato dal bordo del frame.
 - `coords_mm.angle_deg`: angolo del rettangolo ruotato al posto di quello di Otsu, se `coords_mm` c'è e l'oggetto
   è allungato. `x` e `y` restano quelli del calibratore.
+- `xyz_cam_m` / `axis_cam`: centroide della maschera deproiettato con la profondità e versore dell'asse lungo, nel
+  frame camera. Solo con profondità e intrinseci (cx, cy compresi). La pipeline li porta nel frame base (hand-eye).
 """
 from __future__ import annotations
 
@@ -34,7 +36,8 @@ from vision.eyes.segmentation.masks import (
     MIN_HEIGHT_MM, bbox_to_px, color_roi, depth_roi, expand_box, finish_mask, mask_grabcut,
 )
 from vision.eyes.segmentation.measure import (
-    Measures, depth_on_mask_mm, erode_mask, focal_px, grasp_angle, monocular_distance_m, size_mm_from,
+    Measures, axis_cam_from, depth_on_mask_mm, erode_mask, surface_centroid, focal_px, grasp_angle, monocular_distance_m,
+    size_mm_from,
 )
 from vision.eyes.tracking.tracker import compute_iou
 
@@ -200,10 +203,19 @@ def measure(res: MaskResult | None, label: str | None, frame_hw: tuple[int, int]
     f = focal_px(intrinsics)
 
     dist, src = None, None
+    xyz_cam = axis_cam = n_pts = ratio = None
     if depth is not None and res.inner is not None:
         z_mm = depth_on_mask_mm(depth, res.inner)
         if z_mm is not None:
             dist, src = z_mm / 1000.0, "depth"
+            # Centroide 3D della superficie visibile, di questo frame (non smussato: con la camera sul braccio la media
+            # mobile mescolerebbe pose diverse)
+            sc = surface_centroid(depth, res.inner, intrinsics)
+            if sc is not None:
+                xyz_cam, n_pts, ratio = sc
+                angle = grasp_angle(geom)
+                if angle is not None:
+                    axis_cam = axis_cam_from(angle, *f)
     if dist is None:
         mono = monocular_distance_m(label, geom, frame_hw, intrinsics)
         if mono is not None:
@@ -214,7 +226,10 @@ def measure(res: MaskResult | None, label: str | None, frame_hw: tuple[int, int]
     size = size_mm_from(geom, dist, *f) if src == "depth" and f is not None else None
     if dist is not None:
         dist = round(dist, 3) if src == "depth" else round(dist, 2)
-    return Measures(distance_m=dist, distance_source=src, size_mm=size, angle_deg=grasp_angle(geom))
+    return Measures(distance_m=dist, distance_source=src, size_mm=size, angle_deg=grasp_angle(geom),
+                    xyz_cam_m=tuple(round(v, 4) for v in xyz_cam) if xyz_cam else None,
+                    axis_cam=tuple(round(v, 4) for v in axis_cam) if axis_cam else None,
+                    depth_points=n_pts, depth_valid_ratio=round(ratio, 3) if ratio is not None else None)
 
 
 def min_height_for(label: str | None) -> float:
@@ -246,6 +261,10 @@ def _with_mask(o: EyeObject | dict, res: MaskResult | None, meas: Measures | Non
         "mask": res.polygon if res else None,
         "mask_source": res.source if res else None,
         "size_mm": meas.size_mm,
+        "xyz_cam_m": meas.xyz_cam_m,
+        "axis_cam": meas.axis_cam,
+        "depth_points": meas.depth_points,
+        "depth_valid_ratio": meas.depth_valid_ratio,
     }
     if meas.distance_m is not None:
         update["distance_m"] = meas.distance_m

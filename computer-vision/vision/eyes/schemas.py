@@ -39,6 +39,19 @@ class EyeObject(BaseModel):
         default=None, description="Da dove viene la maschera: depth (D435), color (tavolo vuoto) o grabcut")
     size_mm: tuple[float, float] | None = Field(
         default=None, description="Lato lungo e lato corto dell'oggetto in mm, misurati sulla maschera con la profondità")
+    # Camera sul braccio (vedi calibration/hand_eye.py). Solo con la profondità: senza, restano null.
+    xyz_cam_m: tuple[float, float, float] | None = Field(
+        default=None, description="Centroide 3D della superficie visibile (non il centro geometrico), frame camera, "
+                                  "m (x destra, y giù, z avanti)")
+    depth_points: int | None = Field(default=None, description="Punti 3D validi usati per xyz_cam_m")
+    depth_valid_ratio: float | None = Field(default=None, ge=0.0, le=1.0,
+                                            description="Frazione della maschera con profondità valida")
+    axis_cam: tuple[float, float, float] | None = Field(
+        default=None, description="Versore dell'asse lungo nel frame camera; null se l'oggetto è quasi rotondo")
+    xyz_base_m: tuple[float, float, float] | None = Field(
+        default=None, description="Centroide nel frame base del robot, m. Solo a robot fermo e con la hand-eye")
+    yaw_base_deg: float | None = Field(
+        default=None, ge=-90.0, le=90.0, description="Asse lungo attorno a Z della base, gradi [-90, 90]")
 
     @field_validator("mask")
     @classmethod

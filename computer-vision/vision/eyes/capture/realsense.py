@@ -448,6 +448,11 @@ def _info(rs: ModuleType, dev: Any, field: str) -> str:
 
 def _color_intrinsics(rs: ModuleType, profile: Any) -> Intrinsics:
     i = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
+    if any(abs(float(c)) > 1e-6 for c in getattr(i, "coeffs", []) or []):
+        # ponytail: la deproiezione (segmentation.measure.deproject) è pinhole senza distorsione, giusta per il
+        # colore della D435 (coefficienti a zero). Se si vede questo avviso, passare a rs.rs2_deproject_pixel_to_point.
+        log.warning("RealSense: distorsione del colore non nulla (%s, %s): xyz_cam_m va corretto",
+                    getattr(i, "model", "?"), list(i.coeffs))
     return Intrinsics(float(i.fx), float(i.fy), float(i.ppx), float(i.ppy), int(i.width), int(i.height))
 
 
