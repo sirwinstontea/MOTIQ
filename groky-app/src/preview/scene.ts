@@ -2,11 +2,17 @@
 //
 // Pure TypeScript with no React Native imports; rendered by components/SkillPreview.
 //
-// This is NOT a simulation. No collisions, no real reachability, no real robot geometry:
-// it shows what the skill intends so a person can review it before anything moves.
+// Arm: a side view (x forward, z up) of the dry run in src/skills/dryrun.ts, so it shows exactly what the UR5e
+// model predicts, including where a step would be refused. The 2-link drawing is a sketch of the real 6 joints.
+// Dog: top-down floor sketch. Neither is a physics simulation.
+import { deviceOf, isLookStep } from '../skills';
+import { dryRun } from '../skills/dryrun';
+import type { SkillDoc } from '../skills/schema';
+import type { Pose } from '../robot/kinematics';
+import type { World } from '../robot/arm';
 
 export type PreviewStep = { tool: string; args: Record<string, unknown> };
-export type PreviewSkill = { device: 'arm' | 'dog'; steps: PreviewStep[] };
+type DogSkill = { device: 'dog'; steps: PreviewStep[] };
 export type Pt = { x: number; y: number };
 
 // scene size in scene units; renderers scale it to fit
@@ -15,25 +21,17 @@ export const H = 240;
 
 // ---------- arm scene (side view, y down) ----------
 
+const PX = 220; // scene units per metre
 export const ARM = {
-  surface: 178, // cube centre when resting on the table or the box floor
   tableY: 190,
-  base: { x: 210, y: 190 },
-  shoulder: { x: 210, y: 150 },
-  l1: 95,
-  l2: 85,
-  jaw: 22, // wrist to cube centre when gripping
-  cube: 24,
-  box: { x0: 280, x1: 360, top: 160 },
-  hand: { x: 72, y: 70 }, // where a person takes the object at "handover"
-  hoverY: 96, // wrist height when hovering over a spot
+  base: { x: 150, y: 190 },
+  shoulder: { x: 150, y: 190 - 0.1625 * PX },
+  l1: 0.425 * PX,
+  l2: 0.3922 * PX,
+  jaw: 22, // wrist dot to fingertips (the TCP)
 };
 
-const SPOT: Record<string, Pt> = {
-  table: { x: 120, y: ARM.surface },
-  box: { x: (ARM.box.x0 + ARM.box.x1) / 2, y: ARM.surface },
-};
-const HOME: Pt = { x: 210, y: 70 };
+const toScene = (x: number, z: number): Pt => ({ x: ARM.base.x + x * PX, y: ARM.tableY - z * PX });
 
 export function fk(q1: number, q2: number) {
   const { shoulder: s, l1, l2 } = ARM;
@@ -54,8 +52,6 @@ function ik(w: Pt) {
   return { q1: Math.atan2(dy, dx) + side * beta, q2: -side * a2 };
 }
 
-const inBox = (x: number) => x > ARM.box.x0 + 6 && x < ARM.box.x1 - 6;
-
 // ---------- dog scene (top-down) ----------
 
 export const DOG_PX_PER_M = 100;
@@ -71,15 +67,25 @@ const POSES: Record<string, { len: number; wid: number; wave: number }> = {
 
 export type StepInfo = { index: number; label: string; note: string; warn: boolean; start: number; end: number };
 
+export type SceneObject = {
+  id: string;
+  container: boolean;
+  x: number; // centre
+  y: number; // centre for objects, floor for containers
+  w: number;
+  h: number;
+  color: string;
+  label: string;
+};
+
 export type ArmFrame = {
   device: 'arm';
   shoulder: Pt;
   elbow: Pt;
   wrist: Pt;
   grip: number; // 0 open, 1 closed
-  cube: Pt;
-  held: boolean;
-  scan: number; // 0..1, camera check overlay
+  objects: SceneObject[];
+  scan: number; // 0..1, camera overlay
 };
 
 export type DogFrame = {
@@ -162,7 +168,7 @@ const TAIL = 0.8;
 const MIN_STEP = 0.4;
 
 function runSteps(
-  skill: PreviewSkill,
+  skill: DogSkill,
   st: { t: number; step: number },
   hold: (dt: number) => void,
   doStep: (step: PreviewStep) => { note: string; warn?: boolean },
@@ -193,171 +199,113 @@ function runSteps(
 
 // ---------- arm ----------
 
-type ArmV = { q1: number; q2: number; grip: number; cx: number; cy: number; held: number; scan: number };
+const COLORS: Record<string, string> = {
+  red: '#e5484d',
+  blue: '#3e63dd',
+  green: '#30a46c',
+  yellow: '#f5c400',
+  orange: '#f76b15',
+  purple: '#8e4ec6',
+  black: '#2b2b2b',
+  white: '#e8e8e8',
+};
 
-function buildArm(skill: PreviewSkill): Timeline {
-  const { keys, st, push: rawPush } = builder<ArmV>({ ...ik(HOME), grip: 0, ...cubeAt(SPOT.table), held: 0, scan: 0 });
-  let taken = false; // handed to the person, can't be picked again
+type ArmV = { wx: number; wy: number; grip: number; scan: number; objs: Record<string, Pt> };
 
-  const tip = (v: ArmV) => {
-    const w = fk(v.q1, v.q2).wrist;
-    return { x: w.x, y: w.y + ARM.jaw };
+function buildArm(doc: SkillDoc): Timeline {
+  const run = dryRun(doc);
+  const env = doc.environment?.objects ?? [];
+  const wristOf = (p: Pose): Pt => {
+    const t = toScene(p.x, p.z);
+    return { x: t.x, y: t.y - ARM.jaw };
   };
-  // while held, the cube's free position tracks the gripper so a release starts from the right place
-  const follow = (v: ArmV) => {
-    if (v.held) Object.assign(v, cubeAt(tip(v)));
-  };
-  const push = (dt: number, patch: Partial<ArmV>, e: Ease = 'inout') => rawPush(dt, patch, e, follow);
+  const objsOf = (w: World) =>
+    Object.fromEntries(Object.values(w).map((o) => [o.id, toScene(o.location.x, o.location.z)]));
+  const w0 = wristOf(run.start.tcp);
+  const { keys, st, push } = builder<ArmV>({ wx: w0.x, wy: w0.y, grip: 0, scan: 0, objs: objsOf(run.world) });
   const hold = (dt: number) => push(dt, {}, 'linear');
 
-  const moveTo = (w: Pt) => {
-    const q = ik(w);
-    const dq = Math.max(Math.abs(q.q1 - st.v.q1), Math.abs(q.q2 - st.v.q2));
-    if (dq > 1e-3) push(clamp(dq / 1.8, 0.35, 2), q);
-  };
-  const hover = (p: Pt) => ({ x: p.x, y: ARM.hoverY });
-  const grasp = (p: Pt) => ({ x: p.x, y: p.y - ARM.jaw });
-  const handWrist = grasp(ARM.hand);
-
-  const close = (): { note: string; warn?: boolean } => {
-    if (st.v.held) return { note: 'Already holding the cube' };
-    const p = tip(st.v);
-    const near = !taken && Math.hypot(p.x - st.v.cx, p.y - st.v.cy) < 10;
-    push(0.35, { grip: 1, held: near ? 1 : 0 });
-    return near ? { note: 'Grabs the cube' } : { note: 'Gripper closes on nothing', warn: true };
-  };
-
-  const open = (): { note: string; warn?: boolean } => {
-    if (!st.v.held) {
-      push(0.35, { grip: 0 });
-      return { note: 'Gripper opens' };
+  const infos: StepInfo[] = [];
+  hold(LEAD);
+  run.beats.forEach((beat, index) => {
+    st.step = index;
+    const start = st.t;
+    if (beat.scan) {
+      push(0.3, { scan: 1 });
+      hold(0.6);
+      push(0.3, { scan: 0 });
+    } else {
+      const total = clamp(beat.seconds * 0.45, MIN_STEP, 2.5);
+      const sum = beat.frames.reduce((n, f) => n + f.dt, 0) || 1;
+      beat.frames.forEach((f) => {
+        const w = wristOf(f.tcp);
+        push(
+          Math.max(0.05, (total * f.dt) / sum),
+          { wx: w.x, wy: w.y, grip: f.grip, objs: objsOf(f.world) },
+          beat.frames.length > 1 ? 'linear' : 'inout',
+        );
+      });
+      if (beat.error) hold(0.8);
     }
-    push(0.35, { grip: 0, held: 0 });
-    if (Math.hypot(st.v.cx - ARM.hand.x, st.v.cy - ARM.hand.y) < 12) {
-      taken = true;
-      return { note: 'Lets go: the person takes the cube' };
-    }
-    const drop = ARM.surface - st.v.cy;
-    if (drop > 0.5) push(clamp(Math.sqrt(drop / 900), 0.15, 0.5), { cy: ARM.surface }, 'in');
-    return { note: inBox(st.v.cx) ? 'Drops the cube into the box' : 'Drops the cube on the table' };
-  };
+    if (st.t - start < MIN_STEP) hold(MIN_STEP - (st.t - start));
+    infos.push({
+      index,
+      label: beat.label,
+      note: beat.error ? `Refused: ${beat.error}` : beat.note,
+      warn: beat.warn,
+      start,
+      end: st.t,
+    });
+  });
+  st.step = run.beats.length;
+  hold(TAIL);
 
-  const steps = runSteps(skill, st, hold, (step) => {
-    const name = step.tool.slice(4);
-    const a = step.args;
-    switch (name) {
-      case 'goto': {
-        const place = str(a.place);
-        if (place === 'home') moveTo(HOME);
-        else if (place === 'handover') moveTo(handWrist);
-        else if (SPOT[place]) moveTo(hover(SPOT[place]));
-        else return { note: `Unknown place "${place}"`, warn: true };
-        return { note: `Moves to ${place}${st.v.held ? ' carrying the cube' : ''}` };
-      }
-      case 'grip':
-        return str(a.state) === 'close' ? close() : open();
-      case 'pick_place': {
-        const object = str(a.object) || 'object';
-        const place = str(a.place);
-        if (taken) {
-          hold(MIN_STEP);
-          return { note: 'The cube was already handed over, nothing to pick', warn: true };
-        }
-        if (place !== 'handover' && !SPOT[place]) {
-          hold(MIN_STEP);
-          return { note: `Unknown place "${place}"`, warn: true };
-        }
-        if (!st.v.held) {
-          if (st.v.grip > 0.5) push(0.3, { grip: 0 });
-          const c = { x: st.v.cx, y: st.v.cy };
-          moveTo(hover(c));
-          moveTo(grasp(c));
-          close();
-          moveTo(hover(c));
-        }
-        let res: { note: string; warn?: boolean };
-        if (place === 'handover') {
-          moveTo(handWrist);
-          res = open();
-        } else {
-          const s = SPOT[place];
-          moveTo(hover(s));
-          moveTo(grasp(s));
-          res = open();
-          moveTo(hover(s));
-        }
-        const known = /cube|red|block/i.test(object);
-        return known
-          ? { note: `Picks the ${object}. ${res.note}` }
-          : { note: `Preview only has the red cube; showing it in place of "${object}"`, warn: true };
-      }
-      case 'check': {
-        const expect = str(a.expect).toLowerCase();
-        push(0.35, { scan: 1 });
-        hold(0.6);
-        push(0.35, { scan: 0 });
-        const where = taken
-          ? 'with the person'
-          : st.v.held
-            ? 'in the gripper'
-            : inBox(st.v.cx)
-              ? 'in the box'
-              : 'on the table';
-        const want = /box/.test(expect)
-          ? 'in the box'
-          : /table/.test(expect)
-            ? 'on the table'
-            : /hand|person/.test(expect)
-              ? 'with the person'
-              : null;
-        if (!want) return { note: `Camera check: "${a.expect}"` };
-        return want === where
-          ? { note: `Camera check should pass: cube is ${where}` }
-          : { note: `Camera check would likely fail: cube is ${where}`, warn: true };
-      }
-      default:
-        hold(MIN_STEP);
-        return { note: `No animation for ${name}`, warn: true };
-    }
+  const statics = Object.values(run.world).map((o) => {
+    const e = env.find((x) => x.id === o.id);
+    const color = COLORS[String(e?.attributes?.color ?? '').toLowerCase()];
+    const container = o.category === 'container';
+    return {
+      id: o.id,
+      container,
+      w: Math.max(container ? 24 : 10, o.size * PX),
+      h: container ? 0.1 * PX : Math.max(10, o.size * PX),
+      color: color ?? (container ? '#b98a5a' : '#e5484d'),
+      label: o.name,
+    };
   });
 
   return {
     device: 'arm',
     duration: st.t,
-    steps,
+    steps: infos,
     grid: { xs: [], ys: [] },
     sample: (t) => {
       const [a, b, u] = locate(keys, t);
-      const q1 = lerp(a.v.q1, b.v.q1, u);
-      const q2 = lerp(a.v.q2, b.v.q2, u);
-      const pose = fk(q1, q2);
-      const held = !!a.v.held;
-      const cube = held
-        ? { x: pose.wrist.x, y: pose.wrist.y + ARM.jaw }
-        : { x: lerp(a.v.cx, b.v.cx, u), y: lerp(a.v.cy, b.v.cy, u) };
+      const wrist = { x: lerp(a.v.wx, b.v.wx, u), y: lerp(a.v.wy, b.v.wy, u) };
+      const q = ik(wrist);
+      const pose = fk(q.q1, q.q2);
       return {
         device: 'arm',
         t,
-        step: stepAt(steps, t),
+        step: stepAt(infos, t),
         ...pose,
         grip: lerp(a.v.grip, b.v.grip, u),
-        cube,
-        held,
         scan: lerp(a.v.scan, b.v.scan, u),
+        objects: statics.map((o) => {
+          const pa = a.v.objs[o.id];
+          const pb = b.v.objs[o.id] ?? pa;
+          return { ...o, x: lerp(pa.x, pb.x, u), y: lerp(pa.y, pb.y, u) };
+        }),
       };
     },
   };
-}
-
-function cubeAt(p: Pt) {
-  return { cx: p.x, cy: p.y };
 }
 
 // ---------- dog ----------
 
 type DogV = { x: number; y: number; h: number; len: number; wid: number; wave: number; scan: number };
 
-function buildDog(skill: PreviewSkill): Timeline {
+function buildDog(skill: DogSkill): Timeline {
   const { keys, st, push } = builder<DogV>({ x: 0, y: 0, h: 0, ...POSES.stand, scan: 0 });
   const poseAt: string[] = ['stand'];
   let pose = 'stand';
@@ -472,6 +420,19 @@ function stepAt(steps: StepInfo[], t: number) {
   return i === -1 ? steps.length : i;
 }
 
-export function buildTimeline(skill: PreviewSkill): Timeline {
-  return skill.device === 'dog' ? buildDog(skill) : buildArm(skill);
+// dog skills flatten to their primitive calls, in the names the dog sketch already understands
+function dogSteps(doc: SkillDoc): PreviewStep[] {
+  return doc.steps.flatMap((s) =>
+    isLookStep(s)
+      ? []
+      : (s.primitive_sequence ?? []).map((c) =>
+          c.primitive === 'WAIT'
+            ? { tool: 'wait', args: c.parameters ?? {} }
+            : { tool: `dog_${c.primitive.toLowerCase()}`, args: c.parameters ?? {} },
+        ),
+  );
+}
+
+export function buildTimeline(doc: SkillDoc): Timeline {
+  return deviceOf(doc) === 'dog' ? buildDog({ device: 'dog', steps: dogSteps(doc) }) : buildArm(doc);
 }

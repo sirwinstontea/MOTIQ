@@ -1,0 +1,25 @@
+# UR3e is a SEPARATE model configuration (smaller reach/payload, faster wrists).
+# It needs its own scene with targets inside its 500 mm reach.
+model: UR3e
+dof: 6
+backend: mock
+station_name: UR3e Controller Demo
+station_path: stations/UR3e_demo.rdk
+robot_library_file: stations/UR3e.robot   # download from https://robodk.com/robot/Universal-Robots/UR3e
+robot_item_name: UR3e
+base_frame: UR3e Base
+tool_frame: Gripper TCP
+gripper_kind: symbolic
+tcp_offset_m_rad: [0, 0, 0.12, 0, 0, 0]
+tool_mass_kg: 0.8
+limits:
+  source: "UR3e e-Series datasheet (payload 3 kg, reach 500 mm, base/shoulder/elbow 180 deg/s, wrists 360 deg/s, TCP 1 m/s); accel caps configured"
+  joint_min_rad: [-6.2832, -6.2832, -3.1416, -6.2832, -6.2832, -6.2832]
+  joint_max_rad: [ 6.2832,  6.2832,  3.1416,  6.2832,  6.2832,  6.2832]
+  max_joint_speed_rad_s: [3.1416, 3.1416, 3.1416, 6.2832, 6.2832, 6.2832]
+  max_joint_accel_rad_s2: 4.0
+  max_tcp_speed_m_s: 1.0
+  max_tcp_accel_m_s2: 2.0
+  max_payload_kg: 3.0
+  reach_m: 0.50
+capabilities: [named_targets, symbolic_gripper, path_check]

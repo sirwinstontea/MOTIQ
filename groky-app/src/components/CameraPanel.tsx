@@ -13,11 +13,13 @@ type Props = {
   busy: boolean;
   enabled: boolean;
   onToggle: (on: boolean) => void;
+  watching: boolean;
+  onWatch: (on: boolean) => void;
   height?: number;
 };
 
 const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
-  { onShow, busy, enabled, onToggle, height = 240 },
+  { onShow, busy, enabled, onToggle, watching, onWatch, height = 240 },
   ref,
 ) {
   const { c } = useTheme();
@@ -80,7 +82,7 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
               <CameraView ref={view} style={StyleSheet.absoluteFill} facing={facing} animateShutter={false} />
             )}
 
-            <Pill label={cam.label} tone="bad" dot style={s.live} />
+            <Pill label={watching ? `${cam.label} · Motion is watching` : cam.label} tone="bad" dot style={s.live} />
 
             {!cam.url && perm?.granted && (
               <IconButton
@@ -93,13 +95,27 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
             )}
           </View>
 
-          <Button
-            label={busy ? 'Motion is looking...' : 'Show Motion'}
-            icon="eye-outline"
-            loading={busy}
-            onPress={onShow}
-            block
-          />
+          <View style={s.actions}>
+            <View style={{ flex: 1 }}>
+              <Button
+                label={busy ? 'Motion is looking...' : 'Show Motion'}
+                icon="eye-outline"
+                loading={busy}
+                onPress={onShow}
+                block
+              />
+            </View>
+            <Pressable
+              onPress={() => onWatch(!watching)}
+              style={[s.watch, watching && { backgroundColor: c.accent, borderColor: c.accent }]}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: watching }}
+              accessibilityLabel="Live view: let Motion keep watching"
+            >
+              <Ionicons name={watching ? 'radio' : 'radio-outline'} size={16} color={watching ? c.accentInk : c.dim} />
+              <Text style={[s.watchText, { color: watching ? c.accentInk : c.dim }]}>Live</Text>
+            </Pressable>
+          </View>
         </>
       )}
     </View>
@@ -171,4 +187,15 @@ const makeStyles = (c: Colors) =>
     muted: { ...type.caption, fontSize: 12, color: c.faint },
     live: { position: 'absolute', top: 10, left: 10 },
     flip: { position: 'absolute', top: 8, right: 8 },
+    actions: { flexDirection: 'row', gap: 8, alignItems: 'stretch' },
+    watch: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 14,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: c.lineStrong,
+    },
+    watchText: { ...type.caption, fontSize: 13 },
   });

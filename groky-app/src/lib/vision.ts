@@ -13,7 +13,11 @@ function outputText(j: any): string {
 }
 
 // Ask Grok about a jpeg. Goes through our backend if VISION_URL is set, otherwise straight to xAI (dev).
-export async function look(jpegB64: string, question = 'What do you see?'): Promise<string> {
+export async function look(
+  jpegB64: string,
+  question = 'What do you see?',
+  detail: 'low' | 'high' = 'high',
+): Promise<string> {
   const body = {
     model: env.visionModel,
     store: false,
@@ -22,7 +26,7 @@ export async function look(jpegB64: string, question = 'What do you see?'): Prom
       {
         role: 'user',
         content: [
-          { type: 'input_image', image_url: `data:image/jpeg;base64,${jpegB64}`, detail: 'high' },
+          { type: 'input_image', image_url: `data:image/jpeg;base64,${jpegB64}`, detail },
           { type: 'input_text', text: question },
         ],
       },

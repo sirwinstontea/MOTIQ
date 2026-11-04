@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+config/robot.yaml
+config/scene.yaml
+config/safety.yaml
+stations/*.rdk
+runs/

@@ -110,6 +110,7 @@ export function useVoice({ onLevel, onAsked }: Options = {}) {
   const actions = useMemo(
     () => ({
       share: (source: string, answer: string, image?: string) => session.share(source, answer, image),
+      observe: (source: string, answer: string, image?: string) => session.observe(source, answer, image),
       setLooker: (fn: Looker | null) => session.setLooker(fn),
       setSkills: (runner: SkillRunner | null) => session.setSkills(runner),
       refreshTools: () => session.refreshTools(),

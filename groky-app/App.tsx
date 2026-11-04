@@ -23,6 +23,7 @@ import { useAlerts } from './src/hooks/useAlerts';
 import { useCamera } from './src/hooks/useCamera';
 import { DevicesProvider } from './src/hooks/useDevices';
 import { useHistory } from './src/hooks/useHistory';
+import { useKeyboardVisible } from './src/hooks/useKeyboard';
 import { NotifyProvider } from './src/hooks/useNotify';
 import { useSkills } from './src/hooks/useSkills';
 import { useVoice } from './src/hooks/useVoice';
@@ -69,6 +70,7 @@ function Main() {
   const s = useStyles(makeStyles);
   const { layout, wide } = useLayout();
   const mobile = layout === 'mobile';
+  const keyboard = useKeyboardVisible();
 
   const [level] = useState(() => new Animated.Value(0));
   const onLevel = useCallback((v: number) => level.setValue(v), [level]);
@@ -108,6 +110,8 @@ function Main() {
       busy={cam.looking}
       enabled={cam.enabled}
       onToggle={cam.setEnabled}
+      watching={cam.watching}
+      onWatch={cam.setWatching}
       height={height}
     />
   );
@@ -143,7 +147,7 @@ function Main() {
             )}
           </View>
 
-          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'web' ? undefined : 'padding'}>
             {tab === 'talk' && (
               <Talk voice={voice} level={level} wide={wide} mobile={mobile} camera={camera} stopButton={stopButton} />
             )}
@@ -165,7 +169,7 @@ function Main() {
         </View>
       </View>
 
-      {mobile && (
+      {mobile && !keyboard && (
         <BottomNav tab={tab} onTab={setTab} historyCount={history.items.length} skillRunning={skills.running} />
       )}
 
