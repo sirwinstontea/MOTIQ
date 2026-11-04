@@ -2,7 +2,7 @@ import { createContext, ReactNode, useContext, useEffect, useMemo, useState } fr
 import { TextStyle, useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Groky design system tokens. Dark is the primary theme.
+// MOTIQ design system tokens. Dark is the primary theme.
 const dark = {
   page: '#0b0c0d', // bg-000: camera viewports, deepest surface
   bg: '#131416', // bg-100: screen

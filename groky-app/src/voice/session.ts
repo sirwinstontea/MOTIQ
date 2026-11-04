@@ -36,6 +36,10 @@ export class VoiceSession {
     this.player.onDone = () => {
       if (this._status === 'speaking') this.set('listening');
     };
+    // audio starts while the reply is still streaming in; mic goes quiet from here so it can't hear itself
+    this.player.onStart = () => {
+      if (this._status === 'thinking' || this._status === 'listening') this.set('speaking');
+    };
   }
 
   setLooker(fn: Looker | null) {
@@ -69,13 +73,16 @@ export class VoiceSession {
     return this._status === 'listening' || this._status === 'thinking';
   }
 
+  // connects without touching the mic; useVoice starts the mic separately so typed chat works on its own
   async start() {
+    if (this.ws || this._status !== 'off') return; // already connected or connecting
     this.set('connecting');
     let token: string;
     try {
       token = await getToken();
     } catch (e: any) {
       this.error(e.message);
+      this.queue = [];
       this.set('off');
       return;
     }
@@ -140,7 +147,7 @@ export class VoiceSession {
 
   // "Show Grok" button: hand over what the camera saw and let it react
   share(source: string, answer: string, image?: string) {
-    this.trace({ kind: 'vision', title: `Showed Grok the ${source} camera`, detail: answer, image, ok: true });
+    this.trace({ kind: 'vision', title: `Showed Motion the ${source} camera`, detail: answer, image, ok: true });
     this.sendText(`[I'm showing you the ${source} camera. Vision says: ${answer}] Tell me what you think.`, false);
   }
 

@@ -4,9 +4,10 @@ import { Ionicons } from '@expo/vector-icons';
 import type { Line } from '../voice/types';
 import { Colors, radius, type, useStyles, useTheme } from '../theme';
 
-type Props = { lines: Line[]; canSend: boolean; onSend: (t: string) => void };
+// live = a Grok session is running; typing while it's off starts a text-only one
+type Props = { lines: Line[]; live: boolean; onSend: (t: string) => void };
 
-export default function Log({ lines, canSend, onSend }: Props) {
+export default function Log({ lines, live, onSend }: Props) {
   const { c } = useTheme();
   const s = useStyles(makeStyles);
   const [draft, setDraft] = useState('');
@@ -18,7 +19,7 @@ export default function Log({ lines, canSend, onSend }: Props) {
 
   const send = () => {
     const t = draft.trim();
-    if (!t || !canSend) return;
+    if (!t) return;
     onSend(t);
     setDraft('');
   };
@@ -38,7 +39,7 @@ export default function Log({ lines, canSend, onSend }: Props) {
         renderItem={({ item }) => <Row line={item} />}
         onContentSizeChange={() => list.current?.scrollToEnd({ animated: true })}
         contentContainerStyle={{ paddingVertical: 8, gap: 8 }}
-        ListEmptyComponent={<Text style={s.empty}>Nothing yet. Say hi.</Text>}
+        ListEmptyComponent={<Text style={s.empty}>Nothing yet. Say or type hi.</Text>}
       />
 
       <View style={s.input}>
@@ -46,15 +47,14 @@ export default function Log({ lines, canSend, onSend }: Props) {
           value={draft}
           onChangeText={setDraft}
           onSubmitEditing={send}
-          placeholder={canSend ? 'Type instead of talking' : 'Start a session first'}
+          placeholder={live ? 'Type instead of talking' : 'Type to chat with Motion'}
           placeholderTextColor={c.faint}
-          editable={canSend}
           style={s.field}
           returnKeyType="send"
         />
         <Pressable onPress={send} hitSlop={8}>
-          <View style={[s.send, { backgroundColor: draft.trim() && canSend ? c.accent : c.panelHi }]}>
-            <Ionicons name="arrow-up" size={16} color={draft.trim() && canSend ? c.accentInk : c.faint} />
+          <View style={[s.send, { backgroundColor: draft.trim() ? c.accent : c.panelHi }]}>
+            <Ionicons name="arrow-up" size={16} color={draft.trim() ? c.accentInk : c.faint} />
           </View>
         </Pressable>
       </View>

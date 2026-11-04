@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { DeviceId, devices } from '../devices';
 import { Field, fieldsFor, Skill, skillIcons, Step, validate, WAIT } from '../skills';
 import { Colors, fonts, radius, shadowFloat, type, useStyles, useTheme } from '../theme';
+import SkillPreview from './SkillPreview';
 import { Button, IconButton, Segmented } from './ui';
 
 type Props = {
@@ -45,6 +46,7 @@ export default function SkillEditor({ initial, defaultDevice, onClose, onSave }:
   const [icon, setIcon] = useState(initial?.icon ?? skillIcons[0]);
   const [steps, setSteps] = useState<Step[]>(initial?.steps ?? []);
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState(false);
 
   const tools = [...devices[device].tools.map((t) => `${device}_${t.name}`), WAIT];
 
@@ -112,7 +114,7 @@ export default function SkillEditor({ initial, defaultDevice, onClose, onSave }:
               <TextInput
                 value={description}
                 onChangeText={setDescription}
-                placeholder="What it does - Groky reads this to pick the right skill"
+                placeholder="What it does - Motion reads this to pick the right skill"
                 placeholderTextColor={c.faint}
                 style={[s.input, { height: 64, textAlignVertical: 'top', paddingTop: 10 }]}
                 multiline
@@ -183,6 +185,27 @@ export default function SkillEditor({ initial, defaultDevice, onClose, onSave }:
                   </Pressable>
                 ))}
               </View>
+
+              {steps.length > 0 && (
+                <>
+                  <Pressable onPress={() => setPreview((v) => !v)} style={s.previewHead}>
+                    <Text style={[s.label, { marginBottom: 0 }]}>Preview</Text>
+                    <Ionicons
+                      name={preview ? 'chevron-up' : 'chevron-down'}
+                      size={14}
+                      color={c.faint}
+                      style={{ marginTop: 20 }}
+                    />
+                  </Pressable>
+                  {preview ? (
+                    <View style={{ marginTop: 8 }}>
+                      <SkillPreview skill={{ device, steps }} />
+                    </View>
+                  ) : (
+                    <Text style={s.hint}>Watch a 2D animation of these steps before saving.</Text>
+                  )}
+                </>
+              )}
             </ScrollView>
 
             {error && <Text style={s.error}>{error}</Text>}
@@ -303,6 +326,7 @@ const makeStyles = (c: Colors) =>
       borderStyle: 'dashed',
     },
     addText: { fontFamily: fonts.mono, fontSize: 12, color: c.dim },
+    previewHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
     error: { ...type.caption, fontSize: 12, color: c.bad, marginTop: 8 },
     actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 16 },
   });
