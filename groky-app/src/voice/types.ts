@@ -23,4 +23,6 @@ export type Looker = (question: string) => Promise<{ ok: boolean; source: string
 export type SkillRunner = {
   list: () => { id: string; name: string; description: string }[];
   run: (id: string) => Promise<{ ok: boolean; [k: string]: unknown }>;
+  // change an existing saved skill in place (Grok rewrites it), never creates a new one
+  edit: (id: string, change: string) => Promise<{ ok: boolean; [k: string]: unknown }>;
 };

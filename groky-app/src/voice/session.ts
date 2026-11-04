@@ -3,7 +3,7 @@ import env, { SAMPLE_RATE } from '../lib/config';
 import { grokTools, runTool } from '../devices';
 import { fromBase64, toBase64 } from './pcm';
 import { Player } from './player';
-import { lookTool, PROMPT, skillTool } from './prompt';
+import { editSkillTool, lookTool, PROMPT, skillTool } from './prompt';
 import { getToken } from './token';
 import { isRobotTool } from '../skills/fromVoice';
 import type { VoiceCommand } from '../skills/fromVoice';
@@ -67,7 +67,12 @@ export class VoiceSession {
 
   private tools() {
     const list = this.skills?.list() ?? [];
-    return [...grokTools(), lookTool, ...this.visionTools, ...(list.length ? [skillTool(list)] : [])];
+    return [
+      ...grokTools(),
+      lookTool,
+      ...this.visionTools,
+      ...(list.length ? [skillTool(list), editSkillTool(list)] : []),
+    ];
   }
 
   // computer-vision server tools (../computer-vision/API_APP.md), prefixed vision_ so they can't clash with the
@@ -344,17 +349,31 @@ export class VoiceSession {
       const skill = this.skills?.list().find((s) => s.id === args.skill);
       const label = skill?.name ?? String(args.skill);
       this.trace({ id, kind: 'plan', title: `Running skill "${label}"`, detail: skill?.description });
+      // running a saved skill is not a new skill: nothing from this request gets saved
+      this.skipCommand();
       res = this.skills ? await this.skills.run(String(args.skill)) : { ok: false, error: 'skills unavailable' };
-      // a spoken request that ran a skill: tell the app (it saves a copy as a new skill)
-      if (res.ok && this.cmd && !this.cmd.skillId) {
-        this.cmd.skillId = String(args.skill);
-        this.onCommand?.({ ...this.cmd, calls: [...this.cmd.calls] });
-      }
       this.trace({
         id,
         kind: 'tool',
         title: `Skill "${label}" ${res.ok ? 'done' : 'failed'}`,
         detail: res.ok ? undefined : String(res.error ?? res.state ?? ''),
+        ok: res.ok,
+        ms: Date.now() - t0,
+      });
+    } else if (name === 'edit_skill') {
+      // the user is changing a saved skill: update that one in place, never save a new one from this request
+      this.skipCommand();
+      const skill = this.skills?.list().find((s) => s.id === args.skill);
+      const label = skill?.name ?? String(args.skill);
+      this.trace({ id, kind: 'plan', title: `Editing skill "${label}"`, detail: args.change });
+      res = this.skills
+        ? await this.skills.edit(String(args.skill), String(args.change ?? ''))
+        : { ok: false, error: 'skills unavailable' };
+      this.trace({
+        id,
+        kind: 'tool',
+        title: `Skill "${label}" ${res.ok ? 'updated' : 'not changed'}`,
+        detail: res.ok ? undefined : String(res.error ?? ''),
         ok: res.ok,
         ms: Date.now() - t0,
       });
@@ -373,7 +392,7 @@ export class VoiceSession {
       this.trace({ id, kind: 'tool', title: `Running ${pretty(name)}` });
       res = await runTool(name, args);
       // a spoken request that moved a robot: tell the app (it saves this as a skill)
-      if (res.ok && this.cmd && isRobotTool(name)) {
+      if (res.ok && this.cmd && !this.cmd.skip && isRobotTool(name)) {
         this.cmd.calls.push({ name, args });
         this.onCommand?.({ ...this.cmd, calls: [...this.cmd.calls] });
       }
@@ -390,6 +409,13 @@ export class VoiceSession {
 
     this.line({ id, kind: 'tool', name, args: raw, ok: res.ok, ms: Date.now() - t0, at: t0, speed: speedOf(res) });
     return { call_id, output: JSON.stringify(res) };
+  }
+
+  // this request is about a saved skill: tell the app to drop anything it saved from it so far, and save nothing more
+  private skipCommand() {
+    if (!this.cmd || this.cmd.skip) return;
+    this.cmd.skip = true;
+    this.onCommand?.({ ...this.cmd, calls: [] });
   }
 
   private async runLook(question: string) {

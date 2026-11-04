@@ -163,6 +163,39 @@ export function validateSkill(doc: SkillDoc): Validation {
   return { errors, warnings };
 }
 
+// ---------- duplicates ----------
+
+// key order doesn't matter: {a,b} and {b,a} are the same
+const stable = (v: unknown): string =>
+  Array.isArray(v)
+    ? `[${v.map(stable).join(',')}]`
+    : v && typeof v === 'object'
+      ? `{${Object.keys(v as object)
+          .sort()
+          .filter((k) => (v as any)[k] !== undefined)
+          .map((k) => `${JSON.stringify(k)}:${stable((v as any)[k])}`)
+          .join(',')}}`
+      : JSON.stringify(v);
+
+// What a skill makes the robot do (device + steps), ignoring names, wording, ids and review state.
+// Two skills with the same fingerprint are the same skill.
+export const contentSignature = (doc: SkillDoc) =>
+  stable({
+    device: deviceOf(doc),
+    steps: doc.steps.map((s) => ({
+      action: s.action,
+      target: s.target,
+      prims: (s.primitive_sequence ?? []).map((c) => ({ p: c.primitive, a: c.parameters ?? {} })),
+    })),
+  }).toLowerCase();
+
+// the other saved skill that does exactly the same thing, if any
+export const findDuplicate = (doc: SkillDoc, all: SkillDoc[]) => {
+  if (!doc.steps.length) return undefined;
+  const sig = contentSignature(doc);
+  return all.find((s) => s.skill.id !== doc.skill.id && contentSignature(s) === sig);
+};
+
 // ---------- building and importing ----------
 
 const now = () => new Date().toISOString().replace(/\.\d+Z$/, 'Z');

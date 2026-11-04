@@ -1,9 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { devices, stopDevice, ToolResult } from '../devices';
-import { approved, builtinSkills, deviceOf, fromV1, revoked, SkillDoc, touched } from '../skills';
-import { copyForVoice, isRobotTool, skillFromVoice, voiceSignature } from '../skills/fromVoice';
+import {
+  approved,
+  builtinSkills,
+  contentSignature,
+  deviceOf,
+  findDuplicate,
+  fromV1,
+  revoked,
+  SkillDoc,
+  touched,
+} from '../skills';
+import { skillFromVoice } from '../skills/fromVoice';
 import type { VoiceCommand } from '../skills/fromVoice';
+import { generateSkill } from '../skills/generate';
 import { nameSkill } from '../skills/nameSkill';
 import { Progress, runSkill, StepResult, Token } from '../skills/runner';
 import { useNotify } from './useNotify';
@@ -32,6 +43,18 @@ const REVIEWS_KEY = 'skill-reviews-v1';
 
 type Review = Pick<SkillDoc, 'review' | 'safety' | 'skill'>;
 
+// Older versions saved a new voice skill every time a saved skill was mentioned or run by voice. Drop those
+// automatic copies on load (voice-made skills that do exactly what an earlier skill does). Hand-made skills are
+// never removed.
+function dropVoiceCopies(saved: SkillDoc[]): SkillDoc[] {
+  const kept: SkillDoc[] = [...builtinSkills];
+  return saved.filter((s) => {
+    if (s.skill.source?.type === 'voice' && findDuplicate(s, kept)) return false;
+    kept.push(s);
+    return true;
+  });
+}
+
 export function useSkills() {
   const { notify } = useNotify();
   const [custom, setCustom] = useState<SkillDoc[]>([]);
@@ -44,7 +67,7 @@ export function useSkills() {
   useEffect(() => {
     Promise.all([SKILLS_KEY, OLD_SKILLS_KEY, STATS_KEY, REVIEWS_KEY].map((k) => AsyncStorage.getItem(k)))
       .then(([s, old, st, rv]) => {
-        if (s) setCustom(JSON.parse(s));
+        if (s) setCustom(dropVoiceCopies(JSON.parse(s)));
         else if (old) setCustom(JSON.parse(old).map(fromV1)); // one-time upgrade from the old flat format
         if (st) setStats(JSON.parse(st));
         if (rv) setReviews(JSON.parse(rv));
@@ -80,21 +103,33 @@ export function useSkills() {
 
   const find = useCallback((id: string) => skillsRef.current.find((s) => s.skill.id === id), []);
 
-  // a saved edit is a new revision and needs approving again
-  const save = useCallback((doc: SkillDoc) => {
-    const next = touched({ ...doc, app: { ...doc.app, builtin: false } });
-    setCustom((prev) =>
-      prev.some((s) => s.skill.id === doc.skill.id)
-        ? prev.map((s) => (s.skill.id === doc.skill.id ? next : s))
-        : [...prev, next],
-    );
-  }, []);
+  // A saved edit is a new revision and needs approving again. Only the skill document is stored, and never a
+  // second copy of a skill that already does the same thing: returns that skill instead (nothing saved).
+  const save = useCallback(
+    (doc: SkillDoc): SkillDoc | undefined => {
+      const before = skillsRef.current.find((s) => s.skill.id === doc.skill.id);
+      const dup = findDuplicate(doc, skillsRef.current);
+      // (renaming a skill that was already a copy is fine; making it a copy is not)
+      if (dup && (!before || contentSignature(before) !== contentSignature(doc))) {
+        notify({ kind: 'warn', title: 'Not saved: already in Skills', body: `"${dup.skill.name}" does exactly the same thing.` });
+        return dup;
+      }
+      const next = touched({ ...doc, app: { ...doc.app, builtin: false } });
+      setCustom((prev) =>
+        prev.some((s) => s.skill.id === doc.skill.id)
+          ? prev.map((s) => (s.skill.id === doc.skill.id ? next : s))
+          : [...prev, next],
+      );
+      return undefined;
+    },
+    [notify],
+  );
 
   const remove = useCallback((id: string) => setCustom((prev) => prev.filter((s) => s.skill.id !== id)), []);
 
   // A spoken request moved a robot: keep what ran as a skill in the Skills tab (tap it to run it again).
-  // Called again as more actions of the same request finish, so it updates one skill; an identical command already
-  // saved is not saved twice.
+  // Called again as more actions of the same request finish, so it updates one skill. Never saved: a request that
+  // ran or edited a saved skill (cmd.skip), or one that does exactly what a saved skill already does.
   // Grok-written names for voice skills, by skill id (kept across the updates of one request)
   const aiNames = useRef<Record<string, string>>({});
   const nameTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -113,27 +148,15 @@ export function useSkills() {
   const saveVoice = useCallback(
     (cmd: VoiceCommand) => {
       const id = `voice_${cmd.id}`;
-      if (cmd.skillId) {
-        // "run <skill>" by voice: save a copy as a new skill (same words for the same skill = one copy)
-        const src = skillsRef.current.find((s) => s.skill.id === cmd.skillId);
-        if (!src || skillsRef.current.some((s) => s.skill.id === id)) return;
-        const copy = copyForVoice(src, cmd, id);
-        if (skillsRef.current.some((s) => s.skill.source?.signature === copy.skill.source?.signature)) return;
-        setCustom((prev) => [...prev, copy]);
-        giveName(copy, cmd.text);
-        notify({ kind: 'ok', title: 'Saved to Skills', body: `"${copy.skill.name}": copied as a new skill`, silent: true });
-        return;
-      }
-      const sig = voiceSignature(cmd.calls.filter((c) => isRobotTool(c.name)));
-      const dup = skillsRef.current.some(
-        (s) => s.skill.id !== id && s.skill.source?.type === 'voice' && s.skill.source?.signature === sig,
-      );
-      if (dup) {
-        setCustom((prev) => prev.filter((s) => s.skill.id !== id)); // drop the partial one from this same request
-        return;
-      }
+      // drop the partial skill this same request may have saved already
+      const drop = () => {
+        clearTimeout(nameTimers.current[id]);
+        setCustom((prev) => prev.filter((s) => s.skill.id !== id));
+      };
+      if (cmd.skip) return drop();
       const doc = skillFromVoice(cmd, id);
       if (!doc) return;
+      if (findDuplicate(doc, skillsRef.current)) return drop();
       const isNew = !skillsRef.current.some((s) => s.skill.id === id);
       setCustom((prev) =>
         prev.some((s) => s.skill.id === id)
@@ -249,6 +272,46 @@ export function useSkills() {
     if (doc) await stopDevice(deviceOf(doc));
   }, [run, find]);
 
+  // The user asked (by voice) to change a saved skill: Grok rewrites that skill and it is saved over itself, same id.
+  // Never creates a new skill. Like any edit it needs approving again before it moves the real robot.
+  const edit = useCallback(
+    async (id: string, change: string): Promise<ToolResult> => {
+      const doc = find(id);
+      if (!doc) return { ok: false, error: `no skill called ${id}` };
+      if (doc.app?.builtin)
+        return { ok: false, error: `"${doc.skill.name}" is built-in and read-only: duplicate it in the Skills tab to change it` };
+      if (!change.trim()) return { ok: false, error: 'no change given' };
+      if (token.current) return { ok: false, error: 'a skill is running right now, change it after it finishes' };
+      try {
+        const out = await generateSkill(change, doc);
+        if (out.problems.length)
+          return { ok: false, error: `skill not changed, Grok's version has a problem: ${out.problems[0]}` };
+        const next: SkillDoc = { ...out.doc, skill: { ...out.doc.skill, id } };
+        if (contentSignature(next) === contentSignature(doc) && next.skill.name === doc.skill.name)
+          return { ok: true, changed: false, skill: doc.skill.name, note: 'the skill already does that, nothing changed' };
+        const dup = save(next);
+        if (dup) return { ok: false, error: `that would make it the same as the saved skill "${dup.skill.name}"` };
+        notify({
+          kind: 'ok',
+          title: `Updated "${next.skill.name}"`,
+          body: 'Changed by voice. Approve it again in the Skills tab before it runs on the real robot.',
+          silent: true,
+        });
+        return {
+          ok: true,
+          changed: true,
+          skill: next.skill.name,
+          steps: next.steps.map((s) => s.description),
+          uncertainties: next.interpretation?.uncertainties ?? [],
+          needs_approval: true,
+        };
+      } catch (e: any) {
+        return { ok: false, error: String(e?.message ?? e) };
+      }
+    },
+    [find, save, notify],
+  );
+
   // what Grok sees for run_skill
   const getSkills = useCallback(
     () =>
@@ -267,6 +330,7 @@ export function useSkills() {
     running: run?.state === 'running',
     save,
     saveVoice,
+    edit,
     remove,
     approve,
     revoke,

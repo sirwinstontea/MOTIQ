@@ -87,11 +87,11 @@ function Main() {
 
   // let Grok run skills by voice, and tell it when the list changes
   const { setSkills, refreshTools } = voice;
-  const { getSkills, start: startSkill } = skills;
+  const { getSkills, start: startSkill, edit: editSkill } = skills;
   useEffect(() => {
-    setSkills({ list: getSkills, run: (id) => startSkill(id, 'voice') });
+    setSkills({ list: getSkills, run: (id) => startSkill(id, 'voice'), edit: editSkill });
     return () => setSkills(null);
-  }, [setSkills, getSkills, startSkill]);
+  }, [setSkills, getSkills, startSkill, editSkill]);
   useEffect(() => {
     refreshTools();
   }, [skills.skills, refreshTools]);

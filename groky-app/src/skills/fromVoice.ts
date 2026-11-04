@@ -3,7 +3,7 @@
 // did. It lands in the Skills tab as a draft: tapping it runs it (simulated until an operator approves it for the
 // real robot, like every other skill).
 import type { Icon } from './index';
-import { deviceOf, makeSkill, normalizeSkill, touched, validateSkill } from './index';
+import { deviceOf, makeSkill, normalizeSkill, validateSkill } from './index';
 import template from './templates/pick_place_ur5e.json';
 import type { Device, EnvObject, PrimitiveCall, SkillDoc, SkillStep } from './schema';
 
@@ -11,8 +11,9 @@ export type VoiceCommand = {
   id: string;
   text: string;
   calls: { name: string; args: Record<string, any> }[];
-  // the request ran an existing saved skill (run_skill); it gets copied as a new skill
-  skillId?: string;
+  // the request ran or edited a saved skill (run_skill / edit_skill): it is about that skill, so nothing new is
+  // saved from it (and a partial skill saved earlier in the same request is dropped)
+  skip?: boolean;
 };
 
 const known = template.environment.objects as unknown as EnvObject[];
@@ -124,18 +125,6 @@ function armSteps(ctx: Ctx, name: string, a: Record<string, any>): Omit<SkillSte
 function dogSteps(name: string, a: Record<string, any>): Omit<SkillStep, 'id'>[] {
   return [{ action: 'SEQUENCE', description: name.replace(/_/g, ' '),
     primitive_sequence: [{ primitive: name.toUpperCase(), ...(Object.keys(a).length ? { parameters: a } : {}) }] }];
-}
-
-// A spoken "run <skill>": keep a copy as its own skill, named after what was said. Needs approving again.
-export function copyForVoice(src: SkillDoc, cmd: VoiceCommand, skillId: string): SkillDoc {
-  const text = cmd.text.trim();
-  const copy: SkillDoc = JSON.parse(JSON.stringify(src));
-  copy.skill.id = skillId;
-  copy.skill.name = text ? title(text) : `${src.skill.name} (voice)`;
-  copy.skill.source = { type: 'voice', prompt: text, signature: `skill:${src.skill.id}:${text.toLowerCase()}` };
-  copy.skill.created_at = new Date().toISOString();
-  copy.app = { ...copy.app, builtin: false };
-  return touched(copy);
 }
 
 // null when nothing reusable ran, or the result would not validate

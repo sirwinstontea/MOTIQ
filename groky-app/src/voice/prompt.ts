@@ -14,7 +14,12 @@ vision_list_objects and vision_describe_scene to see what's there, vision_select
 when they point at something ("the red one on the left"). If its result is ambiguous, ask its question. The object
 number it returns can be passed to arm_pick_and_place as the object. After a move, vision_verify_last_action checks it.
 Check your work with arm_verify after moving something. If a tool fails, say so honestly and offer to retry.
-When a request matches a saved skill, prefer run_skill over calling the steps yourself.
+When a request matches a saved skill, prefer run_skill over calling the steps yourself. Saved skills are already
+saved: running one, naming one or talking about one never saves it again.
+If the user wants to CHANGE a saved skill (rename it, add or remove a step, use another object or place, make it
+slower, "in the pick skill, put it in the green box instead", "edit/update/fix skill X"), call edit_skill with that
+skill and their change in their own words. Don't move the robot to act it out and don't make a new skill. If it's
+not clear which skill they mean, ask. If edit_skill refuses (built-in skill, or Grok's change has problems), say why.
 If someone says stop, call stop first, talk after.
 Answer in the language the user speaks.
 
@@ -72,5 +77,22 @@ export const skillTool = (skills: { id: string; name: string; description: strin
     type: 'object',
     properties: { skill: { type: 'string', enum: skills.map((s) => s.id) } },
     required: ['skill'],
+  },
+});
+
+export const editSkillTool = (skills: { id: string; name: string; description: string }[]) => ({
+  type: 'function',
+  name: 'edit_skill',
+  description:
+    'Change an existing saved skill in place (same skill, updated steps; it needs approving again). Use when the ' +
+    'user asks to modify, rename or fix a saved skill. Does not run it. Skills: ' +
+    skills.map((s) => `${s.id} = ${s.name}`).join('; '),
+  parameters: {
+    type: 'object',
+    properties: {
+      skill: { type: 'string', enum: skills.map((s) => s.id) },
+      change: { type: 'string', description: "The change, in the user's words, e.g. \"use the green box instead\"" },
+    },
+    required: ['skill', 'change'],
   },
 });

@@ -345,7 +345,13 @@ function build(d: Draft, prompt: string, id: string, keep?: SkillDoc): SkillDoc 
     human_review_required: true,
     uncertainties: d.uncertainties ?? [],
   };
-  if (keep) doc.skill.created_at = keep.skill.created_at;
+  if (keep?.steps.length) {
+    // an edit of an existing skill: same skill, same origin. The change request ("make it slower") is not what the
+    // skill does, so the instruction becomes Grok's updated description instead.
+    doc.skill.created_at = keep.skill.created_at;
+    if (keep.skill.source) doc.skill.source = keep.skill.source;
+    doc.intent.natural_language_instruction = d.description || keep.intent.natural_language_instruction;
+  } else if (keep) doc.skill.created_at = keep.skill.created_at;
   return doc;
 }
 
