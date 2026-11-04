@@ -2,7 +2,7 @@ import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
-import { Camera, camHeaders, cameras, frameUrl, snapshot } from '../lib/cameras';
+import { Camera, cameras, frameUrl, headersFor, snapshot } from '../lib/cameras';
 import { Colors, radius, type, useStyles, useTheme } from '../theme';
 import { Button, IconButton, Pill, Segmented } from './ui';
 
@@ -38,7 +38,7 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
         if (!pic?.base64) throw new Error('could not take a picture');
         return { source: 'tablet', b64: pic.base64 };
       }
-      return { source: cam.label.toLowerCase(), b64: await snapshot(cam.url) };
+      return { source: cam.label.toLowerCase(), b64: await snapshot(cam.url, cam.open) };
     },
   }));
 
@@ -72,7 +72,7 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
         <>
           <View style={[s.feed, { height }]}>
             {cam.url ? (
-              <Snapshots key={cam.url} url={cam.url} />
+              <Snapshots key={cam.url} url={cam.url} open={cam.open} />
             ) : !perm ? null : !perm.granted ? (
               <Pressable onPress={requestPerm} style={s.center}>
                 <Ionicons name="camera-outline" size={24} color={c.faint} />
@@ -125,7 +125,8 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
 export default CameraPanel;
 
 // Polls a jpeg url. Two stacked images so the old frame stays up until the new one has loaded (no flicker).
-function Snapshots({ url }: { url: string }) {
+function Snapshots({ url, open }: { url: string; open?: boolean }) {
+  const camHeaders = headersFor({ open });
   const s = useStyles(makeStyles);
   const { c } = useTheme();
   const [n, setN] = useState(0);

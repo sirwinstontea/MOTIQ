@@ -11,6 +11,8 @@ const env = {
   visionUrl: process.env.EXPO_PUBLIC_VISION_URL ?? '',
   // computer-vision server (../computer-vision/API_APP.md), used by DETECT for measured object positions
   visionServer: (process.env.EXPO_PUBLIC_VISION_SERVER ?? '').replace(/\/$/, ''),
+  // which vision sources to list as cameras (the server publishes 'arm', and 'dog' if started with a dog camera)
+  visionSources: (process.env.EXPO_PUBLIC_VISION_SOURCES || 'arm') as string,
   // "Name=url,Name=url" - any url that returns a jpeg (bridge /camera.jpg, IP Webcam /shot.jpg, ...)
   cameras: process.env.EXPO_PUBLIC_CAMERAS ?? '',
 };
