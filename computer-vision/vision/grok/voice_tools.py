@@ -20,10 +20,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .handoff import send_selection
 from .local_resolver import display
 from .marks import draw_marks
 from .schemas import Detections, parse_objects
 from .tasks import describe_scene, select, verify_action
+
+SELECTION_PATH = Path("logs/selection.json")  # lo stesso file del demo, letto dal braccio
 
 _SOURCE = {"type": "string", "enum": ["arm", "dog"],
            "description": "Telecamera da usare: arm = braccio robotico, dog = cane robot."}
@@ -119,8 +122,10 @@ def _select_object(source: str, description: str, state: VisionState) -> dict:
         return out | {"ok": False, "id": None, "say": f"Non lo trovo. {res.reason}".strip()}
     ctx.update(last_selected_id=res.target_id, last_question=None)
     obj = next(o for o in parse_objects(objects) if o.id == res.target_id)
+    # come il click nel demo: la scelta va al braccio (formato in handoff.py)
+    sent = send_selection(SELECTION_PATH, obj.model_dump(), description, res.action, res.destination_id, source)
     return out | {"ok": True, "id": res.target_id, "destination_id": res.destination_id, "action": res.action,
-                  "say": f"Ho selezionato {display(obj)}."}
+                  "sent_to_robot": sent is not None, "say": f"Ho selezionato {display(obj)}."}
 
 
 def _describe_scene(source: str, state: VisionState) -> dict:

@@ -44,7 +44,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from vision.eyes.capture.realsense import RealSenseError, list_devices
+from vision.eyes.capture.realsense import default_camera
 from vision.eyes.depth import CLASS_PRIORS_CM, estimate_distance_m, format_distance
 from vision.eyes.marks import draw_marks
 from vision.eyes.pipeline import EyePipeline
@@ -101,22 +101,6 @@ def detect_cameras(max_devices: int = 8) -> list[int]:
                 available.append(idx)
             cap.release()
     return sorted(available, key=lambda i: i == 0)  # la 0 in fondo, le altre nel loro ordine
-
-
-def default_camera(cam: int = 0) -> tuple[str, int | None, str, str]:
-    """La RealSense collegata via USB-C (colore + profondità) se c'è, se no la webcam del PC (indice `cam`).
-    La RealSense si cerca con pyrealsense2 e non per indice OpenCV: su Windows l'ordine degli indici cambia
-    e la D435 ne occupa più di uno (RGB, profondità)."""
-    try:
-        devices = list_devices()
-    except RealSenseError as exc:  # pyrealsense2 non installato
-        print(f"[Cam] {exc}")
-        devices = []
-    if devices:
-        print(f"[Cam] Trovata {devices[0]['name']} (USB {devices[0]['usb']})")
-        return ("arm", None, "realsense", "ARM [RealSense USB-C]")
-    print(f"[Cam] Nessuna RealSense collegata: uso la webcam del PC (Dev {cam})")
-    return ("arm", cam, "webcam", f"ARM [Webcam PC, Dev {cam}]")
 
 
 def get_grid_cell(x: int, y: int, w: int, h: int, n: int) -> tuple[int, float, float]:
@@ -356,7 +340,9 @@ def main() -> None:
             m = "webcam" if isinstance(t, int) else "stream"
             cam_targets.append(("dog", t, m, f"DOG [{f'Dev {t}' if m == 'webcam' else 'Stream'}]"))
     else:
-        cam_targets = [default_camera(args.cam)]
+        mode, target = default_camera(args.cam)
+        lbl = "ARM [RealSense USB-C]" if mode == "realsense" else f"ARM [Webcam PC, Dev {target}]"
+        cam_targets = [("arm", target, mode, lbl)]
 
     print(f"\n[Cam] {len(cam_targets)} telecamere pronte:")
     for sname, t, m, lbl in cam_targets:
