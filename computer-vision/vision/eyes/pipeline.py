@@ -29,7 +29,8 @@ from .marks.som import draw_marks
 from .schemas import EyeObject, FramePayload
 from .segmentation import MaskCache, TableBackground, attach_masks
 from .state.vision_state import LiveVisionState
-from .tracking.tracker import ObjectTracker
+from .tracking.tracker import ObjectTracker, compute_iou
+from ..grok.changes import draw_changes
 from .zoom.manager import DigitalZoomManager
 
 # `realsense`: colore + profondità allineati (D415/D435); `target` è il seriale, oppure 0/None = la prima
@@ -69,6 +70,12 @@ class SourceNode:
     robot_pose_fn: Callable[[], TcpReading | None] | None = None  # posa del braccio per la calibrazione dall'app (RTDE)
     camera_name: str = ""
     _bg_frame_id: int = -1
+    open_vocab: Any = None
+    grok_objects: list[dict] = field(default_factory=list)
+    label_meta: dict[str, dict] = field(default_factory=dict)
+    meta: dict[int, dict] = field(default_factory=dict)
+    ref_frame: np.ndarray | None = None
+    changes: list[dict] = field(default_factory=list)
 
     def to_base(self, objects: Sequence[EyeObject | dict], frame_ts: float) -> list[EyeObject | dict]:
         """Aggiunge `xyz_base_m` / `yaw_base_deg` agli oggetti con `xyz_cam_m`, solo se il robot era fermo durante il
@@ -201,6 +208,17 @@ class EyePipeline:
         elif calibrator is None and source == "arm" and hand_eye is None:
             calibrator = ArmCalibrator()
 
+        open_vocab = None
+        if source == "arm":
+            try:
+                import os
+                from ..grok.open_vocab import DESK_CLASSES, OpenVocab
+                world_conf = float(os.getenv("WORLD_CONF", "0.2"))
+                open_vocab = OpenVocab(conf=world_conf, base=DESK_CLASSES)
+                print(f"[Pipeline] YOLO-World (OpenVocab) inizializzato per '{source}' con {len(DESK_CLASSES)} classi base.")
+            except Exception as exc:
+                print(f"[Pipeline] Avviso: OpenVocab non disponibile per '{source}': {exc}")
+
         calib_fn = calibrator.compute_object_coords if (calibrator and source == "arm") else None
         tracker = ObjectTracker(
             model_name=model_name,
@@ -234,6 +252,7 @@ class EyePipeline:
             tcp_fn=tcp_fn,
             calibration_id=calibration_id,
             camera_name=getattr(reader, "device_name", "") or str(mode),
+            open_vocab=open_vocab,
         )
         self.nodes[source] = node
         return node
@@ -266,6 +285,47 @@ class EyePipeline:
 
         apply_calib = bool(node.calibrator and node.calibrator.is_calibrated and source == "arm")
         objects = node.tracker.process_frame(frame, apply_calibration=apply_calib)
+
+        # Integrazione YOLO-World & Grok
+        if node.open_vocab is not None:
+            node.open_vocab.feed(frame)
+            live = [dict(o) for o in node.open_vocab.objects]
+            seen = {o["label"] for o in live}
+            if seen and node.grok_objects:
+                node.grok_objects = [o for o in node.grok_objects if o.get("label") not in seen]
+            for o in live:
+                o.update(node.label_meta.get(o["label"], {}))
+            core_boxes = [o.bbox for o in objects]
+            live = [o for o in live if not any(compute_iou(o["bbox"], b) > 0.45 for b in core_boxes)]
+            for o in live:
+                eye_obj = EyeObject(
+                    id=o["id"],
+                    label=o["label"],
+                    name=o.get("name"),
+                    conf=float(o.get("conf", 0.5)),
+                    bbox=tuple(o["bbox"]),
+                    color=o.get("color"),
+                )
+                objects.append(eye_obj)
+
+        if node.grok_objects:
+            for g in node.grok_objects:
+                eye_obj = EyeObject(
+                    id=g["id"],
+                    label=g["label"],
+                    name=g.get("name"),
+                    conf=float(g.get("conf", 0.9)),
+                    bbox=tuple(g["bbox"]),
+                    color=g.get("color"),
+                )
+                objects.append(eye_obj)
+
+        for o in objects:
+            if o.id in node.meta:
+                for k, v in node.meta[o.id].items():
+                    if hasattr(o, k):
+                        setattr(o, k, v)
+
         if node.recording_bg:
             node._feed_background(frame, depth, frame_id)
         objects = node.attach(objects, frame)
@@ -288,6 +348,8 @@ class EyePipeline:
             show_conf=show_conf,
             show_masks=show_masks,
         )
+        if node.changes:
+            marked = draw_changes(marked, node.changes)
 
         if apply_zoom and node.zoom is not None and node.zoom.is_active():
             node.zoom.update_with_tracked_objects(objects)
