@@ -27,8 +27,8 @@ import numpy as np
 
 from .calibration.aruco_calib import ArmCalibrator, load_marker_coords, render_aruco_workspace
 from .calibration.hand_eye import (
-    ControllerTcp, HandEye, board_pose, board_spread_mm, calibrate, calibrate_fixed, camera_matrix, parse_pose_mm,
-    table_footprint, table_height_error_mm,
+    ControllerTcp, HandEye, RtdeTcp, board_pose, solve_and_save, board_spread_mm, calibrate, calibrate_fixed, camera_matrix, parse_pose_mm,
+    markers_still_on_sheet, table_footprint, table_height_error_mm,
 )
 from .capture.reader import generate_sample_video
 from .capture.realsense import default_camera
@@ -229,6 +229,14 @@ def _cmd_robodk_check(args: argparse.Namespace) -> int:
 def _cmd_calibrate_look_pose(args: argparse.Namespace) -> int:
     """Posa fissa: una foto del foglio ArUco (centri misurati nel base) dalla posa di osservazione -> T_base_cam."""
     markers = load_marker_coords(args.markers)
+    if markers_still_on_sheet(markers):
+        print(f"[ERRORE] {args.markers} contiene ancora le posizioni dei marker SUL FOGLIO, non nel frame Base del robot.\n"
+              "Toccate il centro di ogni marker con il TCP (pendant, riferimento Base) e scrivete X, Y in mm:\n"
+              '  {"0": [x, y], "1": [x, y], "2": [x, y], "3": [x, y]}')
+        return 1
+    if args.table_z_mm is None:  # scritta da calibrate-hand-eye insieme ai centri dei marker, se c'è
+        args.table_z_mm = float(json.loads(Path(args.markers).read_text(encoding="utf-8")).get("_table_z_mm") or 0.0)
+        print(f"Quota del tavolo da {args.markers}: {args.table_z_mm:.1f} mm")
     table_z = args.table_z_mm / 1000.0
     node = _arm_camera(args)
     node.reader.start_background()
@@ -302,6 +310,11 @@ def _cmd_calibrate_hand_eye(args: argparse.Namespace) -> int:
     elif args.tcp == "robodk":
         from .capture.robodk import RoboDKFlange
         tcp_fn = RoboDKFlange(args.robodk_robot or None)
+    elif args.tcp == "rtde":
+        if not args.robot_ip:
+            print("Con --tcp rtde serve --robot-ip (l'IP dell'UR, lo trovate sul pendant: Impostazioni > Rete)")
+            return 1
+        tcp_fn = RtdeTcp(args.robot_ip)
     else:
         tcp_fn = ControllerTcp(args.controller, timeout_s=1.0, backoff_s=0.0)
     node = _arm_camera(args)
@@ -356,21 +369,16 @@ def _cmd_calibrate_hand_eye(args: argparse.Namespace) -> int:
 
     if len(poses) < 8:
         print(f"Attenzione: solo {len(poses)} campioni, il risultato può essere instabile")
-    T = calibrate(poses, boards, args.method)
-    spread = board_spread_mm(poses, boards, T)
-    extra, diff_mm = {}, 0.0
-    if hasattr(cv2, "calibrateHandEye"):  # secondo metodo come controllo, se questa OpenCV ce l'ha
-        other = "tsai" if args.method != "tsai" else "horaud"
-        diff_mm = float(np.linalg.norm(T[:3, 3] - calibrate(poses, boards, other)[:3, 3]) * 1000.0)
-        extra = {f"diff_vs_{other}_mm": round(diff_mm, 2)}
-        print(f"{args.method} vs {other}: {diff_mm:.1f} mm")
-    he = HandEye(T_tool_cam=T, method=args.method, n_samples=len(poses), spread_mm=round(spread, 2),
-                 tcp_source=args.tcp, image_size=(intr.width, intr.height), extra=extra)
-    print(f"T_tool_cam (camera nel TCP), traslazione {[round(v * 1000, 1) for v in T[:3, 3]]} mm")
-    print(f"Dispersione del foglio nel frame base: {spread:.1f} mm (bene se < 5)")
-    if spread > 5 or diff_mm > 5:
+    res = solve_and_save(poses, boards, intr, args.tcp, args.output, args.markers_out or None, args.method)
+    print(f"Camera nel TCP: {res['camera_in_tool_mm']} mm")
+    print(f"Dispersione del foglio nel frame base: {res['spread_mm']:.1f} mm (bene se < 5)")
+    if not res["reliable"]:
         print("Risultato poco affidabile: più pose, rotazioni più ampie, foglio ben piatto e fermo")
-    print(f"Salvata in: {he.save(args.output)}")
+    print(f"Salvata in: {res['hand_eye_file']}")
+    if "markers_file" in res:  # il foglio non si è mosso: i suoi marker nel base escono dalla hand-eye, senza toccarli
+        print(f"Centri dei marker nel base scritti in {res['markers_file']}: {res['markers_base_mm']}, "
+              f"quota del foglio {res['table_z_mm']:.1f} mm")
+        print("Adesso, SENZA spostare il foglio: braccio nella posa di osservazione, poi calibra_braccio.bat")
     return 0
 
 
@@ -379,7 +387,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     mode, arm_target = args.mode, (args.file if args.mode == "replay" else args.device)
     if mode == "auto":  # RealSense USB-C se c'è, se no la webcam del PC
         mode, arm_target = default_camera(int(args.device) if str(args.device).isdigit() else 0)
-    pipeline.add_source(
+    arm = pipeline.add_source(
         source="arm",
         mode=mode,
         target=arm_target,
@@ -393,6 +401,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
         color_labels=_color_labels(args.color_labels),
         robodk_options=_robodk_options(args) if mode == "robodk" or args.robot_pose == "robodk" else None,
     )
+    if args.robot_ip:  # sola lettura della posa: serve alla calibrazione dall'app (skill), non muove mai il robot
+        arm.robot_pose_fn = RtdeTcp(args.robot_ip)
     if args.dog_target:  # solo se richiesto: una seconda sorgente sulla stessa camera la aprirebbe due volte
         dog_mode = mode if mode in ("replay", "synthetic") else ("webcam" if args.dog_target.isdigit() else "stream")
         pipeline.add_source(
@@ -475,6 +485,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="robot_controller da cui leggere la posa TCP (GET /robot/state, sola lettura)")
     p_run.add_argument("--look-pose", default=None,
                        help="Posa TCP fissa dal pendant 'x,y,z,rx,ry,rz' (mm, rad) al posto del controller")
+    p_run.add_argument("--robot-ip", default=None,
+                       help="IP dell'UR: la posa si legge via RTDE (sola lettura) per calibrare dall'app")
     p_run.add_argument("--robot-pose", default="controller", choices=["controller", "robodk"],
                        help="Con la hand-eye: posa da robot_controller o della flangia da RoboDK (sola lettura)")
     p_run.add_argument("--color-labels", default=None,
@@ -488,7 +500,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_lp.add_argument("--device", default=None, help="Seriale della RealSense (vuoto = la prima)")
     p_lp.add_argument("--markers", default="data/calibration/markers_mm.json",
                       help="Centri dei marker 0-3 in mm nel frame BASE del robot (misurati col TCP)")
-    p_lp.add_argument("--table-z-mm", type=float, default=0.0, help="Quota del piano del tavolo nel frame base, mm")
+    p_lp.add_argument("--table-z-mm", type=float, default=None,
+                      help="Quota del piano del tavolo nel frame base, mm (default: _table_z_mm del file dei marker, o 0)")
     p_lp.add_argument("--seconds", type=float, default=5.0)
     p_lp.add_argument("--check", action="store_true",
                       help="Non salva: confronta con la calibrazione salvata (braccio nella posa giusta?)")
@@ -500,13 +513,16 @@ def build_parser() -> argparse.ArgumentParser:
     # calibrate-hand-eye
     p_he = sub.add_parser("calibrate-hand-eye", help="Calibra la camera sul braccio (T_tool_cam) col foglio ArUco")
     p_he.add_argument("--device", default=None, help="Seriale della RealSense (vuoto = la prima)")
-    p_he.add_argument("--tcp", default="controller", choices=["controller", "manual", "robodk"],
+    p_he.add_argument("--tcp", default="controller", choices=["controller", "manual", "robodk", "rtde"],
                       help="Posa dal controller (GET /robot/state), scritta a mano dal pendant o flangia da RoboDK")
     p_he.add_argument("--camera", default="realsense", choices=["realsense", "robodk"])
     _add_robodk_args(p_he)
     p_he.add_argument("--controller", default="http://127.0.0.1:8765")
     p_he.add_argument("--method", default="park", choices=["park", "tsai", "horaud", "daniilidis"])
     p_he.add_argument("--output", default="data/calibration/hand_eye.json")
+    p_he.add_argument("--robot-ip", default=None, help="IP dell'UR per --tcp rtde")
+    p_he.add_argument("--markers-out", default="data/calibration/markers_mm.json",
+                      help="Dove scrivere i centri dei marker nel base calcolati ('' = non scriverli)")
     p_he.set_defaults(func=_cmd_calibrate_hand_eye)
 
     # robodk-check

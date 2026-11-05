@@ -140,6 +140,30 @@ class ControllerTcp:
                           age_ms=st.get("data_age_ms"))
 
 
+class RtdeTcp:
+    """Posa TCP direttamente dall'UR via RTDE, **sola lettura** (`RTDEReceiveInterface`: non può muovere il robot).
+    Serve `pip install ur_rtde` e l'IP del robot raggiungibile in rete. La posa è quella del TCP attivo sul pendant:
+    va bene qualunque TCP, purché sia lo stesso per tutta la calibrazione."""
+
+    def __init__(self, robot_ip: str):
+        try:
+            import rtde_receive  # type: ignore
+        except ImportError as exc:  # pragma: no cover - dipende dall'ambiente
+            raise RuntimeError("manca ur_rtde: .venv\\Scripts\\python.exe -m pip install ur_rtde") from exc
+        self.rtde = rtde_receive.RTDEReceiveInterface(robot_ip)
+        self.last_error: str | None = None
+
+    def __call__(self) -> TcpReading | None:
+        try:
+            pose = tuple(float(v) for v in self.rtde.getActualTCPPose())
+            speed = float(np.linalg.norm(self.rtde.getActualTCPSpeed()[:3]))
+        except Exception as exc:  # noqa: BLE001 - connessione persa
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            return None
+        self.last_error = None
+        return TcpReading(pose=pose, t=time.time(), moving=speed > 0.001)
+
+
 class FixedTcp:
     """Posa TCP fissa (letta sul pendant): per provare dalla look pose senza un controller collegato al robot."""
 
@@ -242,6 +266,24 @@ def board_spread_mm(tcp_poses: Sequence[Sequence[float]], T_cam_boards: Sequence
     return float(np.sqrt(np.mean(np.sum((pts - pts.mean(axis=0)) ** 2, axis=1))) * 1000.0)
 
 
+def board_markers_in_base(tcp_poses: Sequence[Sequence[float]], T_cam_boards: Sequence[np.ndarray],
+                          T_tool_cam: np.ndarray) -> tuple[dict[int, tuple[float, float]], float]:
+    """Centri dei marker nel frame base (mm) e quota del foglio (mm), ricavati dalla hand-eye: niente da toccare col TCP.
+
+    Per ogni campione `T_base_tool · T_tool_cam · T_cam_board` porta il centro di ogni marker (sul foglio) nel base;
+    si fa la media su tutti i campioni. È proprio quello che `calibrate-look-pose` vuole in `markers_mm.json`.
+    """
+    centers = {}
+    zs = []
+    for m_id, (sx, sy) in _sheet_centers_m().items():
+        p = np.array([sx, sy, 0.0, 1.0])
+        pts = np.array([(pose_to_T(q) @ T_tool_cam @ Tb @ p)[:3] for q, Tb in zip(tcp_poses, T_cam_boards)])
+        c = pts.mean(axis=0) * 1000.0
+        centers[m_id] = (round(float(c[0]), 2), round(float(c[1]), 2))
+        zs.append(float(c[2]))
+    return centers, round(float(np.mean(zs)), 2)
+
+
 @dataclass
 class HandEye:
     T_tool_cam: np.ndarray
@@ -301,6 +343,15 @@ FIXED_POSE = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)  # posa identità: con tcp_source="f
 def _sheet_centers_m() -> dict[int, tuple[float, float]]:
     h = BOARD_SIDE_M / 2.0
     return {m: (x + h, y + h) for m, (x, y) in BOARD_TOPLEFT_M.items()}
+
+
+def markers_still_on_sheet(markers_mm: dict[int, Sequence[float]], tol_mm: float = 2.0) -> bool:
+    """Vero se i "centri nel base" sono in realtà le posizioni sul foglio stampato (es. il markers_mm.json di default):
+    la calibrazione riuscirebbe lo stesso ma con coordinate sbagliate."""
+    sheet = _sheet_centers_m()
+    common = [m for m in markers_mm if m in sheet]
+    return bool(common) and all(
+        math.hypot(markers_mm[m][0] - sheet[m][0] * 1000, markers_mm[m][1] - sheet[m][1] * 1000) < tol_mm for m in common)
 
 
 def board_corners_in_base(markers_base_mm: dict[int, Sequence[float]], table_z_m: float) -> dict[int, np.ndarray]:
@@ -382,6 +433,66 @@ def table_height_error_mm(depth_mm: np.ndarray, intrinsics: Any, T_base_cam: np.
                            z, np.ones_like(z)])
     zb = (T_base_cam @ pts.T)[2]
     return float((np.median(zb) - table_z_m) * 1000.0)
+
+
+# --- salvataggi comuni a CLI e server (skill di calibrazione dall'app) -------------------------------------------
+
+def solve_and_save(poses: Sequence[Sequence[float]], boards: Sequence[np.ndarray], intrinsics: Any,
+                   tcp_source: str, out_hand_eye: str | Path, out_markers: str | Path | None,
+                   method: str = "park") -> dict:
+    """Hand-eye dai campioni -> `hand_eye.json` e (se `out_markers`) i centri dei marker nel base in `markers_mm.json`,
+    senza toccare il foglio. Restituisce un riassunto con la dispersione (mm): bene se < 5."""
+    T = calibrate(poses, boards, method)
+    spread = board_spread_mm(poses, boards, T)
+    he = HandEye(T_tool_cam=T, method=method, n_samples=len(poses), spread_mm=round(spread, 2), tcp_source=tcp_source,
+                 image_size=(intrinsics.width, intrinsics.height) if intrinsics is not None else None)
+    he.save(out_hand_eye)
+    out = {"ok": True, "n": len(poses), "spread_mm": round(spread, 2), "reliable": spread < 5.0,
+           "camera_in_tool_mm": [round(float(v) * 1000, 1) for v in T[:3, 3]], "hand_eye_file": str(out_hand_eye)}
+    if out_markers:
+        centers, z_mm = board_markers_in_base(poses, boards, T)
+        p = Path(out_markers)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps({
+            "_nota": "Centri dei marker ArUco 0-3 nel frame Base del robot (mm), calcolati dalla calibrazione hand-eye "
+                     f"({len(poses)} pose, dispersione {spread:.1f} mm), senza toccare il foglio. Valgono finché il "
+                     "foglio resta dov'era.",
+            "_table_z_mm": z_mm,
+            **{str(k): list(v) for k, v in sorted(centers.items())},
+        }, indent=2), encoding="utf-8")
+        out.update(markers_file=str(p), markers_base_mm=centers, table_z_mm=z_mm)
+    return out
+
+
+def look_pose_and_save(frames: Sequence[tuple[np.ndarray, np.ndarray | None]], intrinsics: Any,
+                       markers_mm: dict[int, Sequence[float]], table_z_m: float, out: str | Path) -> dict:
+    """Calibrazione a posa fissa dai frame (colore, profondità) presi nella posa di osservazione: tiene il frame con la
+    riproiezione migliore, controlla il tavolo con la profondità e salva `fixed_pose.json`."""
+    if markers_still_on_sheet(markers_mm):
+        return {"ok": False, "reason": "markers_mm.json ha ancora le posizioni sul foglio: prima la hand-eye "
+                                       "(calibration/solve) o i centri misurati nel frame Base"}
+    best = None
+    for color, depth in frames:
+        r = calibrate_fixed(color, intrinsics, markers_mm, table_z_m)
+        if r is not None and (best is None or r[2] < best[0][2]):
+            best = (r, depth)
+    if best is None:
+        return {"ok": False, "reason": "foglio non visto: servono almeno 3 marker nell'inquadratura"}
+    (T, n, err), depth = best
+    table_mm = table_height_error_mm(depth, intrinsics, T, table_z_m)
+    fp = table_footprint(T, intrinsics, table_z_m)
+    good = err <= 2.0 and (table_mm is None or abs(table_mm) <= 10.0)
+    HandEye(T_tool_cam=T, method="fixed_pnp", n_samples=n, tcp_source="fixed",
+            image_size=(intrinsics.width, intrinsics.height),
+            extra={"table_z_m": table_z_m, "reproj_px": round(err, 2),
+                   "table_check_mm": round(table_mm, 1) if table_mm is not None else None,
+                   "markers_base_mm": {str(k): list(v) for k, v in markers_mm.items()}}).save(out)
+    return {"ok": good, "file": str(out), "markers_seen": n, "reproj_px": round(err, 2),
+            "table_check_mm": round(table_mm, 1) if table_mm is not None else None,
+            "camera_in_base_mm": [round(float(v) * 1000, 1) for v in T[:3, 3]],
+            "view_on_table_mm": None if fp is None else {"x": [round(float(fp[:, 0].min() * 1000)), round(float(fp[:, 0].max() * 1000))],
+                                                          "y": [round(float(fp[:, 1].min() * 1000)), round(float(fp[:, 1].max() * 1000))]},
+            "reason": None if good else "risultato poco affidabile: controllate markers_mm.json e la quota del tavolo"}
 
 
 # --- misura robusta su più frame (GET /locate) -------------------------------------------------------------------

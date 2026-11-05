@@ -66,6 +66,7 @@ class SourceNode:
     tcp_readings: deque = field(default_factory=lambda: deque(maxlen=10))
     robot_still: TcpReading | None = None  # posa del robot fermo durante l'ultimo frame, None se in moto o ignota
     calibration_id: str | None = None      # file di calibrazione + data, riportato da /locate
+    robot_pose_fn: Callable[[], TcpReading | None] | None = None  # posa del braccio per la calibrazione dall'app (RTDE)
     camera_name: str = ""
     _bg_frame_id: int = -1
 

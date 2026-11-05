@@ -181,3 +181,98 @@ def test_fixed_pose_file_drives_the_pipeline(tmp_path):
     bad = HandEye(T_tool_cam=np.eye(4)).save(tmp_path / "not_fixed.json")   # una hand-eye non è una posa fissa
     with pytest.raises(ValueError):
         EyePipeline().add_source("arm", mode="synthetic", use_mock_tracker=True, fixed_pose_file=bad)
+
+
+def test_hand_eye_gives_marker_centers_without_touching():
+    """Dalla hand-eye escono anche i centri dei marker nel base (markers_mm.json) e la quota del foglio."""
+    from vision.eyes.calibration.hand_eye import _sheet_centers_m, board_markers_in_base
+
+    rng = np.random.default_rng(1)
+    T_tool_cam = pose_to_T([0.04, -0.06, 0.03, 0.05, -0.08, 1.57])
+    T_base_board = pose_to_T([-0.60, 0.06, 0.012, 0, 0, 0.2]) @ pose_to_T([0, 0, 0, math.pi, 0, 0])  # piatto, z = 12 mm
+    poses, boards = [], []
+    for _ in range(12):
+        R = cv2.Rodrigues(np.array(DOWN))[0] @ cv2.Rodrigues(rng.uniform(-0.35, 0.35, 3))[0]
+        pose = [*rng.uniform([-0.6, -0.3, 0.35], [-0.4, 0.0, 0.5]), *cv2.Rodrigues(R)[0].ravel()]
+        poses.append(pose)
+        boards.append(np.linalg.inv(pose_to_T(pose) @ T_tool_cam) @ T_base_board)
+    T = calibrate(poses, boards)
+    centers, z_mm = board_markers_in_base(poses, boards, T)
+    for m, (sx, sy) in _sheet_centers_m().items():
+        exp = (T_base_board @ np.array([sx, sy, 0.0, 1.0]))[:2] * 1000
+        assert np.allclose(centers[m], exp, atol=1.0)                   # entro 1 mm
+    assert abs(z_mm - 12.0) < 1.0
+
+
+# --- calibrazione dall'app (skill): /calibration/arm/* ------------------------------------------------------------
+
+class _FakeReader:
+    """Camera finta con gli intrinseci e un frame fisso (colore, profondità)."""
+
+    def __init__(self, color, depth):
+        self.intrinsics, self.color, self.depth = INTR, color, depth
+
+    def read_once(self):
+        return True, self.color, 1, time.time()
+
+    def get_latest(self):
+        return True, self.color, 1, time.time()
+
+    def get_frames(self):
+        return True, self.color, self.depth, 1, time.time()
+
+
+def _app(reader):
+    from fastapi.testclient import TestClient
+
+    from vision.eyes.server.app import create_app
+    pipe = EyePipeline()
+    pipe.nodes["arm"] = SourceNode(source="arm", reader=reader, tracker=None)
+    return TestClient(create_app(pipe)), pipe.nodes["arm"]
+
+
+def test_app_calibration_endpoints_hand_eye_then_look_pose(tmp_path, monkeypatch):
+    import json
+
+    from vision.eyes.server import app as app_mod
+
+    # 1) campioni -> /solve: i centri dei marker nel base escono dalla hand-eye, senza toccare il foglio
+    rng = np.random.default_rng(2)
+    T_tool_cam = pose_to_T([0.04, -0.06, 0.03, 0.05, -0.08, 1.57])
+    T_base_board = pose_to_T([-0.60, 0.06, 0.012, 0, 0, 0.2]) @ pose_to_T([0, 0, 0, math.pi, 0, 0])
+    current = {}
+    monkeypatch.setattr(app_mod, "board_pose",
+                        lambda frame, intr: (np.linalg.inv(pose_to_T(current["pose"]) @ T_tool_cam) @ T_base_board, 4, 0.2))
+    client, node = _app(_FakeReader(np.zeros((480, 640, 3), np.uint8), None))
+    assert client.post("/calibration/arm/sample", json={}).json()["ok"] is False        # niente posa: non inventa
+    for _ in range(12):
+        R = cv2.Rodrigues(np.array(DOWN))[0] @ cv2.Rodrigues(rng.uniform(-0.35, 0.35, 3))[0]
+        current["pose"] = [*rng.uniform([-0.6, -0.3, 0.35], [-0.4, 0.0, 0.5]), *cv2.Rodrigues(R)[0].ravel()]
+        r = client.post("/calibration/arm/sample", json={"tcp_pose": current["pose"]}).json()
+        assert r["ok"], r
+    assert client.post("/calibration/arm/sample", json={"tcp_pose": current["pose"]}).json()["ok"] is False  # ferma
+    assert client.get("/calibration/arm").json()["n"] == 12
+    he_file, mk_file = tmp_path / "hand_eye.json", tmp_path / "markers_mm.json"
+    res = client.post(f"/calibration/arm/solve?hand_eye_file={he_file}&markers_file={mk_file}").json()
+    assert res["ok"] and res["spread_mm"] < 1.0, res
+    mk = json.loads(mk_file.read_text(encoding="utf-8"))
+    from vision.eyes.calibration.hand_eye import _sheet_centers_m
+    for m, (sx, sy) in _sheet_centers_m().items():
+        assert np.allclose(mk[str(m)], (T_base_board @ np.array([sx, sy, 0.0, 1.0]))[:2] * 1000, atol=1.0)
+    assert abs(mk["_table_z_mm"] - 12.0) < 1.0
+    assert client.post("/calibration/arm/reset").json()["n"] == 0
+    assert client.post(f"/calibration/arm/solve?hand_eye_file={he_file}").json()["ok"] is False   # troppo pochi
+
+    # 2) dalla posa di osservazione: il foglio, con i centri nel base, dà fixed_pose.json e viene attivata subito
+    img, depth, markers_mm, T_true = _fixed_scene()
+    (tmp_path / "markers_base.json").write_text(
+        json.dumps({"_table_z_mm": 20.0, **{str(k): list(v) for k, v in markers_mm.items()}}), encoding="utf-8")
+    client, node = _app(_FakeReader(img, depth))
+    out = tmp_path / "fixed_pose.json"
+    r = client.post(f"/calibration/arm/look_pose?markers_file={tmp_path / 'markers_base.json'}&out={out}").json()
+    assert r["ok"] and r["reproj_px"] < 1.0 and abs(r["table_check_mm"]) < 2.0, r
+    assert node.hand_eye is not None and node.hand_eye.tcp_source == "fixed" and node.calibration_id.startswith("fixed_pose")
+    sheet_mm = {0: [38.1, 38.1], 1: [258.9, 38.1], 2: [258.9, 171.8], 3: [38.1, 171.8]}
+    (tmp_path / "sheet.json").write_text(json.dumps({str(k): v for k, v in sheet_mm.items()}), encoding="utf-8")
+    bad = client.post(f"/calibration/arm/look_pose?markers_file={tmp_path / 'sheet.json'}&out={tmp_path / 'x.json'}").json()
+    assert bad["ok"] is False and "foglio" in bad["reason"]            # i centri sul foglio non si accettano
