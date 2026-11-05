@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import { AudioModule, RecordingPresets, useAudioRecorder } from 'expo-audio';
@@ -37,8 +37,44 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
   const [perm, requestPerm] = useCameraPermissions();
   const [, requestMic] = useMicrophonePermissions();
   const [mode, setMode] = useState<'picture' | 'video'>('picture');
+  // web: unmount CameraView before MediaRecorder so getUserMedia is not blocked by the preview
+  const [previewOn, setPreviewOn] = useState(true);
   const view = useRef<CameraView>(null);
   const mic = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const releaseWaiter = useRef<(() => void) | null>(null);
+  const readyWaiter = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    if (!previewOn && releaseWaiter.current) {
+      const done = releaseWaiter.current;
+      releaseWaiter.current = null;
+      // give the browser a tick to stop the preview tracks after unmount
+      wait(300).then(done);
+    }
+  }, [previewOn]);
+
+  const releasePreview = async () => {
+    if (!previewOn) {
+      await wait(50);
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      releaseWaiter.current = resolve;
+      setPreviewOn(false);
+    });
+  };
+
+  const waitCameraReady = (ms = 2500) =>
+    new Promise<void>((resolve) => {
+      const t = setTimeout(() => {
+        readyWaiter.current = null;
+        resolve(); // don't hang forever; recordAsync will error clearly if still unready
+      }, ms);
+      readyWaiter.current = () => {
+        clearTimeout(t);
+        resolve();
+      };
+    });
 
   // microphone alongside a url camera: browser MediaRecorder, or expo-audio on a phone / tablet
   const recordMic = async (seconds: number, signal?: AbortSignal) => {
@@ -50,7 +86,7 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
     if (!p.granted) return {};
     await mic.prepareToRecordAsync();
     mic.record();
-    await Promise.race([wait(seconds * 1000), new Promise((r) => signal?.addEventListener('abort', r))]);
+    await Promise.race([wait(seconds * 1000), new Promise<void>((r) => signal?.addEventListener('abort', () => r(), { once: true }))]);
     await mic.stop();
     if (!mic.uri) return {};
     return { audio: await blobToBase64(await (await fetch(mic.uri)).blob()), audioMime: 'audio/mp4' };
@@ -66,27 +102,54 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
           grabFrames(() => snapshot(url, cam.open), seconds, FRAME_FPS, signal),
           recordMic(seconds, signal).catch(() => ({})),
         ]);
-        if (frames.length < 2) throw new Error(`no frames from ${cam.label}`);
+        if (frames.length < 2) {
+          throw new Error(
+            `no frames from ${cam.label} — is the vision / bridge camera reachable? Got ${frames.length} frame(s).`,
+          );
+        }
         // real rate, so the video lasts as long as the recording did
         const fps = frames.length / Math.max(1, (Date.now() - t0) / 1000);
         return { source: cam.label.toLowerCase(), rec: { kind: 'frames', frames, fps, ...sound } };
       }
       if (Platform.OS === 'web') {
-        const { blob, mime } = await recordWeb(true, seconds, signal);
-        return { source: 'tablet', rec: { kind: 'video', blob, mime } };
+        // Expo CameraView holds getUserMedia on web; a second open often yields an empty / unreadable webm.
+        await releasePreview();
+        try {
+          const { blob, mime } = await recordWeb(true, seconds, signal);
+          return { source: 'tablet', rec: { kind: 'video', blob, mime } };
+        } finally {
+          setPreviewOn(true);
+        }
       }
-      if (!view.current) throw new Error('tablet camera is not open');
       const m = await requestMic();
       if (!m.granted) throw new Error('microphone access is needed to record the demonstration');
+      // switch to video mode and wait for the camera to come back before recordAsync
+      const ready = waitCameraReady();
       setMode('video');
-      await wait(400); // let the camera switch to video mode
+      await ready;
+      await wait(150);
       try {
-        const stopper = () => view.current?.stopRecording();
+        const camView = view.current;
+        if (!camView) throw new Error('tablet camera is not open');
+        const stopper = () => {
+          try {
+            camView.stopRecording();
+          } catch {
+            // already stopped
+          }
+        };
         signal?.addEventListener('abort', stopper);
-        const out = await view.current?.recordAsync({ maxDuration: seconds });
-        signal?.removeEventListener('abort', stopper);
+        let out: { uri: string } | undefined;
+        try {
+          out = await camView.recordAsync({ maxDuration: seconds });
+        } finally {
+          signal?.removeEventListener('abort', stopper);
+        }
         if (!out?.uri) throw new Error('could not record video');
-        return { source: 'tablet', rec: { kind: 'video', uri: out.uri, mime: Platform.OS === 'ios' ? 'video/quicktime' : 'video/mp4' } };
+        return {
+          source: 'tablet',
+          rec: { kind: 'video', uri: out.uri, mime: Platform.OS === 'ios' ? 'video/quicktime' : 'video/mp4' },
+        };
       } finally {
         setMode('picture');
       }
@@ -94,7 +157,7 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
     capture: async () => {
       if (!enabled) throw new Error('the camera is turned off');
       if (!cam.url) {
-        if (!view.current) throw new Error('tablet camera is not open');
+        if (!previewOn || !view.current) throw new Error('tablet camera is not open');
         const pic = await view.current.takePictureAsync({ base64: true, quality: 0.35, shutterSound: false });
         if (!pic?.base64) throw new Error('could not take a picture');
         return { source: 'tablet', b64: pic.base64 };
@@ -102,6 +165,8 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
       return { source: cam.label.toLowerCase(), b64: await snapshot(cam.url, cam.open) };
     },
   }));
+
+  const showLocal = enabled && !cam.url && !!perm?.granted && previewOn;
 
   return (
     <View style={s.card}>
@@ -141,13 +206,28 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
                 <Ionicons name="camera-outline" size={24} color={c.faint} />
                 <Text style={s.muted}>Allow camera access</Text>
               </Pressable>
+            ) : previewOn ? (
+              <CameraView
+                ref={view}
+                style={StyleSheet.absoluteFill}
+                facing={facing}
+                mode={mode}
+                animateShutter={false}
+                onCameraReady={() => {
+                  readyWaiter.current?.();
+                  readyWaiter.current = null;
+                }}
+              />
             ) : (
-              <CameraView ref={view} style={StyleSheet.absoluteFill} facing={facing} mode={mode} animateShutter={false} />
+              <View style={s.center}>
+                <ActivityIndicator color={c.dim} />
+                <Text style={s.muted}>{recording || busy ? 'Recording…' : 'Starting recorder…'}</Text>
+              </View>
             )}
 
             {watching && <Pill label="Motion is watching" tone="bad" dot style={s.live} />}
 
-            {!cam.url && perm?.granted && (
+            {showLocal && (
               <IconButton
                 icon="camera-reverse-outline"
                 size={32}
