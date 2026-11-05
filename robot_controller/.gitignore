@@ -8,3 +8,6 @@ config/scene.yaml
 config/safety.yaml
 stations/*.rdk
 runs/
+config/selection.yaml
+config/robots/
+config/*.bak
