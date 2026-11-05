@@ -5,6 +5,9 @@ action tokens (keyframes + Grok vision + Grok speech-to-text), and the app write
          -> {"ok": true, "summary": "...", "tokens": VideoTokens}
     POST /teach_frames   JSON {frames: [base64 jpeg], fps, audio?: base64, audio_mime?, goal?}  (same answer)
     GET  /health -> {"ok": true, "mock": false}
+    GET  /skills          -> {"ok": true, "skills": [SkillDoc]}   learned skills kept on this PC
+    POST /skills          body = SkillDoc -> saved as computer-vision/data/skills/learned/<skill id>.json
+    DELETE /skills/<id>   -> removes it
 
 Started by `python computer-vision-to-app/run.py teach` (or `all`), with the computer-vision venv Python.
 Only standard library plus the planner's own requirements. It never runs a robot: it only reads the video.
@@ -20,7 +23,7 @@ import threading
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 HERE = Path(__file__).resolve().parent
 CV = HERE.parent / "computer-vision"
@@ -28,6 +31,8 @@ APP_ENV = HERE.parent / "groky-app" / ".env"
 sys.path.insert(0, str(CV))
 
 MAX_BYTES = 200 * 1024 * 1024  # 200 MB is plenty for a short demonstration
+SKILLS_DIR = CV / "data" / "skills" / "learned"   # every skill the robot learned from a demonstration
+MAX_SKILL_BYTES = 2 * 1024 * 1024
 
 
 def use_app_key() -> None:
@@ -56,6 +61,12 @@ GROK = GrokClient.from_env()  # MockGrok when there is no key (GROK_MOCK=1 force
 LOCK = threading.Lock()  # one video at a time: tokenizing is heavy and calls Grok
 
 
+def skill_file(sid: str) -> Path | None:
+    """File for a skill id; None for anything that isn't a plain id (no paths)."""
+    import re
+    return SKILLS_DIR / f"{sid}.json" if re.fullmatch(r"[A-Za-z0-9_\-]{1,80}", sid) else None
+
+
 def summarize(vt: VideoTokens) -> str:
     """Plain-language version of the tokens, the same shape the app's Learn-from-camera summary uses."""
     lines = []
@@ -78,7 +89,10 @@ def summarize(vt: VideoTokens) -> str:
         "Actions, in order:\n" + "\n".join(lines) if lines else "No actions were recognised.",
         f'What they said: "{vt.transcript.strip()}"' if vt.transcript.strip() else "",
         "Write a skill that makes the robot arm reproduce this task: detect each object first, pick, place at the "
-        "same destination, verify, then go home. Keep the same order.",
+        "same destination, verify, then go home. Keep the same order. The arm's camera is on its head and it knows "
+        "four objects: orange screw, blue bucket, green ring, white bucket lid; map what the person handled to the "
+        "closest of these. Putting something in a cup/bucket/container means into the blue bucket; putting it to one "
+        "side or on a pad means the delivery zone.",
     ]))
 
 
@@ -94,7 +108,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _cors(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
     def do_OPTIONS(self) -> None:  # noqa: N802
@@ -103,9 +117,48 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:  # noqa: N802
-        if urlparse(self.path).path == "/health":
+        path = urlparse(self.path).path
+        if path == "/health":
             return self._send(200, {"ok": True, "mock": GROK.is_mock})
+        if path == "/skills":
+            skills = []
+            for f in sorted(SKILLS_DIR.glob("*.json")) if SKILLS_DIR.exists() else []:
+                try:
+                    skills.append(json.loads(f.read_text(encoding="utf-8")))
+                except (OSError, ValueError):
+                    print(f"[skills] unreadable {f.name}, skipped", flush=True)
+            return self._send(200, {"ok": True, "skills": skills})
         self._send(404, {"ok": False, "error": "not found"})
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        path = urlparse(self.path).path
+        if not path.startswith("/skills/"):
+            return self._send(404, {"ok": False, "error": "not found"})
+        f = skill_file(unquote(path.removeprefix("/skills/")))
+        if f is None:
+            return self._send(400, {"ok": False, "error": "bad skill id"})
+        existed = f.exists()
+        f.unlink(missing_ok=True)
+        self._send(200, {"ok": True, "deleted": existed})
+
+    def _save_skill(self, n: int) -> None:
+        if not 0 < n <= MAX_SKILL_BYTES:
+            return self._send(400, {"ok": False, "error": "empty or too large"})
+        try:
+            doc = json.loads(self.rfile.read(n))
+            sid = doc["skill"]["id"]
+            assert isinstance(doc.get("steps"), list)
+        except (ValueError, KeyError, TypeError, AssertionError):
+            return self._send(400, {"ok": False, "error": "body must be a skill document (skill.id, steps)"})
+        f = skill_file(str(sid))
+        if f is None:
+            return self._send(400, {"ok": False, "error": "bad skill id"})
+        SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_suffix(".tmp")
+        tmp.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
+        tmp.replace(f)
+        print(f"[skills] saved {f.name}: {doc['skill'].get('name')}", flush=True)
+        self._send(200, {"ok": True, "path": str(f.relative_to(CV))})
 
     def _learn(self, path: Path, goal: str | None, tmp: str) -> None:
         if not LOCK.acquire(blocking=False):
@@ -161,6 +214,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         url = urlparse(self.path)
+        if url.path == "/skills":
+            return self._save_skill(int(self.headers.get("Content-Length") or 0))
         if url.path == "/teach_frames":
             n = int(self.headers.get("Content-Length") or 0)
             if not 0 < n <= MAX_BYTES:

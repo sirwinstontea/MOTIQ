@@ -63,13 +63,16 @@ const fromPrimitives = (list: Primitive[], device: DeviceId): Tool[] =>
 const dogTools: Tool[] = fromPrimitives(DOG_PRIMITIVES, 'dog');
 
 // High-level tasks run by robot_controller through the arm bridge (../bridge). The real arm only moves between
-// taught positions, so these are the tools that work on hardware; small step moves are simulator-only.
-export const ARM_TASK_TOOLS = new Set(['pick_and_place', 'pick', 'place', 'shake']);
+// taught positions. Small step moves (move_up/down/..., move_joint, rotate_yaw) go to the physical arm via ur_jog.
+export const ARM_TASK_TOOLS = new Set(['pick_and_place', 'pick', 'place', 'shake', 'find', 'scan', 'check_placed']);
 const objectParam = {
   type: 'string',
   description: 'object name ("orange screw", "blue bucket", "green ring", "white bucket lid") or the number the vision server shows on it',
 };
-const destParam = { type: 'string', description: 'where to put it, e.g. "delivery zone", or the spot an object came from like "orange_screw_03_slot"' };
+const destParam = {
+  type: 'string',
+  description: 'where to put it: "delivery zone", "blue bucket" (drops it into the bucket), or the spot an object came from like "orange_screw_03_slot"',
+};
 
 const armTools: Tool[] = [
   {
@@ -94,6 +97,22 @@ const armTools: Tool[] = [
     name: 'place',
     description: 'Place the held object at a destination and release it.',
     parameters: params({ destination: destParam }),
+  },
+  {
+    name: 'find',
+    description:
+      'The camera is on the arm head: move the arm through its look poses until the camera sees this object. Picks already do this by themselves; use it when asked to look for / find something.',
+    parameters: params({ object: objectParam }, ['object']),
+  },
+  {
+    name: 'scan',
+    description: 'Look over the whole table with the arm camera and report which of the four known objects are there.',
+    parameters: params({}),
+  },
+  {
+    name: 'check_placed',
+    description: 'After placing: look at the destination with the arm camera and confirm the object is there.',
+    parameters: params({ object: objectParam, destination: destParam }, ['object', 'destination']),
   },
   {
     name: 'shake',

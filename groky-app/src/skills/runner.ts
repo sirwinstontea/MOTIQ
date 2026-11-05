@@ -4,7 +4,7 @@ import { armPhysical, armSend, devices, runTool, stopDevice } from '../devices';
 import { armState, armWorld, detect, runArm, setWorld, verify } from '../robot/runtime';
 import { worldFromEnv } from '../robot/arm';
 import { verifyCheck } from './dryrun';
-import { armOpts, deviceOf, physicalBlock } from './index';
+import { armOpts, CELL_OBJECTS, deviceOf, physicalBlock } from './index';
 import type { PrimitiveCall, SkillDoc, SkillStep } from './schema';
 
 export type StepResult = { ok: boolean; ms: number; error?: string; note?: string; attempts: number };
@@ -55,6 +55,12 @@ export async function runSkill(
   };
 
   const look = async (target: string): Promise<Res> => {
+    // Real arm: the camera is on the arm head, so the bridge moves the arm through its look poses until the camera
+    // sees the object. Picks then go to the controller's taught spot, so no measured position is needed here.
+    if (device === 'arm' && real) {
+      const r = await runTool('arm_find', { object: target });
+      return { ok: r.ok, note: typeof r.did === 'string' ? r.did : undefined, error: r.ok ? undefined : String(r.error ?? 'not found'), refused: !!r.refused };
+    }
     const d = await detect(target, real);
     if (!d.ok) return { ok: false, error: d.error };
     if (real && !d.measured && !trustFile)
@@ -82,6 +88,17 @@ export async function runSkill(
   const once = async (i: number, step: SkillStep): Promise<Res> => {
     on.progress({ step: i, prim: null });
     if (step.action === 'DETECT') return step.target ? look(step.target) : { ok: false, error: 'no target' };
+    if (step.action === 'VERIFY' && device === 'arm' && real && step.target && CELL_OBJECTS.includes(step.target)) {
+      // look at where the skill put it with the arm camera (destination = the containment constraint, else the last
+      // PLACE before this step)
+      const dest =
+        verifyCheck(doc, step)?.container ??
+        doc.steps.slice(0, i).reverse().find((s) => s.action === 'PLACE' && s.target)?.target;
+      if (dest) {
+        const r = await runTool('arm_check_placed', { object: step.target, destination: dest });
+        return { ok: r.ok, note: typeof r.did === 'string' ? r.did : undefined, error: r.ok ? undefined : String(r.error ?? 'not confirmed') };
+      }
+    }
     if (step.action === 'VERIFY') {
       const conds = step.success_conditions ?? doc.intent?.success_conditions ?? [];
       const v = await verify(conds, real, device === 'arm' ? verifyCheck(doc, step) : undefined);
