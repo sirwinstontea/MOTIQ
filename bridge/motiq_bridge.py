@@ -10,6 +10,9 @@ The app (EXPO_PUBLIC_ARM_URL) speaks the "bridge" protocol:
     POST /tools/ur_down_up -> {"mm": 50}: PHYSICAL UR motion (down + up, <= 50 mm). /tools/stop stops it too.
     POST /tools/move_up|down|left|right|forward|backward {"distance_m": 0.05}, /tools/move_joint, /tools/rotate_yaw
                           -> small PHYSICAL UR steps (<= 10 cm, <= 30 deg, 50 mm/s), one at a time, stoppable.
+    POST /tools/ur_visit {"object": "green ring" | "green", "hold_s": 2, "come_back": true}
+                          -> PHYSICAL: the vision server guides the arm camera over the object (sideways only, same
+                             height, <= 35 cm away), holds, then goes back to the start pose. /tools/stop stops it.
     POST /tools/find {"object"}       -> camera on the arm head: look for one object from the scene's look poses
     POST /tools/scan                  -> look at the whole table: which of the known objects are there
     POST /tools/check_placed {"object","destination"} -> look at the destination after a place
@@ -100,6 +103,13 @@ class Refused(Exception):
 PHYSICAL_MAX_MM = 50.0
 PHYSICAL_STEP_MAX_MM = 100.0   # one voice step move ("5 cm up"); same cap as ur_jog.MAX_STEP_MM
 PHYSICAL_STEP_TIMEOUT_S = 15.0
+# ur_visit: hover the arm camera over an object the vision server sees (no hand-eye calibration needed)
+VISIT_NUDGE_MM = 20.0          # two test nudges to learn which way the camera faces
+VISIT_STEP_MM = 80.0           # largest sideways move per correction
+VISIT_MAX_TRAVEL_MM = 350.0    # never wander farther than this from the start pose
+VISIT_TOL = 0.03               # centred when within 3 % of the image size
+VISIT_MAX_ITERS = 8
+VISIT_MIN_CONF = 0.4           # hovering touches nothing, so a lower bar than picks
 _STOP_SCRIPT = b"def stop_jog():\n  stopl(1.0)\nend\nstop_jog()\n"
 
 
@@ -218,6 +228,101 @@ class PhysicalArm:
             err = self._wait(lambda tcp, q: all(abs(q[i] - target[i]) < 0.002 for i in range(6)))
             return err or self._result(f"turned the {label} {delta_deg:+g}° on the physical arm")
         return self._locked(run)
+
+    def visit(self, locate, label: str, hold_s: float = 2.0, come_back: bool = True) -> dict:
+        """Hover the arm camera over an object the vision server sees, then (by default) go back to the start pose.
+
+        `locate(after_ts)` -> (u, v) bbox centre normalised 0-1 from a vision frame newer than `after_ts`, or None.
+        No hand-eye calibration: two VISIT_NUDGE_MM nudges (base X, base Y) measure how the object moves in the
+        image, then sideways moves at the same height (never down) centre it. Every move is a ur_jog movel at 50 mm/s,
+        <= VISIT_STEP_MM, and the whole visit stays within VISIT_MAX_TRAVEL_MM of the start. STOP cancels it.
+        """
+        import numpy as np
+
+        if not self.lock.acquire(timeout=PHYSICAL_STEP_TIMEOUT_S * 2):
+            raise Refused("the physical arm is still busy with the previous move")
+        start = None
+        try:
+            self.cancel.clear()
+            start = self._preflight()
+
+            def look():
+                p = locate(time.time() + 0.3)       # only frames taken after the arm settled
+                return None if p is None else np.array(p, dtype=float)
+
+            def go(dx, dy):
+                target = self.jog.move_rel(dx, dy, 0)
+                return self._wait(lambda tcp, q: all(abs(tcp[i] - target[i]) < 0.0005 for i in range(3)))
+
+            p0 = look()
+            if p0 is None:
+                return {"ok": False, "error": f"the camera can't see the {label} from here"}
+            log.info("physical visit %s: seen at (%.3f, %.3f), start %s mm", label, *p0,
+                     [round(v * 1000, 1) for v in start[:3]])
+            moved = np.zeros(2)
+            err = go(VISIT_NUDGE_MM, 0) or None
+            p1 = None if err else look()
+            err = err or (go(0, VISIT_NUDGE_MM) if p1 is not None else None)
+            p2 = None if err or p1 is None else look()
+            moved += [VISIT_NUDGE_MM, VISIT_NUDGE_MM]
+            if err:
+                return err
+            if p1 is None or p2 is None:
+                return {"ok": False, "error": f"lost sight of the {label} while testing the camera direction"}
+            J = np.column_stack([(p1 - p0) / VISIT_NUDGE_MM, (p2 - p1) / VISIT_NUDGE_MM])  # image units per mm
+            if abs(np.linalg.det(J)) < 1e-8:
+                return {"ok": False, "error": "the object didn't move in the image during the test nudges"}
+            p = p2
+            for _ in range(VISIT_MAX_ITERS):
+                if self.cancel.is_set():
+                    return {"ok": False, "error": "stopped"}
+                e = np.array([0.5, 0.5]) - p
+                if np.linalg.norm(e) < VISIT_TOL:
+                    break
+                d = np.linalg.solve(J, e)
+                if np.abs(d).max() > VISIT_STEP_MM:
+                    d *= VISIT_STEP_MM / np.abs(d).max()
+                if np.abs(moved + d).max() > VISIT_MAX_TRAVEL_MM:
+                    return {"ok": False, "error": f"the {label} is more than {VISIT_MAX_TRAVEL_MM / 10:g} cm away; "
+                            "not going that far"}
+                err = go(float(d[0]), float(d[1]))
+                if err:
+                    return err
+                moved += d
+                p = look()
+                if p is None:
+                    return {"ok": False, "error": f"lost sight of the {label}"}
+            else:
+                return {"ok": False, "error": f"couldn't centre the {label} under the camera"}
+            over, _ = self.jog.read_state(self.ip)
+            log.info("physical visit %s: over it at %s mm", label, [round(v * 1000, 1) for v in over[:3]])
+            t_end = time.monotonic() + max(0.0, min(10.0, hold_s))
+            while time.monotonic() < t_end:
+                if self.cancel.is_set():
+                    return {"ok": False, "error": "stopped"}
+                time.sleep(0.1)
+            res = self._result(f"went over the {label}" + (" and came back" if come_back else ""))
+            res["over_tcp_mm"] = [round(v * 1000, 1) for v in over[:3]]
+            return res
+        except OSError as e:
+            return {"ok": False, "error": f"lost connection to the physical arm ({e.__class__.__name__}); arm stopped"}
+        finally:
+            stopped = self.cancel.is_set()
+            if come_back and start is not None and not stopped:
+                try:  # straight line back to the exact start pose (same height the whole way)
+                    pose = "p[%s]" % ",".join("%.6f" % v for v in start)
+                    self.jog.send_script("def back():\n  movel(%s, a=%s, v=%s)\nend\nback()"
+                                         % (pose, self.jog.ACCEL, self.jog.SPEED))
+                    t0 = time.monotonic()
+                    while time.monotonic() - t0 < 30 and not self.cancel.is_set():
+                        tcp, _ = self.jog.read_state(self.ip)
+                        if all(abs(tcp[i] - start[i]) < 0.0005 for i in range(3)):
+                            break
+                        time.sleep(0.1)
+                except OSError:
+                    pass
+            self.stop()
+            self.lock.release()
 
     def joints_now_deg(self) -> list[float]:
         _, q = self.jog.read_state(self.ip)
@@ -373,6 +478,52 @@ class Bridge:
             raise Refused(f"#{track} looks like a {color} {v.get('label')}, which the arm "
                           f"has no taught pick for. Known: {', '.join(self.objects)}")
         return oid
+
+    # ------------------------------------------------------------------ ur_visit: vision-guided hover (physical arm)
+    def _visit_matcher(self, q: Any):
+        """(match(vision_obj) -> bool, readable label) for a registered object ('green ring', 'green_ring_02', a
+        track number) or just a colour ('green', 'verde')."""
+        if not self.vision:
+            raise Refused("visiting an object needs the vision server (the arm camera)")
+        s = str(q or "").strip().lower().removeprefix("the ").strip()
+        if not s:
+            raise Refused("which object? e.g. 'green ring'")
+        try:
+            oid = self.resolve_object(s)
+            return (lambda v: self.match_vision(v) == oid), oid.replace("_", " ")
+        except Refused:
+            pass
+        en_it = {en: it for it, en in COLORS_IT_EN.items()}
+        word = s.split()[0]
+        it = word if word in COLORS_IT_EN else en_it.get(word)
+        if it:
+            return (lambda v: str(v.get("color") or "").lower() == it), f"{COLORS_IT_EN[it]} object"
+        raise Refused(f"don't know '{q}'. Known: {', '.join(self.objects)} or a colour (green, blue, ...)")
+
+    def _locate(self, match, after_ts: float, timeout_s: float = 4.0) -> Optional[tuple[float, float]]:
+        """Bbox centre (normalised) of the best matching vision object, averaged over 2 frames newer than after_ts."""
+        while time.time() < after_ts:
+            time.sleep(0.05)
+        pts, last_id, t0 = [], None, time.time()
+        while len(pts) < 2 and time.time() - t0 < timeout_s:
+            try:
+                f = self.vision_frame()
+            except Exception:
+                time.sleep(0.2)
+                continue
+            if f.get("frame_id") == last_id or float(f.get("ts") or 0) < after_ts:
+                time.sleep(0.05)
+                continue
+            last_id = f.get("frame_id")
+            hits = [v for v in f.get("objects") or [] if float(v.get("conf") or 0) >= VISIT_MIN_CONF and match(v)]
+            if hits:
+                x, y, w, h = max(hits, key=lambda v: v.get("conf", 0))["bbox"]
+                pts.append((x + w / 2, y + h / 2))
+            elif time.time() - t0 > timeout_s / 2:
+                break
+        if not pts:
+            return None
+        return (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
 
     def sync_vision(self, need: Optional[str] = None) -> Optional[dict]:
         """Write the current frame (in controller ids) for the controller's vision_file detector.
@@ -673,6 +824,13 @@ class Bridge:
             if self.active_task:
                 raise Refused("a controller task is running; wait for it to finish")
             return self.physical.down_up(a.get("mm"))
+        if name in ("ur_visit", "visit"):
+            if self.active_task:
+                raise Refused("a controller task is running; wait for it to finish")
+            match, label = self._visit_matcher(a.get("object") or a.get("target"))
+            return self.physical.visit(lambda after: self._locate(match, after), label,
+                                       hold_s=float(a.get("hold_s") or 2.0),
+                                       come_back=a.get("come_back", True) is not False)
         if name in STEP_MOVES or name in ("move_joint", "rotate_yaw"):
             if self.active_task:
                 raise Refused("a controller task is running; wait for it to finish")

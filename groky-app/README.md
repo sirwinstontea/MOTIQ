@@ -163,3 +163,12 @@ src/preview/         2D skill preview timeline
 - The mic is ignored while Motion talks, so you can't interrupt by voice. Use the stop button.
 - The token endpoint's response format isn't documented; `src/voice/token.ts` accepts the likely shapes.
 - Tool list is a first guess until we see the real hardware.
+
+## Real-arm approval
+
+Motion (voice or typed chat) has full authorization: it plans tasks and runs skills itself, with no approval in the
+Skills tab (full access is on at every start; "safe mode" turns it off). Before the **real** arm moves it calls
+`propose_plan`, tells you in plain words what the arm will do, and a plan card appears. The arm tools stay locked in
+the app (`src/voice/session.ts`, `src/lib/armApproval.ts`) until **you** answer: a short "yes" / "go ahead" / "sì" /
+"vai" spoken or typed, or Approve on the card. "No", Cancel, Stop, a new request or 5 minutes end the approval. Grok
+can't approve its own plan. Stop is never locked. With a simulated arm no approval is asked.

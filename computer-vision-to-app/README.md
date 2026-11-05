@@ -78,8 +78,8 @@ Show Motion ─▶ 15 s video + audio ─▶ teach server :8001 ─▶ vision/pl
 1. Talk tab, tablet camera selected → **Show Motion**, do the task with the objects while saying what you do (15 s).
 2. The teach server reads the video (keyframes, speech, actions); Grok writes a skill using only the arm's four
    objects and its destinations (delivery zone, into the blue bucket, back to an object's spot).
-3. The skill is saved in Skills, and Motion says what it understood and runs it. On the real arm it runs only after
-   you approve it in Skills, or straight away if you said "full access".
+3. The skill is saved in Skills. Motion says what it understood and exactly what the arm will do, shows the plan
+   card, and waits: say "yes" (or type it, or tap Approve) and it runs on the real arm; "no" and nothing moves.
 4. On the arm each step is: **DETECT** = the arm moves its head camera around until it sees the object, **PICK/PLACE**
    = one checked controller task each, **VERIFY** = the arm camera looks at the destination.
 

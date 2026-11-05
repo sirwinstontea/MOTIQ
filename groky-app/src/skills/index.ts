@@ -27,7 +27,7 @@ export const skillIcons: Icon[] = [
   'sparkles-outline',
 ];
 
-export const STEP_ACTIONS = ['DETECT', 'PICK', 'PLACE', 'VERIFY', 'SEQUENCE'] as const;
+export const STEP_ACTIONS = ['DETECT', 'PICK', 'PLACE', 'VISIT', 'VERIFY', 'SEQUENCE'] as const;
 export const FAILURE_POLICIES = ['STOP_AND_REOBSERVE', 'RETRY_WITH_REOBSERVATION', 'STOP_AND_REPLAN', 'REPORT_FAILURE'];
 // steps that look instead of moving
 export const isLookStep = (s: SkillStep) => s.action === 'DETECT' || s.action === 'VERIFY';
@@ -112,6 +112,7 @@ export function realArmProblems(doc: SkillDoc): string[] {
       );
     if ((s.action === 'PICK' || s.action === 'PLACE') && s.target) return;
     if (s.physical_tool === 'ur_down_up') return; // one fixed bridge tool, see runner.ts
+    if (s.action === 'VISIT') return; // bridge ur_visit: the arm camera guides the arm over it, see runner.ts
     const bad = [
       ...new Set((s.primitive_sequence ?? []).map((c) => c.primitive).filter((p) => !REAL_ARM_PRIMITIVES.includes(p))),
     ];
@@ -169,7 +170,9 @@ export function validateSkill(doc: SkillDoc): Validation {
     if (!s.action) errors.push(`Step ${i + 1}: missing action.`);
     if (s.target && device === 'arm' && !objects.has(s.target)) errors.push(`${at}: unknown target "${s.target}".`);
     if (s.action === 'DETECT' && !s.target) errors.push(`${at}: say which object to detect.`);
-    if (!isLookStep(s) && !s.primitive_sequence?.length) errors.push(`${at}: add at least one primitive.`);
+    if (s.action === 'VISIT' && !s.target) errors.push(`${at}: say which object to visit.`);
+    if (!isLookStep(s) && s.action !== 'VISIT' && !s.primitive_sequence?.length)
+      errors.push(`${at}: add at least one primitive.`);
     s.primitive_sequence?.forEach((c, j) => {
       const p = prims.find((x) => x.id === c.primitive);
       if (!p) return errors.push(`${at}, primitive ${j + 1}: ${c.primitive} isn't a ${device} primitive.`);
@@ -519,8 +522,37 @@ const physicalDownUp = makeSkill({
   ],
 });
 
+// Physical UR arm, camera-guided: the vision server finds the green ring and the bridge (`ur_visit`) moves the arm
+// over it sideways at the same height, waits, then returns to the start pose. The primitives are the simulator's.
+const physicalVisitRing = makeSkill({
+  id: 'arm_physical_visit_green_ring',
+  name: 'Visit the green ring (physical arm)',
+  description:
+    'The arm camera finds the green ring, the arm moves over it (sideways only, same height, 5 cm/s), waits 2 s and goes back to where it started. STOP halts it.',
+  device: 'arm',
+  icon: 'locate-outline',
+  builtin: true,
+  objects: armObjects,
+  success: ['The arm went over the green ring and is back at its starting pose.'],
+  steps: [
+    {
+      id: 'step_001',
+      action: 'VISIT',
+      target: 'green_ring_02',
+      description: 'Go over the green ring, wait, come back.',
+      parameters: { hold_s: 2, come_back: true },
+      failure_policy: 'REPORT_FAILURE',
+      primitive_sequence: [
+        { primitive: 'MOVE_ABOVE', parameters: { target: 'green_ring_02', height_m: 0.15 } },
+        { primitive: 'WAIT', parameters: { seconds: 2 } },
+      ],
+    },
+  ],
+});
+
 export const builtinSkills: SkillDoc[] = [
   physicalDownUp,
+  physicalVisitRing,
   ...controllerSkills,
   pickPlace,
   makeSkill({

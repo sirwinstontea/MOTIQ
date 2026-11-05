@@ -119,6 +119,22 @@ export async function runSkill(
         refused: !!r.refused,
       };
     }
+    // Physical arm, VISIT: the vision server (arm camera) guides the arm over the target, sideways at the same height,
+    // then the arm goes back to where it started. STOP -> stopDevice -> the bridge stops it too.
+    if (device === 'arm' && real && (step.action === 'VISIT' || step.physical_tool === 'ur_visit')) {
+      if (!step.target) return { ok: false, error: 'no target to visit' };
+      const r = await armPhysical('ur_visit', {
+        object: step.target,
+        hold_s: Number(step.parameters?.hold_s ?? 2),
+        come_back: step.parameters?.come_back !== false,
+      });
+      return {
+        ok: r.ok,
+        note: typeof r.did === 'string' ? r.did : undefined,
+        error: r.ok ? undefined : String(r.error ?? r.status ?? 'failed'),
+        refused: !!r.refused,
+      };
+    }
     // Physical arm, one fixed bridge tool (down + up, no homing). STOP -> stopDevice -> bridge stops it too.
     if (device === 'arm' && real && step.physical_tool === 'ur_down_up') {
       const r = await armPhysical('ur_down_up', { mm: Number(step.parameters?.mm ?? 50) });
@@ -139,6 +155,11 @@ export async function runSkill(
       const d = await look(step.target);
       if (!d.ok) return { ok: false, error: `re-identify ${step.target}: ${d.error}` };
     }
+    if (step.action === 'VISIT' && !step.primitive_sequence?.length && step.target)
+      return sequence(i, { ...step, primitive_sequence: [
+        { primitive: 'MOVE_ABOVE', parameters: { target: step.target, height_m: 0.15 } },
+        { primitive: 'WAIT', parameters: { seconds: Number(step.parameters?.hold_s ?? 2) } },
+      ] });
     return sequence(i, step);
   };
 

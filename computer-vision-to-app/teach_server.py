@@ -183,7 +183,7 @@ class Handler(BaseHTTPRequestHandler):
         import base64
         import subprocess
 
-        import imageio_ffmpeg
+        from vision.planner.frames import ffmpeg_exe  # system ffmpeg, else imageio-ffmpeg
 
         try:
             body = json.loads(self.rfile.read(n))
@@ -198,7 +198,7 @@ class Handler(BaseHTTPRequestHandler):
             d = Path(tmp)
             for i, f in enumerate(frames):
                 (d / f"f_{i:05d}.jpg").write_bytes(f)
-            cmd = [imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-loglevel", "error", "-framerate", f"{fps:g}",
+            cmd = [ffmpeg_exe(), "-y", "-loglevel", "error", "-framerate", f"{fps:g}",
                    "-i", str(d / "f_%05d.jpg")]
             if body.get("audio"):
                 ext = ".webm" if "webm" in (body.get("audio_mime") or "") else ".m4a"

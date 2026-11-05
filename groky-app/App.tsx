@@ -19,6 +19,7 @@ import Sidebar, { Tab } from './src/components/Sidebar';
 import StopButton from './src/components/StopButton';
 import { IconButton } from './src/components/ui';
 import { useAlerts } from './src/hooks/useAlerts';
+import PlanApproval from './src/components/PlanApproval';
 import { useCamera } from './src/hooks/useCamera';
 import { DevicesProvider } from './src/hooks/useDevices';
 import { useHistory } from './src/hooks/useHistory';
@@ -26,7 +27,6 @@ import { useKeyboardVisible } from './src/hooks/useKeyboard';
 import { NotifyProvider, useNotify } from './src/hooks/useNotify';
 import type { SkillDoc } from './src/skills';
 import env from './src/lib/config';
-import { fullAccess } from './src/lib/fullAccess';
 import { useSkills } from './src/hooks/useSkills';
 import type { VoiceCommand } from './src/skills/fromVoice';
 import { useVoice } from './src/hooks/useVoice';
@@ -101,9 +101,7 @@ function Main() {
           ? `Saved to Skills, but it has a problem: ${problems[0]}`
           : !env.armUrl
             ? 'Saved to Skills. Motion runs it in the simulator.'
-            : fullAccess()
-              ? 'Saved to Skills. Full access is on, so Motion runs it on the real arm.'
-              : 'Saved to Skills. Approve it there (or say "full access") before it moves the real arm.',
+            : 'Saved to Skills. Motion will tell you what the arm will do and wait for your yes before it moves.',
       });
       return doc.skill.id;
     },
@@ -210,6 +208,7 @@ function Main() {
         <BottomNav tab={tab} onTab={setTab} historyCount={history.items.length} skillRunning={skills.running} />
       )}
 
+      <PlanApproval onDecide={voice.planDecision} />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </SafeAreaView>
   );

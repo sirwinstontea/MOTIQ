@@ -15,13 +15,19 @@ arm_move_up / down / left / right / forward / backward take distance_m in metres
 arm_move_joint turns one joint by delta_deg (max 30), arm_rotate_yaw spins the gripper (max 30 degrees).
 For a sequence, call each step in order in the same turn: "move the arm 5 cm up and down" is arm_move_up 0.05
 then arm_move_down 0.05; "up and down three times" is six calls. Split anything bigger than 10 cm into several
-steps. Don't ask for confirmation for these small moves, just do them and say briefly what happened.
+steps. These move the REAL arm too, so they follow the approval rule below like everything else.
 arm_rotate_roll, arm_rotate_pitch, arm_move_joints, arm_move_to_pose and arm_close_gripper only work in the
 simulator. If any move is refused, explain why in plain words instead of retrying the same.
 If the physical arm is refused as not reachable, say the ethernet cable to the arm is probably unplugged.
-Full access: when the user says "full" or "full access", call set_full_access with on=true, then you do whole tasks
-on the real arm: break the request into arm tool calls (or run_skill) and run them in order without asking.
-Notes marked [Full access is ON/OFF] tell you the current mode.
+You have full authorization: you plan and run whole tasks and saved skills yourself (full access is on unless the
+user says "safe mode" / "full access off", then call set_full_access with on=false; "full access" turns it back on).
+APPROVAL RULE for the REAL arm: before any tool that moves the real arm (any arm_ tool except arm_verify and
+arm_wait, and run_skill), first work out the whole plan, call propose_plan with it, then tell the user out loud in
+one or two short sentences exactly what the arm will do, in order, based on what they asked (for example "I'll find
+the orange screw, pick it up, drop it in the blue bucket, check it's there and go home. Shall I do it on the real
+arm?") and wait. Only after they say yes (or tap Approve) call the arm tools, all in order in one turn. If they say
+no or change something, adjust and propose again. A new request always needs a new plan. Never call arm tools
+before the yes: the app refuses them. stop is never blocked. In the simulator (propose_plan answers simulated) just go.
 If vision_ tools are available, they talk to the vision server that tracks numbered objects on the table:
 vision_list_objects and vision_describe_scene to see what's there, vision_select_object with the user's own words
 when they point at something ("the red one on the left"). If its result is ambiguous, ask its question. The object
@@ -85,12 +91,36 @@ export const fullAccessTool = {
 
 export const FULL_ACCESS_NOTE = (on: boolean) =>
   on
-    ? '[Full access is ON. You may run saved skills and multi-step tasks on the REAL arm right away, no approval in ' +
-      'the Skills tab needed. When asked for a task, plan it as a sequence of arm tools (steps, joints, pick, place, ' +
-      'shake, home) or run_skill, and call them one after another in the same turn. Say in one short sentence what ' +
-      'you are about to do, then do it. Stop immediately if anyone says stop.]'
-    : '[Full access is OFF. Direct small step moves still move the real arm, but saved skills need operator approval ' +
-      'in the Skills tab before they run on the real arm.]';
+    ? '[Full access is ON. You may run saved skills and multi-step tasks on the REAL arm, no approval in the Skills ' +
+      'tab needed. Plan the task as arm tools or run_skill, call propose_plan, tell the user what the arm will do and ' +
+      'ask; after their yes call the tools one after another in the same turn. Stop immediately if anyone says stop.]'
+    : '[Full access is OFF (safe mode). Saved skills also need operator approval in the Skills tab before they run on ' +
+      'the real arm. Every real-arm move still goes through propose_plan and the user\'s yes.]';
+
+export const proposePlanTool = {
+  type: 'function',
+  name: 'propose_plan',
+  description:
+    'Before moving the REAL arm: register the plan you are about to carry out, then ask the user to approve it out ' +
+    'loud. The arm tools stay locked until the user says yes or taps Approve. Call it again with a new plan after ' +
+    'any change.',
+  parameters: {
+    type: 'object',
+    properties: {
+      say: {
+        type: 'string',
+        description: 'One or two plain sentences of what the arm will do, as you will say it to the user',
+      },
+      steps: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Each tool call you will make, in order, in plain words, e.g. "find the orange screw", "pick and place it into the blue bucket", "check it is there", "go home"',
+      },
+      skill: { type: 'string', description: 'If the plan is to run a saved skill: its id' },
+    },
+    required: ['say', 'steps'],
+  },
+};
 
 export const lookTool = {
   type: 'function',
