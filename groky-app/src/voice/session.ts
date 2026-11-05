@@ -3,7 +3,8 @@ import env, { SAMPLE_RATE } from '../lib/config';
 import { grokTools, runTool } from '../devices';
 import { fromBase64, toBase64 } from './pcm';
 import { Player } from './player';
-import { editSkillTool, lookTool, PROMPT, skillTool } from './prompt';
+import { editSkillTool, FULL_ACCESS_NOTE, fullAccessTool, lookTool, PROMPT, skillTool } from './prompt';
+import { fullAccess, setFullAccess } from '../lib/fullAccess';
 import { getToken } from './token';
 import { isRobotTool } from '../skills/fromVoice';
 import type { VoiceCommand } from '../skills/fromVoice';
@@ -95,6 +96,7 @@ export class VoiceSession {
     return [
       ...grokTools(),
       lookTool,
+      fullAccessTool,
       ...this.visionTools,
       ...(list.length ? [skillTool(list), editSkillTool(list)] : []),
     ];
@@ -370,6 +372,16 @@ export class VoiceSession {
         ms: Date.now() - t0,
       });
       delete res.image; // Grok gets the description, not the pixels
+    } else if (name === 'set_full_access') {
+      setFullAccess(!!args.on);
+      this.trace({
+        id,
+        kind: 'plan',
+        title: fullAccess() ? 'Full access ON: real arm for skills and tasks' : 'Full access OFF',
+        ok: true,
+        ms: Date.now() - t0,
+      });
+      res = { ok: true, full_access: fullAccess(), note: FULL_ACCESS_NOTE(fullAccess()) };
     } else if (name === 'run_skill') {
       const skill = this.skills?.list().find((s) => s.id === args.skill);
       const label = skill?.name ?? String(args.skill);

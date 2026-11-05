@@ -8,6 +8,7 @@
 #   VISION=1|0                start computer-vision (default 1 if computer-vision/.venv exists)
 #   VISION_MODE=realsense|webcam|synthetic   passed to the vision server as --mode
 #   BRIDGE_PORT=8080
+#   TEACH_PORT=8001           teach server (demonstration video -> skill), started with the vision server
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RC="$ROOT/robot_controller"
@@ -32,6 +33,11 @@ if [ "$VISION" = "1" ]; then
   pids+=($!)
   vision_url="http://127.0.0.1:8000"
   detector=(--detector vision_file --vision-file "$VISION_FILE")
+  # teach server: the app's Show Motion / Upload video send demonstrations here; learned skills are kept in
+  # computer-vision/data/skills/learned/
+  echo "[stack] teach server on :${TEACH_PORT:-8001}"
+  (cd "$CV" && exec .venv/bin/python "$ROOT/computer-vision-to-app/teach_server.py" --port "${TEACH_PORT:-8001}") &
+  pids+=($!)
 else
   echo "[stack] no vision (run computer-vision/setup.sh to enable); controller uses the MOCK detector"
   detector=(--detector mock)

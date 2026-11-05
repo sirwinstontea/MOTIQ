@@ -1,6 +1,7 @@
 // Skills in the MOTIQ skill format (see schema.ts and templates/pick_place_ur5e.json).
 import { Ionicons } from '@expo/vector-icons';
 import env from '../lib/config';
+import { fullAccess } from '../lib/fullAccess';
 import { defaultOpts, resolveParams, type ArmOpts } from '../robot/arm';
 import { ARM_LIMITS, profiles } from '../robot/profiles';
 import template from './templates/pick_place_ur5e.json';
@@ -77,11 +78,25 @@ export function stepLabel(s: SkillStep): string {
 
 // ---------- what the real arm can do ----------
 
-// The real arm goes through robot_controller (../bridge), which only moves between taught positions:
-// PICK / PLACE steps with a target become one controller task each; inside SEQUENCE steps only these primitives
-// reach it. Everything else (MOVE_UP, ROTATE_*, MOVE_TO_POSE, ...) runs in the simulator only.
-export const REAL_ARM_PRIMITIVES = ['MOVE_ABOVE', 'HOME', 'OPEN_GRIPPER', 'WAIT', 'STOP'];
+// The real arm goes through the bridge: PICK / PLACE steps with a target become one robot_controller task each;
+// inside SEQUENCE steps only these primitives reach it. Small steps (MOVE_UP ..., MOVE_JOINT, ROTATE_YAW) move the
+// physical UR through ur_jog. ROTATE_ROLL / PITCH, MOVE_JOINTS, MOVE_TO_POSE, CLOSE_GRIPPER stay simulator-only.
+export const REAL_ARM_PRIMITIVES = [
+  'MOVE_ABOVE', 'HOME', 'OPEN_GRIPPER', 'WAIT', 'STOP',
+  'MOVE_UP', 'MOVE_DOWN', 'MOVE_LEFT', 'MOVE_RIGHT', 'MOVE_FORWARD', 'MOVE_BACKWARD', 'MOVE_JOINT', 'ROTATE_YAW',
+];
 export const realArmConnected = () => !!env.armUrl;
+
+// The real arm's cell (robot_controller config/scene.example.yaml): the 4 objects its camera knows and the places
+// it can put a held object. PLACE targets on the real arm must be one of these.
+export const CELL_OBJECTS = (template.environment.objects as unknown as EnvObject[])
+  .filter((o) => o.category !== 'container')
+  .map((o) => o.id);
+export const CELL_DESTINATIONS = [
+  'delivery_zone',
+  'blue_bucket_01', // drops the held object INTO the blue bucket
+  ...CELL_OBJECTS.map((id) => `${id}_slot`), // back where that object was picked
+];
 
 // steps the real arm can't run, as readable messages (empty = fine)
 export function realArmProblems(doc: SkillDoc): string[] {
@@ -89,6 +104,12 @@ export function realArmProblems(doc: SkillDoc): string[] {
   const out: string[] = [];
   doc.steps.forEach((s, i) => {
     if (isLookStep(s)) return;
+    if (s.action === 'PICK' && s.target && !CELL_OBJECTS.includes(s.target))
+      return void out.push(`Step ${i + 1}: the real arm can only pick ${CELL_OBJECTS.join(', ')} (not "${s.target}").`);
+    if (s.action === 'PLACE' && s.target && !CELL_DESTINATIONS.includes(s.target))
+      return void out.push(
+        `Step ${i + 1}: the real arm can place at ${CELL_DESTINATIONS.join(', ')} (not "${s.target}").`,
+      );
     if ((s.action === 'PICK' || s.action === 'PLACE') && s.target) return;
     if (s.physical_tool === 'ur_down_up') return; // one fixed bridge tool, see runner.ts
     const bad = [
@@ -97,7 +118,8 @@ export function realArmProblems(doc: SkillDoc): string[] {
     if (bad.length)
       out.push(
         `Step ${i + 1}: ${bad.map((p) => p.toLowerCase().replace(/_/g, ' ')).join(', ')} only works in the simulator. ` +
-          'The real arm can only pick, place, move above an object, open the gripper, wait and go home.',
+          'The real arm can pick, place, move above an object, open the gripper, wait, go home, take small steps ' +
+          '(up, down, left, right, forward, back), turn one joint and spin the gripper.',
       );
   });
   return out;
@@ -110,6 +132,11 @@ export function physicalBlock(doc: SkillDoc, real: boolean): string | null {
   if (!real) return null;
   const arm = realArmProblems(doc);
   if (arm.length) return `${arm[0]} Edit the skill (or ask Grok to change it) to run it on the arm.`;
+  if (fullAccess()) {
+    // operator turned on full access: no per-skill approval, but a broken skill still doesn't run
+    const errs = validateSkill(doc).errors;
+    return errs.length ? `the skill has errors: ${errs[0]}` : null;
+  }
   if (!doc.safety?.physical_execution_allowed)
     return 'physical execution is not allowed for this skill yet. Approve it in the Skills tab first.';
   if (doc.safety?.requires_operator_approval !== false && !doc.review?.approved)

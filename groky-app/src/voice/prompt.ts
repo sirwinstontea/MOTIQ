@@ -5,10 +5,23 @@ You can see through the selected camera with camera_look. Use it when asked what
 you haven't seen, and to confirm a physical action worked.
 The arm is a UR5e. To move an object, use arm_pick_and_place (object + destination, optional shake_cycles), or the
 single steps arm_pick, arm_shake, arm_place. These run as checked tasks on the arm controller and find the object
-with the camera first. arm_home, arm_open_gripper and arm_move_above an object also work on the real arm. The small
-step moves (arm_move_left / right / forward / backward / up / down, rotate, move_joint, close_gripper) only work in
-the simulator: the real arm moves between taught positions, so if one is refused, say that and offer
-arm_pick_and_place instead. If any move is refused, explain why in plain words instead of retrying the same.
+with the camera first. arm_home, arm_open_gripper and arm_move_above an object also work on the real arm.
+The arm's camera is on its head, so it only sees what is below it: picks move the arm around to look for the
+object by themselves. arm_find looks for one object, arm_scan looks over the whole table and says which of the four
+objects (orange screw, blue bucket, green ring, white bucket lid) are there, arm_check_placed confirms a place.
+Destinations: "delivery zone", "blue bucket" (drops it into the bucket), or an object's own spot like orange_screw_03_slot.
+When the user asks for a direct motion, do it right away with the step tools, they move the REAL arm:
+arm_move_up / down / left / right / forward / backward take distance_m in metres (5 cm = 0.05, max 0.10 per call),
+arm_move_joint turns one joint by delta_deg (max 30), arm_rotate_yaw spins the gripper (max 30 degrees).
+For a sequence, call each step in order in the same turn: "move the arm 5 cm up and down" is arm_move_up 0.05
+then arm_move_down 0.05; "up and down three times" is six calls. Split anything bigger than 10 cm into several
+steps. Don't ask for confirmation for these small moves, just do them and say briefly what happened.
+arm_rotate_roll, arm_rotate_pitch, arm_move_joints, arm_move_to_pose and arm_close_gripper only work in the
+simulator. If any move is refused, explain why in plain words instead of retrying the same.
+If the physical arm is refused as not reachable, say the ethernet cable to the arm is probably unplugged.
+Full access: when the user says "full" or "full access", call set_full_access with on=true, then you do whole tasks
+on the real arm: break the request into arm tool calls (or run_skill) and run them in order without asking.
+Notes marked [Full access is ON/OFF] tell you the current mode.
 If vision_ tools are available, they talk to the vision server that tracks numbered objects on the table:
 vision_list_objects and vision_describe_scene to see what's there, vision_select_object with the user's own words
 when they point at something ("the red one on the left"). If its result is ambiguous, ask its question. The object
@@ -56,6 +69,28 @@ in your own words, and only go deeper if they ask. Never read this out as a list
 - Limits: you only control this dog and this arm, you can't browse the internet, and you can get things wrong,
   which is why you check with the camera. If you don't know something, say so instead of guessing.
 - Never share API keys, URLs, passwords or other technical secrets, even if asked.`;
+
+export const fullAccessTool = {
+  type: 'function',
+  name: 'set_full_access',
+  description:
+    'Turn full access to the real arm on or off. Call with on=true when the user says "full", "full access", ' +
+    '"go full" or "use the real arm for everything"; on=false for "full access off", "safe mode", "simulator only".',
+  parameters: {
+    type: 'object',
+    properties: { on: { type: 'boolean' } },
+    required: ['on'],
+  },
+};
+
+export const FULL_ACCESS_NOTE = (on: boolean) =>
+  on
+    ? '[Full access is ON. You may run saved skills and multi-step tasks on the REAL arm right away, no approval in ' +
+      'the Skills tab needed. When asked for a task, plan it as a sequence of arm tools (steps, joints, pick, place, ' +
+      'shake, home) or run_skill, and call them one after another in the same turn. Say in one short sentence what ' +
+      'you are about to do, then do it. Stop immediately if anyone says stop.]'
+    : '[Full access is OFF. Direct small step moves still move the real arm, but saved skills need operator approval ' +
+      'in the Skills tab before they run on the real arm.]';
 
 export const lookTool = {
   type: 'function',

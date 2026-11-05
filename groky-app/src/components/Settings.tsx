@@ -1,5 +1,6 @@
-import { Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Switch, Text, useWindowDimensions, View } from 'react-native';
 import env from '../lib/config';
+import { setFullAccess, useFullAccess } from '../lib/fullAccess';
 import { devices } from '../devices';
 import { Colors, Mode, radius, shadowFloat, type, useStyles, useTheme } from '../theme';
 import { IconButton, Segmented } from './ui';
@@ -18,6 +19,7 @@ export default function Settings({ open, onClose }: Props) {
   const s = useStyles(makeStyles);
   const mobile = useWindowDimensions().width < 641;
   const auth = env.tokenUrl ? 'token server' : env.xaiKey ? 'api key (dev)' : 'not set';
+  const full = useFullAccess();
 
   return (
     <Modal visible={open} transparent animationType={mobile ? 'slide' : 'fade'} onRequestClose={onClose}>
@@ -38,6 +40,18 @@ export default function Settings({ open, onClose }: Props) {
             <Row key={d.label} label={d.label} value={d.url || 'simulated'} last={i === all.length - 1} />
           ))}
           <Text style={s.hint}>Edit .env and restart Expo to change these.</Text>
+
+          <Text style={s.overline}>Real arm</Text>
+          <View style={[s.row, { borderBottomWidth: 0 }]}>
+            <View style={{ flexShrink: 1 }}>
+              <Text style={s.rowLabel}>Full access</Text>
+              <Text style={[s.rowValue, full && { color: c.warn }]}>
+                {full ? 'ON: Motion runs skills and tasks on the real arm' : 'Off: skills need approval first'}
+              </Text>
+            </View>
+            <Switch value={full} onValueChange={setFullAccess} />
+          </View>
+          <Text style={s.hint}>Or say "full access" / "full access off". Resets to off when the app restarts.</Text>
         </Pressable>
       </Pressable>
     </Modal>
