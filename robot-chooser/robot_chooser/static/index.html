@@ -53,6 +53,18 @@ ul{margin:4px 0 8px;padding-left:18px}li{margin:2px 0}.b li{color:var(--bad)}.w 
     <div class="grid" id="hwform"></div>
     <div style="margin-top:10px"><button class="primary" onclick="saveHw()">Save hardware</button></div>
   </section>
+  <section><h2>Hardware components (any device)</h2>
+    <p class="mut">Forms come from <code>robot-chooser/hardware_types/*.yaml</code>: a new kind of hardware = one new
+      type file. Everything carried by the arm counts against its payload; the end effector sets the TCP.</p>
+    <div id="comps"></div>
+    <div class="grid" style="margin-top:10px">
+      <label>Type</label><select id="c_type"></select>
+      <label>Id</label><input id="c_id" placeholder="wrist_camera (lowercase, _)">
+      <label>Name</label><input id="c_name" placeholder="Wrist camera D405">
+      <label>Attached to</label><select id="c_parent"></select>
+    </div>
+    <div style="margin-top:8px"><button class="primary" onclick="addComp()">Add component</button></div>
+  </section>
   <section><h2>Selected robot specs (catalog.yaml)</h2>
     <div class="grid" id="robotform"></div>
     <p class="mut">Limits: paste values from the manufacturer datasheet / RoboDK model, with a source. Tick
@@ -91,16 +103,13 @@ function render(){
    <div class="mut">${p.payload_budget_kg!=null?`Payload budget ${p.payload_budget_kg} kg · reach ${p.reach_m} m + TCP ${p.tcp_length_m} m · speed ${S.hardware.speed_percent}% of ${esc(p.robot)} maximums`:""}</div>
    ${li(p.blockers,"b")}${li(p.warnings,"w")}${li(p.notes,"n")}
    <div class="mut">${S.selection?`selection v${S.selection.selection_version} · ${S.selection.files.length?"generated: "+S.selection.files.map(esc).join(", "):"no controller files (blocked)"}`:""}</div>`;
-  const h=S.hardware,t=h.tool,m=h.mounting;
-  const f=(k,lab,v,type="text",opts)=>`<label>${lab}</label>`+(opts?`<select data-k="${k}">${opts.map(o=>`<option ${o===v?"selected":""}>${o}</option>`).join("")}</select>`
+  const h=S.hardware,m=h.mounting;
+  const f=(k,lab,v,type="text",opts)=>`<label>${lab}</label>`+(opts?`<select data-k="${k}">${opts.map(o=>`<option ${o===v?"selected":""}>${esc(o)}</option>`).join("")}</select>`
      :type==="checkbox"?`<input type="checkbox" data-k="${k}" ${v?"checked":""}>`:`<input data-k="${k}" data-t="${type}" value="${esc(Array.isArray(v)?v.join(", "):v)}">`);
   $("hwform").innerHTML=[f("backend","Backend",h.backend,0,["mock","robodk_sim"]),f("speed_percent","Speed %",h.speed_percent,"num"),
-   f("tool.name","Tool",t.name),f("tool.gripper_kind","Gripper (sim)",t.gripper_kind,0,["symbolic","none"]),f("tool.actuated","Tool opens/closes",t.actuated,"checkbox"),
-   f("tool.mass_kg","Tool mass kg",t.mass_kg,"num"),f("tool.mass_status","Mass is",t.mass_status,0,["placeholder","measured"]),
-   f("tool.tcp_offset_m_rad","TCP x,y,z,rx,ry,rz",t.tcp_offset_m_rad,"list"),f("tool.tcp_status","TCP is",t.tcp_status,0,["placeholder","measured"]),
    f("mounting.orientation","Mounting",m.orientation,0,["upright","wall","ceiling"]),f("mounting.base_in_world_m","Base x,y,z m",m.base_in_world_m,"list"),
-   f("mounting.status","Base pose is",m.status,0,["assumed","measured"]),
-   ...h.cameras.flatMap((c,i)=>[f(`cameras.${i}.mount`,`${c.name} mount`,c.mount??""),f(`cameras.${i}.calibrated`,`${c.name} calibrated`,c.calibrated,"checkbox")])].join("");
+   f("mounting.status","Base pose is",m.status,0,["assumed","measured"])].join("");
+  renderComponents();
   const r=cat.find(x=>x.active);
   $("robotform").innerHTML=`<label>Robot</label><b>${esc(r.brand)} ${esc(r.model)} (${esc(r.id)})</b>
    <label>RoboDK file</label><input id="r_lib" placeholder="UR3e.robot (in robot_controller/stations/)" value="${esc(r.library_file)}">
@@ -111,10 +120,9 @@ function render(){
 }
 function setPath(o,path,v){const k=path.split(".");let x=o;k.slice(0,-1).forEach((p,i)=>{x[p]=x[p]??(/^\d+$/.test(k[i+1])?[]:{});x=x[p]});x[k.at(-1)]=v}
 async function saveHw(){
-  const patch={cameras:JSON.parse(JSON.stringify(S.hardware.cameras))};
+  const patch={};
   document.querySelectorAll("#hwform [data-k]").forEach(e=>{let v=e.type==="checkbox"?e.checked:e.value;
-    if(e.dataset.t==="num")v=Number(v); if(e.dataset.t==="list")v=v.split(",").map(s=>Number(s.trim()));
-    if(e.dataset.k.endsWith(".mount")&&v==="")v=null; setPath(patch,e.dataset.k,v)});
+    if(e.dataset.t==="num")v=Number(v); if(e.dataset.t==="list")v=v.split(",").map(s=>Number(s.trim())); setPath(patch,e.dataset.k,v)});
   if(await api("/api/hardware",patch))msg("hardware.yaml saved")}
 async function saveRobot(){
   const r=S.catalog.find(x=>x.active), body={library_file:$("r_lib").value.trim()||null,scene_file:$("r_scene").value.trim()||null};
@@ -131,4 +139,5 @@ async function addRobot(){
   if(await api("/api/robots",body)){msg(`${body.id} added`);["n_id","n_brand","n_model","n_reach","n_payload","n_url","n_file"].forEach(i=>$(i).value="")}}
 async function removeRobot(id){if(confirm(`Remove ${id} from catalog.yaml?`)&&await api(`/api/robots/${encodeURIComponent(id)}/delete`,{}))msg(`${id} removed`)}
 $("q").oninput=render; api("/api/state");
-</script></body></html>
+</script>
+<script src="/components.js"></script></body></html>
