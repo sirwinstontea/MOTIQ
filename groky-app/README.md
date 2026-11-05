@@ -112,16 +112,21 @@ prediction.
 
 ## Run it
 
-Needs Node 20+ and Expo Go on the tablet.
+**Intended client:** React Native on a **physical tablet/phone via Expo Go** — not a desktop browser.
+
+Needs Node 20+ on a laptop (Metro only) and Expo Go on the tablet.
 
 ```sh
 npm install
 cp .env.example .env   # add the xAI key
-npx expo start
+npx expo start         # scan the QR with Expo Go — do not use --web for the demo
 ```
 
-Scan the QR code with Expo Go. On venue wifi use `npm run tunnel`, or plug the tablet in over USB and run
-`../tablet.sh` from the repo's parent folder (see `COMMANDS.md` there).
+On venue Wi‑Fi use `npx expo start --tunnel`, or plug the tablet in over USB and run `../tablet.sh` from the
+repo's parent folder (see `COMMANDS.md` there) if you have that helper.
+
+Backend URLs (`EXPO_PUBLIC_ARM_URL`, `EXPO_PUBLIC_VISION_SERVER`, `EXPO_PUBLIC_TEACH_SERVER`, …) must be the
+**robot PC’s LAN IP**. `http://127.0.0.1` from Expo Go is the phone itself and will not reach the PC.
 
 ### .env
 
@@ -164,11 +169,10 @@ src/preview/         2D skill preview timeline
 - The token endpoint's response format isn't documented; `src/voice/token.ts` accepts the likely shapes.
 - Tool list is a first guess until we see the real hardware.
 
-## Real-arm approval
+## Arm approval (Expo Go)
 
-Motion (voice or typed chat) has full authorization: it plans tasks and runs skills itself, with no approval in the
-Skills tab (full access is on at every start; "safe mode" turns it off). Before the **real** arm moves it calls
-`propose_plan`, tells you in plain words what the arm will do, and a plan card appears. The arm tools stay locked in
-the app (`src/voice/session.ts`, `src/lib/armApproval.ts`) until **you** answer: a short "yes" / "go ahead" / "sì" /
-"vai" spoken or typed, or Approve on the card. "No", Cancel, Stop, a new request or 5 minutes end the approval. Grok
-can't approve its own plan. Stop is never locked. With a simulated arm no approval is asked.
+Motion plans tasks and runs skills (full access is on at every start; "safe mode" turns it off). Before the arm
+moves — **simulator or real** — it calls `propose_plan` and asks out loud. Tools stay locked
+(`src/voice/session.ts`, `src/lib/armApproval.ts`) until **you** say or type a short "yes" / "go ahead" / "sì" /
+"vai" (or "no"). There is no separate Approve card. Stop, a new request, or 5 minutes ends approval. Grok can't
+approve its own plan. Skills-tab approval still gates real-robot skill runs when full access is off.

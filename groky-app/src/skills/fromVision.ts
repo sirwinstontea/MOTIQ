@@ -239,11 +239,12 @@ export type PickedVideo = { uri: string; file?: Blob; mimeType?: string | null; 
 // send a Blob body on Android (the server got bytes that weren't the video: "video non leggibile").
 async function teach(path: string, init: RequestInit, note: string, source: Record<string, unknown>, fileUri?: string) {
   if (!env.teachServer) throw new Error('No teach server set (EXPO_PUBLIC_TEACH_SERVER). Run computer-vision-to-app/run.py all.');
+  const url = `${env.teachServer}${path}`;
   let status: number;
   let text: string;
   try {
     if (fileUri) {
-      const up = await uploadAsync(`${env.teachServer}${path}`, fileUri, {
+      const up = await uploadAsync(url, fileUri, {
         httpMethod: 'POST',
         uploadType: FileSystemUploadType.BINARY_CONTENT,
         headers: (init.headers as Record<string, string>) ?? {},
@@ -251,21 +252,33 @@ async function teach(path: string, init: RequestInit, note: string, source: Reco
       status = up.status;
       text = up.body;
     } else {
-      const r = await fetch(`${env.teachServer}${path}`, { method: 'POST', ...init });
+      const r = await fetch(url, { method: 'POST', ...init });
       status = r.status;
       text = await r.text();
     }
-  } catch {
-    throw new Error(`Can't reach the teach server at ${env.teachServer}.`);
+  } catch (e: any) {
+    const why = e?.message ? `: ${e.message}` : '';
+    throw new Error(`Can't reach the teach server at ${env.teachServer}${why}`);
   }
   let j: any = {};
   try {
     j = JSON.parse(text);
-  } catch {}
+  } catch {
+    throw new Error(
+      status >= 400
+        ? `teach server ${status}: ${(text || '').slice(0, 200) || 'empty response'}`
+        : `teach server returned non-JSON (${(text || '').slice(0, 120)})`,
+    );
+  }
   if (status >= 400 || !j.ok) throw new Error(j.error ?? `teach server ${status}`);
   const tokens = (j.tokens?.tokens ?? []) as unknown[];
-  if (!tokens.length) throw new Error('No actions recognised in the video. Try a clearer, slower demonstration.');
-  const summary: string = j.summary;
+  const summary: string = j.summary || '';
+  // Static / unclear demos sometimes yield zero tokens or only "wait". Still learn when we have a
+  // summary (and optional note), so Show Motion / Upload video can become a skill.json.
+  if (!tokens.length && !summary.trim() && !note.trim()) {
+    throw new Error('No actions recognised in the video. Try a clearer, slower demonstration.');
+  }
+  if (!summary.trim()) throw new Error('Teach server returned no summary for the demonstration.');
   const prompt = note.trim() ? `${summary}\nThe person also said: "${note.trim()}"` : summary;
   const out = await generateSkill(prompt);
   const doc = out.doc;
@@ -275,20 +288,52 @@ async function teach(path: string, init: RequestInit, note: string, source: Reco
   return { ...out, doc, summary };
 }
 
+function videoContentType(mime?: string | null): string {
+  // strip codecs=... so the teach server picks the right file extension
+  const raw = (mime || 'video/mp4').split(';')[0].trim().toLowerCase();
+  return raw.startsWith('video/') ? raw : 'video/mp4';
+}
+
 export async function skillFromVideo(video: PickedVideo, note = ''): Promise<Generated & { summary: string }> {
   const q = note.trim() ? `?goal=${encodeURIComponent(note.trim())}` : '';
-  const headers = { 'Content-Type': video.mimeType || 'video/mp4' };
+  const headers = { 'Content-Type': videoContentType(video.mimeType) };
   const src = { type: 'video', video: video.name };
   // native with a file on disk: upload the file itself (no Blob)
   if (Platform.OS !== 'web' && !video.file && video.uri) return teach(`/teach${q}`, { headers }, note, src, video.uri);
-  const body = video.file ?? (await (await fetch(video.uri)).blob());
+  let body: Blob;
+  if (video.file) {
+    body = video.file;
+  } else if (video.uri) {
+    try {
+      body = await (await fetch(video.uri)).blob();
+    } catch (e: any) {
+      throw new Error(`Could not read the recorded video: ${e?.message ?? e}`);
+    }
+  } else {
+    throw new Error('No video to send — recording produced neither a file nor a blob.');
+  }
+  if (!body.size) throw new Error('Recorded video is empty — try Show Motion again.');
   return teach(`/teach${q}`, { headers, body }, note, src);
 }
 
 // "Show Motion": the 15 s recording from CameraPanel.record (lib/recorder.ts)
 export async function skillFromRecording(rec: Recording, camera: string, note = ''): Promise<Generated & { summary: string }> {
-  if (rec.kind === 'video') return skillFromVideo({ uri: rec.uri ?? '', file: rec.blob, mimeType: rec.mime, name: `${camera} recording` }, note);
-  const body = JSON.stringify({ frames: rec.frames, fps: rec.fps, audio: rec.audio, audio_mime: rec.audioMime, goal: note.trim() || undefined });
+  if (rec.kind === 'video') {
+    return skillFromVideo(
+      { uri: rec.uri ?? '', file: rec.blob, mimeType: rec.mime, name: `${camera} recording` },
+      note,
+    );
+  }
+  if (!rec.frames?.length || rec.frames.length < 2) {
+    throw new Error('Not enough camera frames were captured to learn a skill.');
+  }
+  const body = JSON.stringify({
+    frames: rec.frames,
+    fps: rec.fps,
+    audio: rec.audio,
+    audio_mime: rec.audioMime,
+    goal: note.trim() || undefined,
+  });
   return teach('/teach_frames', { headers: { 'Content-Type': 'application/json' }, body }, note, {
     type: 'video',
     video: `${camera} recording`,
