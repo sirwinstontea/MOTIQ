@@ -65,6 +65,8 @@ def create_app(ex: TaskExecutor, *, auth: tuple[str, str] | None = None) -> Fast
     @app.get("/health")
     def health():
         return {"process": "ok", "backend": ex.c.backend_name, "executor_state": ex.state.value,
+                "model": ex.robot_cfg.model, "dof": ex.robot_cfg.dof,
+                "simulation": ex.c.backend_name in ("mock", "robodk_sim", "ursim_sync"),
                 "note": "health is not a claim of physical motion readiness"}
 
     @app.get("/", response_class=HTMLResponse)
