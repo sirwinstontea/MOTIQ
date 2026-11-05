@@ -106,7 +106,9 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
   return (
     <View style={s.card}>
       <View style={s.head}>
-        {enabled ? (
+        {enabled && cameras.length < 2 ? (
+          <View style={{ flex: 1 }} />
+        ) : enabled ? (
           <ScrollView horizontal style={{ flex: 1 }} showsHorizontalScrollIndicator={false}>
             <Segmented
               options={cameras.map((k) => ({ id: k.id, label: k.label }))}
@@ -143,7 +145,7 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
               <CameraView ref={view} style={StyleSheet.absoluteFill} facing={facing} mode={mode} animateShutter={false} />
             )}
 
-            <Pill label={watching ? `${cam.label} · Motion is watching` : cam.label} tone="bad" dot style={s.live} />
+            {watching && <Pill label="Motion is watching" tone="bad" dot style={s.live} />}
 
             {!cam.url && perm?.granted && (
               <IconButton
