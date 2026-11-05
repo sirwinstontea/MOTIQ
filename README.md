@@ -45,6 +45,7 @@ Voice runs the conversation, Grok vision checks the cameras, and Grok writes the
 | [`computer-vision-to-app/`](computer-vision-to-app) | One command that installs and starts the vision server and connects it to the app's Cameras tab and *Learn from camera* |
 | [`bridge/`](bridge) | Connects the app's robot tools to the controller and passes it what the camera sees |
 | [`robot_controller/`](robot_controller) | Robot controller with interchangeable backends: the same task JSON runs on mock, RoboDK or URSim |
+| [`robot-chooser/`](robot-chooser) | Pick any arm model and describe any cell hardware (tool, cameras, sensors, dog, ...) as typed components; regenerates the hardware requirements YAML and the controller config (simulation only). Developer guide in its README |
 
 ## Quick start
 

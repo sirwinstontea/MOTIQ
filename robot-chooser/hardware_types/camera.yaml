@@ -1,0 +1,33 @@
+# Camera (fixed in the cell or on the arm). Detections only give executable coordinates once calibrated.
+type: camera
+label: Camera
+description: RGB / RGB-D camera used for vision or for recording demonstrations.
+attach_to: [cell, arm, gripper, tool_changer, mobile_base]
+roles: [camera, sensor]
+payload_field: mass_kg
+fields:
+  role: {type: enum, values: [vision, skill_recording, monitoring, other], required: true}
+  model: {type: string}
+  serial: {type: string}
+  mass_kg: {type: number, min: 0, max: 10, unit: kg, description: "required when mounted on the arm"}
+  resolution_px: {type: vector, length: 2}
+  fov_deg: {type: vector, length: 2, description: "[horizontal, vertical]"}
+  depth_range_m: {type: vector, length: 2}
+  pose_m_rad: {type: vector, length: 6, unit: "m, rad", description: "pose in the parent frame (cell/flange)"}
+  calibrated: {type: bool, default: false, description: "intrinsics + hand-eye/extrinsics calibrated"}
+drivers:
+  - id: realsense
+    description: Intel RealSense D4xx via pyrealsense2 (computer-vision/vision/eyes/capture/realsense.py)
+    connects_via: computer-vision server
+    physical: true
+    actuates: false
+  - id: video_file
+    description: recorded video replay (computer-vision/vision/eyes/capture/reader.py)
+    connects_via: computer-vision server
+    physical: false
+    actuates: false
+  - id: robodk_camera
+    description: simulated camera in the RoboDK station (computer-vision/vision/eyes/capture/robodk.py)
+    connects_via: computer-vision server + RoboDK
+    physical: false
+    actuates: false

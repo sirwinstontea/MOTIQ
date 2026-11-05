@@ -28,8 +28,37 @@ from .task_executor import TaskExecutor
 from .vision import MockDetector, NoDetector, VisionEyesFileDetector
 
 
+def _chooser_selection() -> dict | None:
+    """config/selection.yaml, written by robot-chooser (../robot-chooser). None if the chooser was never used."""
+    p = Path("config") / "selection.yaml"
+    if not p.is_file():
+        return None
+    import yaml
+    try:
+        data = yaml.safe_load(p.read_text(encoding="utf-8"))
+    except yaml.YAMLError as e:
+        raise RobotControlError(ErrorCode.CONFIG_ERROR, f"invalid YAML in {p}: {e}") from e
+    if not isinstance(data, dict):
+        raise RobotControlError(ErrorCode.CONFIG_ERROR, f"{p} must contain a mapping")
+    return data
+
+
 def _default_config(name: str) -> str:
+    """Default robot/scene/safety file. If robot-chooser selected a robot, use ITS generated files and refuse
+    to start on a blocked selection: never fall back silently to the UR5e example files."""
     p = Path("config") / f"{name}.yaml"
+    sel = _chooser_selection()
+    if sel is not None:
+        if sel.get("status") != "READY":
+            reasons = "; ".join(sel.get("blockers") or []) or "not ready"
+            raise RobotControlError(ErrorCode.CONFIG_ERROR,
+                                    f"robot-chooser selected '{sel.get('robot_id')}' but it is BLOCKED: {reasons}. "
+                                    "Fix robot-chooser/hardware.yaml or catalog.yaml and run "
+                                    "`python -m robot_chooser apply`, or pass --config/--scene/--safety explicitly.")
+        if not p.is_file():
+            raise RobotControlError(ErrorCode.CONFIG_ERROR, f"robot-chooser selection is READY but {p} is missing; "
+                                    "run `python -m robot_chooser apply`")
+        return str(p)
     return str(p if p.is_file() else Path("config") / f"{name}.example.yaml")
 
 

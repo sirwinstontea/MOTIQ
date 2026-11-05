@@ -1,0 +1,12 @@
+type: tool_changer
+label: Tool changer / adapter plate
+description: Adapter or quick changer on the flange; tools and sensors can be attached to it.
+attach_to: [arm, force_torque_sensor]
+roles: [other]
+payload_field: mass_kg
+fields:
+  model: {type: string}
+  mass_kg: {type: number, min: 0, max: 20, unit: kg, required: true}
+  length_m: {type: number, min: 0, unit: m}
+  flange: {type: string, description: "e.g. ISO 9409-1-50-4-M6"}
+drivers: []

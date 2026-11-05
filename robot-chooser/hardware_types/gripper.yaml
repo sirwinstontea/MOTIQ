@@ -1,0 +1,27 @@
+# End effector: the part that touches objects. Exactly one may be carried by the arm.
+# Its tcp_offset_m_rad / sim_gripper go into the controller's robot.yaml; its mass counts against payload.
+type: gripper
+label: Gripper / end effector
+description: Parallel, angular, vacuum, magnetic or rigid (non-actuated) tool on the arm flange.
+attach_to: [arm, tool_changer, force_torque_sensor, cell]   # cell = parked in a tool rack
+roles: [end_effector]
+payload_field: mass_kg
+fields:
+  kind: {type: enum, values: [parallel, angular, vacuum, magnetic, rigid, other], required: true}
+  actuated: {type: bool, required: true, description: "does the real tool open/close or switch on?"}
+  mass_kg: {type: number, min: 0, max: 100, unit: kg, required: true}
+  tcp_offset_m_rad: {type: vector, length: 6, unit: "m, rad", required: true,
+                     description: "flange -> contact point [x, y, z, rx, ry, rz]"}
+  sim_gripper: {type: enum, values: [symbolic, none], default: symbolic,
+                description: "what the controller simulates (symbolic = simulated grasp)"}
+  opening_min_m: {type: number, min: 0, unit: m}
+  opening_max_m: {type: number, min: 0, unit: m}
+  grip_force_n: {type: number, min: 0, unit: N}
+  vacuum_kpa: {type: number, min: 0, unit: kPa}
+  material: {type: string}
+drivers:
+  - id: controller_symbolic
+    description: robot_controller simulates grasp/release (no device)
+    connects_via: robot_controller (mock / robodk_sim backends)
+    physical: false
+    actuates: false

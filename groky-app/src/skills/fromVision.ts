@@ -57,7 +57,8 @@ const moved = (t: Track) => dist(t.first, t.last) > (t.first.mm && t.last.mm ? M
 const EN: Record<string, string> = { ross: 'red', blu: 'blue', verd: 'green', giall: 'yellow', ner: 'black', bianc: 'white', arancion: 'orange', viola: 'purple', grigi: 'grey', marron: 'brown', rosa: 'pink' };
 const english = (c: string) => Object.entries(EN).find(([it]) => c.toLowerCase().startsWith(it))?.[1] ?? c;
 // the demo pieces the custom model knows (tappo_bianco, anello_verde, vite_arancione, secchio_blu)
-const NOUN: Record<string, string> = { tappo: 'cap', anello: 'ring', vite: 'screw', secchio: 'bucket' };
+// (same names the bridge and the teach server use: orange screw, blue bucket, green ring, white bucket lid)
+const NOUN: Record<string, string> = { tappo: 'bucket lid', anello: 'ring', vite: 'screw', secchio: 'bucket' };
 const isColor = (w: string) => english(w) !== w;
 // "vite_arancione" / "vite arancione" + colour "arancione" -> "orange screw"
 export const describeObject = (t: Pick<Track, 'label' | 'color'>) => {
@@ -197,6 +198,8 @@ export function summarize(obs: Observation): { text: string; problems: string[] 
     obs.hands ? 'A human hand did the moving; the robot should do the same moves with its gripper.' : '',
     order.length > 1 ? 'Keep the same order.' : '',
     'Write a skill that makes the robot arm reproduce this: detect each object first, pick it, place it at the same destination, verify, then go home.',
+    // same rules as the teach server's video summary (computer-vision-to-app/teach_server.py)
+    "The arm's camera is on its head and it knows four objects: orange screw, blue bucket, green ring, white bucket lid; map what the person handled to the closest of these. Putting something in a cup/bucket/container means into the blue bucket; putting it to one side or on a pad means the delivery zone.",
   ]
     .filter(Boolean)
     .join('\n');
