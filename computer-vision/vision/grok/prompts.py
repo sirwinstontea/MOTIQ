@@ -61,12 +61,15 @@ Compito: descrivi la scena in "text" con al massimo 2 frasi brevi in italiano, a
 lette a voce. Cita gli oggetti principali e, quando aiuta a sceglierli, il loro numero."""
 
 
-def detect_objects(known: list[TrackedObject], max_objects: int) -> str:
+def detect_objects(known: list[TrackedObject], max_objects: int, focus: str | None = None) -> str:
     skip = (f"Questi oggetti sono già stati trovati, NON ripeterli: {objects_block(known)}\n"
             if known else "")
+    want = (f"L'utente sta cercando: {json.dumps(focus, ensure_ascii=False)}. Se c'è, includilo per primo "
+            "anche se piccolo o poco evidente, con un label inglese semplice che lo descriva bene.\n"
+            if focus else "")
     return (
         "Sei il sistema di visione di un robot. Rispondi SOLO con JSON, senza testo prima o dopo.\n\n"
-        + skip
+        + skip + want
         + f"""Compito: trova nell'immagine gli oggetti fisici distinti e ben visibili (al massimo {max_objects}),
 quelli che si potrebbero indicare o afferrare, anche piccoli o sottili e anche se qualcuno li tiene in mano
 (in quel caso il riquadro va attorno all'oggetto, non alla mano).
@@ -84,6 +87,22 @@ Per ogni oggetto:
 - bbox: [x, y, larghezza, altezza] normalizzati 0-1 rispetto all'immagine intera, origine in alto
   a sinistra, riquadro stretto attorno all'oggetto."""
     )
+
+
+def explain_changes(changes: list[dict]) -> str:
+    kinds = {"added": "aggiunto", "removed": "tolto", "moved": "spostato"}
+    lst = json.dumps([{"n": c["n"], "tipo": kinds[c["kind"]]} for c in changes], ensure_ascii=False)
+    return f"""Sei il sistema di visione di un robot. Rispondi SOLO con JSON, senza testo prima o dopo.
+Ti mostro due immagini dello stesso tavolo: la prima è la scena di RIFERIMENTO, la seconda quella ATTUALE.
+Un sistema automatico ha trovato questi cambiamenti, segnati con lo stesso numero in tutte e due le immagini
+(verde = aggiunto, rosso = tolto, giallo = spostato, con una freccia da dove veniva): {lst}
+
+Compito: per ogni numero della lista
+- name: l'oggetto coinvolto, tipo + colore in italiano, 1-3 parole (es. "forbici rosse")
+- real: true se un oggetto è davvero stato aggiunto, tolto o spostato; false se è solo ombra, riflesso,
+  luce o una differenza che non riguarda un oggetto. Nel dubbio guarda bene le due immagini.
+Poi "text": al massimo 2 frasi brevi in italiano da leggere a voce, che dicono cosa è cambiato
+(solo i cambiamenti veri). Se un oggetto sembra fuori posto (es. una tazza in mezzo agli attrezzi), dillo e spiega perché."""
 
 
 def verify_action(objs_before: list[TrackedObject], objs_after: list[TrackedObject], action: str,

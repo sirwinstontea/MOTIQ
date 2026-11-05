@@ -9,6 +9,9 @@
                   robot in logs/selection.json (anche da [S] e quando la selezione si riaggancia)
   [Z]          -> Zoom sull'oggetto attualmente selezionato (con S o Click Sx)
   [Click Dx]   -> Dezooma (riporta alla vista panoramica 1.0x, come [0] / [R])
+  [P]          -> Salva la scena di riferimento (per "cosa è cambiato")
+  [X]          -> Cosa è cambiato rispetto alla scena di riferimento: verde aggiunto, rosso tolto,
+                  giallo spostato; poi Grok dà i nomi, scarta ombre/riflessi e lo dice a parole
   [C]          -> Dimentica tutto: oggetti di Grok e classi imparate (che altrimenti restano
                   in logs/vocab.json e tornano al prossimo avvio)
   [1-9]        -> Seleziona l'oggetto con quel numero e zooma
@@ -51,13 +54,14 @@ from vision.eyes.capture.realsense import default_camera
 from vision.eyes.depth import CLASS_PRIORS_CM, estimate_distance_m, format_distance
 from vision.eyes.marks import draw_marks
 from vision.eyes.pipeline import EyePipeline
-from vision.grok.geometry import refine_box
+from vision.grok.changes import draw_changes, find_changes
+from vision.grok.geometry import iou, refine_box
 from vision.grok.handoff import HUMAN_LABELS, send_selection
 from vision.grok.local_resolver import display
 from vision.grok.marks import object_at, reacquire
-from vision.grok.open_vocab import OpenVocab, load_vocab, save_vocab
+from vision.grok.open_vocab import DESK_CLASSES, OpenVocab, load_vocab, save_vocab
 from vision.grok.schemas import TrackedObject
-from vision.grok.tasks import describe_scene, detect_objects, name_objects, select
+from vision.grok.tasks import describe_scene, detect_objects, explain_changes, name_objects, select
 
 # vision.grok.client ha già caricato il .env. Senza chiave si va in modalità finta.
 if not os.getenv("XAI_API_KEY") and not os.getenv("GROK_MOCK"):
@@ -76,6 +80,7 @@ HELP = [
     "N       Grok da' i nomi",
     "S       scrivi un comando (es. prendi la penna blu)",
     "D/Spazio  descrivi la scena",
+    "P       salva scena di riferimento   X  cosa e' cambiato",
     "Click Sx  seleziona oggetto (o seleziona telecamera in griglia/PiP)",
     "Z       zoom sull'oggetto selezionato",
     "Click Dx  dezooma (oppure 0 / R)",
@@ -426,7 +431,9 @@ def main() -> None:
         pipeline.stop()
         return
 
-    ov = None if args.no_world else OpenVocab()  # carica in background, il video parte subito
+    # Carica in background (il video parte subito) e cerca da subito gli oggetti comuni da tavolo.
+    # WORLD_CONF nel .env: alzala (0.25-0.3) se compaiono oggetti inventati, abbassala se ne perde.
+    ov = None if args.no_world else OpenVocab(conf=float(os.getenv("WORLD_CONF", "0.2")), base=DESK_CLASSES)
 
     cv2.namedWindow(WIN, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(WIN, 980, 620)
@@ -458,6 +465,8 @@ def main() -> None:
         "status": (f"Pronto. {len(cam_sources)} telecamere connesse. V/B = cambia cam, M = layout, G = trova.", "ok") if len(cam_sources) > 1 else ("Pronto. G = Grok trova gli oggetti, click = seleziona, H = aiuto.", "ok"),
         "latency_msg": "",
         "dog_info": "",
+        "ref_frame": None,    # scena di riferimento (P)
+        "changes": [],        # cambiamenti trovati con X, disegnati finché non premi di nuovo P, X o C
     }
 
     def set_status(msg: str, kind: str = "ok") -> None:
@@ -555,8 +564,9 @@ def main() -> None:
     cv2.setMouseCallback(WIN, on_mouse_click)
 
     # Chiamate a Grok: ognuna in un thread, così il video non si ferma
-    def run_grok_detect(raw_frame, yolo_objs):
-        res = detect_objects(raw_frame, known=yolo_objs)
+    def run_grok_detect(raw_frame, yolo_objs, focus=None):
+        # Cercando un oggetto preciso bastano pochi oggetti: risposta corta = Grok molto più veloce
+        res = detect_objects(raw_frame, known=yolo_objs, focus=focus, max_objects=4 if focus else 15)
         if not res.ok:
             return set_status(f"Errore Grok: {res.error}", "err")
         for o in res.objects:
@@ -576,6 +586,17 @@ def main() -> None:
             print("[Grok] scartati: " + "; ".join(dropped))
         set_status(f"Grok ha trovato {len(res.objects)} oggetti: {names}")
         st["latency_msg"] = latency(res)
+
+    def run_changes(ref, cur, changes):
+        res = explain_changes(draw_changes(ref, changes), draw_changes(cur, changes), changes)
+        st["latency_msg"] = latency(res)
+        if not res.ok:  # senza Grok restano i riquadri con il tipo di cambiamento
+            return set_status(f"{len(changes)} cambiamenti (Grok non ha risposto: {res.error})", "err")
+        names = {c.n: c for c in res.changes}
+        st["changes"] = [dict(c, name=names[c["n"]].name) for c in changes
+                         if c["n"] not in names or names[c["n"]].real]  # real=False: ombra o riflesso, via
+        dropped = len(changes) - len(st["changes"])
+        set_status(res.text + (f"  (scartati {dropped} falsi allarmi)" if dropped else ""))
 
     def run_describe(raw_img, objs):
         res = describe_scene(raw_img, objs)
@@ -602,8 +623,16 @@ def main() -> None:
         set_status("Nomi: " + (", ".join(f"#{n.id} {n.name}" for n in res.objects) or "nessuno"))
         st["latency_msg"] = latency(res)
 
-    def run_select(marked_img, objs, text):
-        res = select(marked_img, objs, text)
+    def run_select(raw_img, objs, text):
+        res = select(draw_marks(raw_img, objs), objs, text)
+        if res.ok and not res.ambiguous and res.target_id is None:
+            # Non è tra gli oggetti visti (il nostro modello ne conosce 4): Grok lo cerca nell'immagine
+            # guidato dalla richiesta, YOLO-World impara la classe, poi si sceglie di nuovo.
+            set_status(f"Non lo vedo ancora: Grok cerca '{text}' nella scena...", "wait")
+            core = [o for o in objs if o["id"] < 1000]
+            run_grok_detect(raw_img, core, focus=text)
+            objs = core + [o for o in objs if o["id"] >= 2000] + st["grok_objects"]
+            res = select(draw_marks(raw_img, objs), objs, text, use_local=False)
         st["latency_msg"] = f"{latency(res)} ({res.source})"
         if not res.ok:
             return set_status(f"Errore: {res.error}", "err")
@@ -674,12 +703,16 @@ def main() -> None:
                     st["grok_objects"] = [o for o in st["grok_objects"] if o["label"] not in seen]
                 for o in live:
                     o.update(st["label_meta"].get(o["label"], {}))
+                # Il nostro modello è il core: dove vede già uno dei suoi oggetti, YOLO-World non aggiunge doppioni
+                live = [o for o in live if not any(iou(o["bbox"], y["bbox"]) > 0.5 for y in yolo_objs)]
             all_objs = yolo_objs + live + st["grok_objects"]
             for o in all_objs:
                 o.update(st["meta"].get(o["id"], {}))
             st["objects"] = all_objs
 
             frame_display = draw_marks(raw, all_objs, min_conf=min_conf, show_conf=show_conf)
+            if st["changes"]:
+                frame_display = draw_changes(frame_display, st["changes"])
 
             sel = next((o for o in all_objs if o["id"] == st["selected_id"]), None)
             # Selezionato sparito: forse il tracker gli ha dato un altro id. Lo cerchiamo per 3 s
@@ -775,8 +808,7 @@ def main() -> None:
                 elif key in (13, 10):
                     text, st["typing"] = st["typing"].strip(), None
                     if text and not st["is_busy"]:
-                        marked = draw_marks(raw, all_objs)
-                        start(run_select, marked, list(all_objs), text, msg=f"Cerco: '{text}'...")
+                        start(run_select, raw.copy(), list(all_objs), text, msg=f"Cerco: '{text}'...")
                 elif key == 8:
                     st["typing"] = st["typing"][:-1]
                 elif 32 <= key < 127:
@@ -818,6 +850,22 @@ def main() -> None:
             elif key in (ord("g"), ord("G")) and not st["is_busy"]:
                 start(run_grok_detect, raw.copy(), list(yolo_objs), msg="Grok cerca gli oggetti nella scena...")
 
+            elif key in (ord("p"), ord("P")):
+                st["ref_frame"], st["changes"] = raw.copy(), []
+                set_status("Scena di riferimento salvata. Cambia qualcosa sul tavolo, poi premi X.")
+
+            elif key in (ord("x"), ord("X")) and not st["is_busy"]:
+                hands = [o["bbox"] for o in yolo_objs if str(o.get("label", "")).lower() in HUMAN_LABELS]
+                changes, problem = find_changes(st["ref_frame"], raw, ignore=hands)
+                st["changes"] = changes
+                if problem:
+                    set_status(problem, "err")
+                elif not changes:
+                    set_status("Non è cambiato niente rispetto alla scena di riferimento.")
+                else:
+                    start(run_changes, st["ref_frame"], raw.copy(), changes,
+                          msg=f"{len(changes)} cambiamenti trovati, Grok li controlla...")
+
             elif key in (ord("d"), ord("D"), 32) and not st["is_busy"]:
                 start(run_describe, raw.copy(), list(all_objs), msg="Grok descrive la scena...")
 
@@ -830,7 +878,7 @@ def main() -> None:
 
             # C: dimentica gli oggetti di Grok, le classi di YOLO-World e vocab.json
             elif key in (ord("c"), ord("C")):
-                st["grok_objects"], st["label_meta"] = [], {}
+                st["grok_objects"], st["label_meta"], st["changes"] = [], {}, []
                 if ov:
                     ov.forget()
                 save_vocab(VOCAB_PATH, {})
