@@ -126,8 +126,8 @@ class RobotEntry(_M):
     @field_validator("library_url")
     @classmethod
     def _url(cls, v):
-        if not v.startswith("https://robodk.com/"):
-            raise ValueError("library_url must be an official https://robodk.com/ page")
+        if not re.match(r"^https://[A-Za-z0-9.-]+\.[A-Za-z]{2,}(/[^\s\"'<>]*)?$", v):
+            raise ValueError("library_url must be an https:// page (RoboDK library or manufacturer)")
         return v
 
     @field_validator("library_file")
@@ -632,6 +632,36 @@ class Chooser:
             self._save_catalog(new_cat)
             return self._commit(new_cat, self.load_hardware())
 
+    def add_robot(self, entry: dict) -> dict:
+        """Add any arm to the catalog. It starts BLOCKED until its limits, scene and workspace are filled in."""
+        if not isinstance(entry, dict):
+            raise ChooserError("VALIDATION_ERROR", "body must be a JSON object")
+        with self._lock:
+            cat = self.load_catalog()
+            if cat.get(entry.get("id")) is not None:
+                raise ChooserError("DUPLICATE_ROBOT", f"robot id {entry.get('id')!r} already exists", 409)
+            try:
+                new_r = RobotEntry.model_validate({"robodk_item_name": entry.get("model"), **entry})
+                new_cat = Catalog.model_validate({"schema": cat.schema_, "robots": [*cat.robots, new_r]})
+            except ValidationError as e:
+                raise ChooserError("VALIDATION_ERROR", _pydantic_msg(e))
+            self._save_catalog(new_cat)
+            return self._commit(new_cat, self.load_hardware())
+
+    def remove_robot(self, robot_id: str) -> dict:
+        with self._lock:
+            cat, hw = self.load_catalog(), self.load_hardware()
+            if cat.get(robot_id) is None:
+                raise ChooserError("UNKNOWN_ROBOT", f"unknown robot_id {robot_id!r}", 404)
+            if hw.active_robot == robot_id:
+                raise ChooserError("ROBOT_ACTIVE", f"{robot_id} is the active robot; select another one first", 409)
+            new_cat = Catalog.model_validate({"schema": cat.schema_,
+                                              "robots": [r for r in cat.robots if r.id != robot_id]})
+            hw = hw.model_copy(update={"workspace_overrides": {k: v for k, v in hw.workspace_overrides.items()
+                                                               if k != robot_id}})
+            self._save_catalog(new_cat)
+            return self._commit(new_cat, hw)
+
     def apply(self) -> dict:
         with self._lock:
             return self._commit(self.load_catalog(), self.load_hardware())
@@ -656,6 +686,10 @@ class Chooser:
                        + dump_yaml(rd))
             elif target.is_file() and target.read_text(encoding="utf-8").startswith(GENERATED_MARK):
                 target.unlink()
+        known = {r.id for r in cat.robots}
+        for old in robots_dir.glob("*.yaml") if robots_dir.is_dir() else []:
+            if old.stem not in known and old.read_text(encoding="utf-8").startswith(GENERATED_MARK):
+                old.unlink()                                   # robot removed from the catalog
 
         active = {"robot": self.ctrl_cfg / "robot.yaml", "safety": self.ctrl_cfg / "safety.yaml",
                   "scene": self.ctrl_cfg / "scene.yaml"}

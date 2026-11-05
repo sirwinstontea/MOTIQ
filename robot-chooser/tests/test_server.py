@@ -45,6 +45,16 @@ def test_select_contract(url):
     assert code == 200 and s["selection"]["robot_id"] == "ur_ur3e"
 
 
+def test_add_and_remove_robot_over_http(url):
+    body = {"id": "abb_irb1200", "brand": "ABB", "model": "IRB 1200", "dof": 6, "nominal_reach_m": 0.7,
+            "nominal_payload_kg": 5.0, "library_url": "https://robodk.com/library"}
+    code, s = _call(url, "/api/robots", body)
+    assert code == 200 and any(r["id"] == "abb_irb1200" for r in s["catalog"])
+    assert _call(url, "/api/robots", body)[0] == 409
+    code, s = _call(url, "/api/robots/abb_irb1200/delete", {})
+    assert code == 200 and not any(r["id"] == "abb_irb1200" for r in s["catalog"])
+
+
 def test_bad_input_is_422(url):
     code, s = _call(url, "/api/hardware", {"tool": {"mass_kg": -1}})
     assert code == 422 and s["error"]["code"] == "VALIDATION_ERROR"
