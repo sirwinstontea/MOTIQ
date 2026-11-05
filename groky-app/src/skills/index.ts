@@ -571,11 +571,75 @@ const push = (oid: string) =>
     ],
   });
 
+// Simulation only (the real UR5e has no gripper): RoboDK / URSim via robot_controller. PICK reads the screw's real
+// pose from the RoboDK station; PLACE blue_bucket_01 -> the bridge's blue_bucket_01_inside destination. The
+// primitive_sequences are what the app's own simulator runs.
+const screwInBucket: SkillDoc = (() => {
+  const doc = makeSkill({
+    id: 'arm_sim_screw_in_bucket',
+    name: 'Put the orange screw in the blue bucket',
+    description:
+      'Simulation (RoboDK / URSim): the arm picks up the orange screw, drops it inside the blue bucket, checks it was released there and goes home. The real arm has no gripper, so this runs in RoboDK only.',
+    device: 'arm',
+    icon: 'cube-outline',
+    builtin: true,
+    objects: armObjects,
+    success: ['The orange screw is inside the blue bucket.', 'The gripper is empty.', 'The arm is home.'],
+    steps: [
+      {
+        id: 'step_001',
+        action: 'PICK',
+        target: 'orange_screw_03',
+        description: 'Pick up the orange screw from the top.',
+        parameters: { grasp_type: 'top_grasp', preserve_orientation: true },
+        failure_policy: 'REPORT_FAILURE',
+        primitive_sequence: [
+          { primitive: 'OPEN_GRIPPER' },
+          { primitive: 'MOVE_ABOVE', parameters: { target: 'orange_screw_03', height_m: 0.15 } },
+          { primitive: 'MOVE_DOWN', parameters: { distance_m: 0.13, speed_mps: 0.05 } },
+          { primitive: 'CLOSE_GRIPPER', parameters: { force_pct: 70 } },
+          { primitive: 'MOVE_UP', parameters: { distance_m: 0.13 } },
+        ],
+      },
+      {
+        id: 'step_002',
+        action: 'PLACE',
+        target: 'blue_bucket_01',
+        description: 'Drop the screw inside the blue bucket.',
+        parameters: { placement_mode: 'inside_container', release_after_placement: true },
+        failure_policy: 'REPORT_FAILURE',
+        primitive_sequence: [
+          { primitive: 'MOVE_ABOVE', parameters: { target: 'blue_bucket_01', height_m: 0.15 } },
+          { primitive: 'MOVE_DOWN', parameters: { distance_m: 0.05, speed_mps: 0.05 } },
+          { primitive: 'OPEN_GRIPPER' },
+          { primitive: 'MOVE_UP', parameters: { distance_m: 0.05 } },
+        ],
+      },
+      {
+        id: 'step_003',
+        action: 'VERIFY',
+        target: 'orange_screw_03',
+        description: 'Check the screw was released in the blue bucket.',
+        parameters: { check_containment: true },
+        success_conditions: ['The orange screw is inside the blue bucket.', 'The gripper is empty.'],
+        failure_policy: 'REPORT_FAILURE',
+      },
+      seq('step_004', 'Back home.', [{ primitive: 'HOME' }]),
+    ],
+  });
+  doc.constraints = {
+    ...doc.constraints,
+    object_constraints: [{ type: 'containment', object: 'orange_screw_03', container: 'blue_bucket_01' }],
+  };
+  return doc;
+})();
+
 export const builtinSkills: SkillDoc[] = [
   overview,
   ...CELL_OBJECTS.map(locate),
   ...CELL_OBJECTS.map(touch),
   ...PUSHABLE_OBJECTS.map(push),
+  screwInBucket,
 ];
 
 export { defaultOpts };

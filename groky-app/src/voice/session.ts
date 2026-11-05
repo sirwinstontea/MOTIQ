@@ -1,7 +1,17 @@
 import { Platform } from 'react-native';
 import env, { SAMPLE_RATE } from '../lib/config';
-import { devices, grokTools, runTool } from '../devices';
-import { approve, approvedNow, currentPlan, propose, reject, userSaid, waitForAnswer } from '../lib/armApproval';
+import { bridgeIsSim, bridgeRealArm, devices, grokTools, runTool } from '../devices';
+import {
+  approve,
+  approvedNow,
+  approvedTarget,
+  currentPlan,
+  propose,
+  reject,
+  userSaid,
+  waitForAnswer,
+} from '../lib/armApproval';
+import type { Target } from '../lib/armApproval';
 import { fromBase64, toBase64 } from './pcm';
 import { Player } from './player';
 import { editSkillTool, FULL_ACCESS_NOTE, fullAccessTool, lookTool, PROMPT, proposePlanTool, skillTool } from './prompt';
@@ -23,6 +33,16 @@ const pretty = (name: string) => name.replace(/_/g, ' ');
 const ARM_NO_MOTION = new Set(['arm_verify', 'arm_wait', 'arm_stop', 'arm_touch_teach_save']);
 const movesRealArm = (name: string) =>
   !!devices.arm.url && ((name.startsWith('arm_') && !ARM_NO_MOTION.has(name)) || name === 'run_skill');
+
+// where an approved arm plan can run. SIM=1 bridge: URSim + RoboDK, and the physical arm too when /health says it
+// is reachable (then the user picks). SIM=0 bridge: only the real arm.
+function armPlaces(): { choice: boolean; target: Target; realMissing?: boolean } {
+  if (!bridgeIsSim('arm')) return { choice: false, target: 'real' };
+  const real = bridgeRealArm('arm');
+  return real?.reachable ? { choice: true, target: 'sim' } : { choice: false, target: 'sim', realMissing: true };
+}
+const placeName = (t: Target | null | undefined) =>
+  t === 'real' ? 'the REAL arm' : 'the simulation (URSim + RoboDK, the physical arm does not move)';
 
 let seq = 0;
 const uid = () => `${Date.now().toString(36)}${seq++}`;
@@ -278,20 +298,33 @@ export class VoiceSession {
   // the user's own words decide a pending plan; Grok's words never do
   private answerPlan(text: string, via: 'voice' | 'typed') {
     const r = userSaid(text, via);
-    if (r === 'approved') this.trace({ kind: 'plan', title: 'You approved the plan: real arm unlocked', detail: currentPlan()?.say, ok: true });
+    if (r === 'approved')
+      this.trace({
+        kind: 'plan',
+        title: `You approved the plan: ${currentPlan()?.target === 'real' ? 'real arm' : 'simulation'} unlocked`,
+        detail: currentPlan()?.say,
+        ok: true,
+      });
+    if (r === 'need_target') this.trace({ kind: 'plan', title: 'Waiting for you to pick: simulation or real arm?', ok: false });
     if (r === 'rejected') this.trace({ kind: 'plan', title: 'You said no: the real arm stays still', ok: false });
   }
 
   // Approve / Cancel buttons on the plan card
-  planDecision(ok: boolean) {
+  planDecision(ok: boolean, target?: Target) {
     const p = currentPlan();
     if (!p || p.state !== 'pending') return;
-    if (ok) approve('tap');
-    else reject();
-    this.trace({ kind: 'plan', title: ok ? 'You approved the plan on screen' : 'You cancelled the plan on screen', detail: p.say, ok });
+    if (ok && !approve('tap', target)) return; // a plan with a choice needs Simulation or Real arm, not a bare yes
+    if (!ok) reject();
+    const where = currentPlan()?.target;
+    this.trace({
+      kind: 'plan',
+      title: ok ? `You approved the plan on screen: ${where === 'real' ? 'real arm' : 'simulation'}` : 'You cancelled the plan on screen',
+      detail: p.say,
+      ok,
+    });
     this.sendText(
       ok
-        ? '[I approved your plan on the screen. Do it now on the real arm, all steps in order.]'
+        ? `[I approved your plan on the screen. Do it now in ${placeName(where)}, all steps in order.]`
         : "[I cancelled your plan on the screen. Don't move the arm; ask me what to change.]",
       false,
     );
@@ -396,26 +429,40 @@ export class VoiceSession {
     if (name === 'propose_plan') {
       const steps = Array.isArray(args.steps) ? args.steps.map(String) : [];
       const say = String(args.say ?? steps.join(', '));
+      const places = armPlaces();
       if (!devices.arm.url) {
         res = { ok: true, simulated: true, note: 'The arm is simulated: no approval needed, go ahead.' };
       } else {
-        propose(say, steps);
+        propose(say, steps, places);
+        const ask = places.choice
+          ? 'ask "Shall I do it in the simulation or on the real arm?". Do NOT call arm tools or run_skill until they ' +
+            'pick one (saying it or tapping Simulation / Real arm). A plain "yes" is not enough: ask which one.'
+          : places.target === 'sim'
+            ? 'ask "Shall I do it in the simulation?" (the real arm is not connected right now, so only the ' +
+              'simulation is possible). Do NOT call arm tools or run_skill until they say yes or tap Approve.'
+            : 'ask "Shall I do it on the real arm?". Do NOT call arm tools or run_skill until they say yes or tap Approve.';
         res = {
           ok: true,
           status: 'waiting_for_approval',
-          note:
-            'Now tell the user this plan out loud in one or two short sentences and ask "Shall I do it on the real ' +
-            'arm?". Do NOT call arm tools or run_skill until they say yes or tap Approve.',
+          choice: places.choice ? ['simulation', 'real arm'] : undefined,
+          note: `Now tell the user this plan out loud in one or two short sentences and ${ask}`,
         };
       }
-      this.trace({ id, kind: 'plan', title: devices.arm.url ? 'Plan for the real arm: waiting for your yes' : 'Plan (simulated arm)', detail: [say, ...steps.map((x, i) => `${i + 1}. ${x}`)].join('\n'), ok: true, ms: Date.now() - t0 });
+      const title = !devices.arm.url
+        ? 'Plan (simulated arm)'
+        : places.choice
+          ? 'Plan: waiting for you to pick simulation or real arm'
+          : `Plan for ${places.target === 'real' ? 'the real arm' : 'the simulation'}: waiting for your yes`;
+      this.trace({ id, kind: 'plan', title, detail: [say, ...steps.map((x, i) => `${i + 1}. ${x}`)].join('\n'), ok: true, ms: Date.now() - t0 });
     } else if (locked) {
       const pending = currentPlan()?.state === 'pending';
       res = {
         ok: false,
         needs_approval: true,
         error: pending
-          ? 'The user has not approved the plan yet. Ask them "Shall I do it on the real arm?" and wait for yes.'
+          ? currentPlan()?.choice
+            ? 'The user has not picked yet. Ask them "In the simulation or on the real arm?" and wait for their answer.'
+            : 'The user has not approved the plan yet. Ask them to approve it and wait for yes.'
           : 'Not approved. First call propose_plan with what the arm will do, tell the user, and wait for their yes.',
       };
       this.trace({ id, kind: 'plan', title: `Held ${pretty(name)}: waiting for your approval`, ok: false, ms: Date.now() - t0 });
@@ -448,7 +495,11 @@ export class VoiceSession {
       this.trace({ id, kind: 'plan', title: `Running skill "${label}"`, detail: skill?.description });
       // running a saved skill is not a new skill: nothing from this request gets saved
       this.skipCommand();
-      res = this.skills ? await this.skills.run(String(args.skill)) : { ok: false, error: 'skills unavailable' };
+      // approved on the real arm while the bridge runs SIM=1: run the skill on the physical arm ('robot')
+      const onReal = approvedTarget() === 'real' && bridgeIsSim('arm');
+      res = this.skills
+        ? await this.skills.run(String(args.skill), onReal ? 'robot' : undefined)
+        : { ok: false, error: 'skills unavailable' };
       this.trace({
         id,
         kind: 'tool',
@@ -487,7 +538,8 @@ export class VoiceSession {
       });
     } else {
       this.trace({ id, kind: 'tool', title: `Running ${pretty(name)}` });
-      res = await runTool(name, args);
+      // only arm calls of a plan approved on the real arm (SIM=1 bridge) go to the physical arm
+      res = await runTool(name, args, { armReal: approvedTarget() === 'real' && bridgeIsSim('arm') });
       // a spoken request that moved a robot: tell the app (it saves this as a skill)
       if (res.ok && this.cmd && !this.cmd.skip && isRobotTool(name)) {
         this.cmd.calls.push({ name, args });

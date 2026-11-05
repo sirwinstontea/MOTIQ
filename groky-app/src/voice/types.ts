@@ -23,7 +23,8 @@ export type Looker = (question: string) => Promise<{ ok: boolean; source: string
 
 export type SkillRunner = {
   list: () => { id: string; name: string; description: string }[];
-  run: (id: string) => Promise<{ ok: boolean; [k: string]: unknown }>;
+  // target 'robot' = the physical arm while the PC stack runs SIM=1 (the user picked "real arm" for the plan)
+  run: (id: string, target?: 'robot') => Promise<{ ok: boolean; [k: string]: unknown }>;
   // change an existing saved skill in place (Grok rewrites it), never creates a new one
   edit: (id: string, change: string) => Promise<{ ok: boolean; [k: string]: unknown }>;
 };

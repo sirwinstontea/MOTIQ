@@ -62,7 +62,13 @@ export async function stopDevice(id: DeviceId): Promise<ToolResult> {
   return url ? post(`${url}/tools/stop`, {}, 3000) : { ok: true, sim: true };
 }
 
-export async function runTool(fullName: string, args: Record<string, unknown>): Promise<ToolResult> {
+// opts.armReal: the user approved this voice plan on the REAL arm while the bridge runs SIM=1, so the arm calls
+// carry X-Arm-Target: real. Without it, a SIM=1 bridge runs them on URSim + RoboDK.
+export async function runTool(
+  fullName: string,
+  args: Record<string, unknown>,
+  opts: { armReal?: boolean } = {},
+): Promise<ToolResult> {
   if (fullName === 'stop') {
     const results = await Promise.all(deviceIds.map(stopDevice));
     return { ok: results.every((r) => r.ok), stopped: deviceIds };
@@ -76,7 +82,7 @@ export async function runTool(fullName: string, args: Record<string, unknown>): 
     await new Promise((r) => setTimeout(r, Math.min(10, Math.max(0, Number(args.seconds ?? 0.5))) * 1000));
     return { ok: true, waited: args.seconds };
   }
-  if (tool.id === 'arm') return queuedArm(tool.name, args, url);
+  if (tool.id === 'arm') return queuedArm(tool.name, args, url, !!opts.armReal);
   if (!url) return simulate(tool.id, tool.name, args);
   return post(`${url}/tools/${tool.name}`, args);
 }
@@ -90,8 +96,17 @@ export function armSend() {
 // Grok often sends several arm calls in one turn ("5 cm up, then down") and the session runs them together.
 // The arm can only do one thing at a time, so queue them in the order Grok asked. Stop bypasses the queue.
 let armQueue: Promise<unknown> = Promise.resolve();
-function queuedArm(name: string, args: Record<string, unknown>, url: string): Promise<ToolResult> {
-  const next = armQueue.then(() => runArmTool(name, args, url));
+function queuedArm(name: string, args: Record<string, unknown>, url: string, real: boolean): Promise<ToolResult> {
+  // the queue runs one arm call at a time, so the real-arm header is switched on only for this call
+  const next = armQueue.then(async () => {
+    if (!real) return runArmTool(name, args, url);
+    setArmTargetReal(true);
+    try {
+      return { ...(await runArmTool(name, args, url)), target: 'real' };
+    } finally {
+      setArmTargetReal(false);
+    }
+  });
   armQueue = next.catch(() => {});
   return next;
 }

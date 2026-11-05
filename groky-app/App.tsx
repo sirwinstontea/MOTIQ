@@ -119,7 +119,7 @@ function Main() {
   const { setSkills, refreshTools } = voice;
   const { getSkills, start: startSkill, edit: editSkill } = skills;
   useEffect(() => {
-    setSkills({ list: getSkills, run: (id) => startSkill(id, 'voice'), edit: editSkill });
+    setSkills({ list: getSkills, run: (id, target) => startSkill(id, 'voice', target), edit: editSkill });
     return () => setSkills(null);
   }, [setSkills, getSkills, startSkill, editSkill]);
   useEffect(() => {

@@ -1329,7 +1329,8 @@ class Bridge:
         if target == "real" and self._physical.sim:
             return self._real_tool(name, a)
         if self.ursim and name != "status" and _ARM.get() is None:   # (not for a physical-arm tool)
-            self.ursim.ensure()           # SIM=1: start / power on URSim if it isn't ready (raises Refused)
+            self.ursim.ensure()
+            self._clear_sim_fault()           # SIM=1: start / power on URSim if it isn't ready (raises Refused)
         if name in ("pick", "pick_object"):
             oid = self.resolve_object(a.get("object") or a.get("target"))
             self.ensure_visible(oid)
@@ -1419,6 +1420,19 @@ class Bridge:
                           "forward/backward), move_joint, rotate_yaw, pick, place, shake, pick_and_place, move_above "
                           "and home are.")
         raise Refused(f"unknown tool '{name}'")
+
+    def _clear_sim_fault(self) -> None:
+        """SIM=1 (URSim + RoboDK): a refused or collision-checked task latches the controller in FAULT, which then
+        blocks every next tap until someone runs the operator reset. The controller drives only the simulation here
+        (the physical arm never goes through it), so a new command clears the previous simulation fault itself."""
+        try:
+            if self._get("/health").get("executor_state") != "FAULT":
+                return
+            r = self.http.post(f"{self.controller}/operator/reset", json={"operator": "bridge (SIM=1 auto-reset)"},
+                               timeout=5.0)
+            log.warning("SIM=1: cleared the previous simulation fault before the next command (%s)", r.status_code)
+        except Exception as e:      # the task itself will report the controller problem
+            log.warning("SIM=1: could not clear the simulation fault: %s", e)
 
     def _real_tool(self, name: str, a: dict) -> dict:
         """SIM=1 stack, "Run on real arm": the tool runs on the PHYSICAL UR5e. Only what the physical arm does on its
