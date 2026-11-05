@@ -56,5 +56,20 @@ def test_add_and_remove_robot_over_http(url):
 
 
 def test_bad_input_is_422(url):
-    code, s = _call(url, "/api/hardware", {"tool": {"mass_kg": -1}})
+    code, s = _call(url, "/api/components/main_tool", {"spec": {"mass_kg": -1}})
     assert code == 422 and s["error"]["code"] == "VALIDATION_ERROR"
+    code, s = _call(url, "/api/hardware", {"speed_percent": 101})
+    assert code == 422
+
+
+def test_components_over_http(url):
+    body = {"id": "wrist_cam", "type": "camera", "name": "Wrist cam", "attached_to": "main_tool",
+            "spec": {"role": "vision", "mass_kg": 0.07}}
+    code, s = _call(url, "/api/components", body)
+    assert code == 200 and s["report"]["carried_mass_kg"] == 1.07
+    code, s = _call(url, "/api/components/wrist_cam", {"driver": "realsense"})
+    assert code == 200 and any("read-only" in c["connection"] for c in s["report"]["components"])
+    assert _call(url, "/api/components/main_tool/delete", {})[0] == 409      # still carries wrist_cam
+    assert _call(url, "/api/components/wrist_cam/delete", {})[0] == 200
+    with urllib.request.urlopen(url + "/components.js", timeout=10) as r:
+        assert b"renderComponents" in r.read()
