@@ -18,6 +18,7 @@ def repo(tmp_path) -> Path:
     (tmp_path / "robot-chooser").mkdir()
     for f in ("catalog.yaml", "hardware.yaml"):
         shutil.copy(CHOOSER / f, tmp_path / "robot-chooser" / f)
+    shutil.copytree(CHOOSER / "hardware_types", tmp_path / "robot-chooser" / "hardware_types")
     cfg = tmp_path / "robot_controller" / "config"
     cfg.mkdir(parents=True)
     for f in (REPO / "robot_controller" / "config").glob("*.example.yaml"):

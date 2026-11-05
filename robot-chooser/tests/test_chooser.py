@@ -76,7 +76,8 @@ def test_ur3e_becomes_ready_once_model_scene_and_workspace_exist(ch, repo):
     scenes = repo / "robot_controller" / "config" / "scenes"
     scenes.mkdir()
     (scenes / "ur_ur3e.yaml").write_text(yaml.safe_dump(UR3E_SCENE), encoding="utf-8")
-    ch.update_hardware({"backend": "robodk_sim", "tool": {"mass_kg": 0.5}})
+    ch.update_hardware({"backend": "robodk_sim"})
+    ch.update_component("main_tool", {"spec": {"mass_kg": 0.5}})
     ch.update_robot("ur_ur3e", {"scene_file": "ur_ur3e.yaml",
                                 "default_workspace": {"x_m": [-0.45, -0.15], "y_m": [-0.25, 0.25], "z_m": [0.015, 0.40]}})
     s = ch.select("ur_ur3e")
@@ -89,7 +90,7 @@ def test_ur3e_becomes_ready_once_model_scene_and_workspace_exist(ch, repo):
 
 
 def test_tool_heavier_than_payload_blocks(ch):  # A10
-    s = ch.update_hardware({"tool": {"mass_kg": 5.0}})
+    s = ch.update_component("main_tool", {"spec": {"mass_kg": 5.0}})
     assert "PAYLOAD" in _codes(s) and s["report"]["payload_budget_kg"] == 0
 
 
@@ -159,13 +160,13 @@ def test_hand_written_controller_file_is_backed_up_not_lost(ch, repo):
 
 
 def test_hardware_yaml_is_the_requirements_document(ch, repo):
-    ch.update_hardware({"tool": {"mass_kg": 0.42, "mass_status": "measured"}})
+    ch.update_component("main_tool", {"spec": {"mass_kg": 0.42}, "status": "measured"})
     doc = _y(repo / "robot-chooser" / "hardware.yaml")
-    assert doc["tool"]["mass_kg"] == 0.42
+    assert doc["components"][0]["spec"]["mass_kg"] == 0.42
     req = doc["requirements"]
     assert req["status"] == "READY" and req["payload_budget_kg"] == pytest.approx(4.58)
-    assert "PAYLOAD" not in {w["code"] for w in req["warnings"]}
-    assert Chooser(repo).load_hardware().tool.mass_kg == 0.42          # re-loadable after rendering
+    assert "Custom 3D-printed" not in " ".join(w["message"] for w in req["warnings"] if w["code"] == "PLACEHOLDER")
+    assert Chooser(repo).load_hardware().components[0].spec["mass_kg"] == 0.42          # re-loadable after rendering
 
 
 def test_controller_cli_refuses_a_blocked_selection(ch, repo, monkeypatch):  # no silent UR5e fallback
