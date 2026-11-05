@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>MOTIQ robot-chooser</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#0f1115;--card:#181b22;--line:#2a2f3a;--txt:#e7e9ee;--mut:#9aa3b2;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--acc:#58a6ff}
+*{box-sizing:border-box}body{margin:0;font:14px system-ui,sans-serif;background:var(--bg);color:var(--txt)}
+header{padding:12px 20px;border-bottom:1px solid var(--line);display:flex;gap:12px;align-items:center}
+header b{font-size:16px}.sim{background:#1f6feb33;color:var(--acc);padding:2px 8px;border-radius:10px;font-size:12px}
+main{display:grid;grid-template-columns:minmax(320px,1fr) minmax(380px,1.2fr);gap:16px;padding:16px}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:16px}
+h2{font-size:14px;margin:0 0 10px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em}
+input,select,textarea{background:#0d1017;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit}
+textarea{width:100%;font-family:ui-monospace,monospace;font-size:12px}
+button{background:#21262d;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer}
+button.primary{background:#1f6feb;border-color:#1f6feb}button:disabled{opacity:.5;cursor:default}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.chip{padding:3px 10px;border-radius:12px;border:1px solid var(--line);cursor:pointer;font-size:12px}
+.chip.on{background:var(--acc);color:#000;border-color:var(--acc)}
+.robot{border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:8px}.robot.active{border-color:var(--acc)}
+.robot .row{display:flex;justify-content:space-between;align-items:center;gap:8px}.mut{color:var(--mut);font-size:12px}
+.badge{font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid}.Ready{color:var(--ok)}.Model.missing,.Model{color:var(--warn)}
+.Config{color:var(--bad)}.READY{color:var(--ok)}.BLOCKED{color:var(--bad)}
+.grid{display:grid;grid-template-columns:150px 1fr;gap:6px 10px;align-items:center}.grid label{color:var(--mut);font-size:12px}
+ul{margin:4px 0 8px;padding-left:18px}li{margin:2px 0}.b li{color:var(--bad)}.w li{color:var(--warn)}.n li{color:var(--mut)}
+#msg{margin-left:auto;font-size:12px}a{color:var(--acc)}
+</style></head><body>
+<header><b>MOTIQ robot-chooser</b><span class="sim">SIMULATION ONLY</span><span id="msg"></span></header>
+<main>
+<div>
+  <section><h2>Arm model</h2>
+    <input id="q" placeholder="Search brand / model" style="width:100%">
+    <div class="chips" id="brands"></div><div class="chips" id="dofs"></div>
+    <div id="list"></div>
+  </section>
+  <section><h2>Add a robot</h2>
+    <div class="grid">
+      <label>Id</label><input id="n_id" placeholder="kuka_kr3_r540 (lowercase, _)">
+      <label>Brand</label><input id="n_brand" placeholder="KUKA">
+      <label>Model</label><input id="n_model" placeholder="KR 3 R540">
+      <label>Axes (DOF)</label><input id="n_dof" type="number" min="1" max="12" value="6">
+      <label>Nominal reach m</label><input id="n_reach" type="number" step="0.001">
+      <label>Nominal payload kg</label><input id="n_payload" type="number" step="0.1">
+      <label>Library page</label><input id="n_url" placeholder="https://robodk.com/robot/...">
+      <label>.robot file</label><input id="n_file" placeholder="optional, in robot_controller/stations/">
+    </div>
+    <p class="mut">Any arm from the RoboDK library (or a manufacturer page). It stays blocked until you add its limits,
+      scene and workspace below after selecting it.</p>
+    <button class="primary" onclick="addRobot()">Add robot</button>
+  </section>
+</div>
+<div>
+  <section><h2>Requirements</h2><div id="report"></div></section>
+  <section><h2>Cell hardware (hardware.yaml)</h2>
+    <div class="grid" id="hwform"></div>
+    <div style="margin-top:10px"><button class="primary" onclick="saveHw()">Save hardware</button></div>
+  </section>
+  <section><h2>Hardware components (any device)</h2>
+    <p class="mut">Forms come from <code>robot-chooser/hardware_types/*.yaml</code>: a new kind of hardware = one new
+      type file. Everything carried by the arm counts against its payload; the end effector sets the TCP.</p>
+    <div id="comps"></div>
+    <div class="grid" style="margin-top:10px">
+      <label>Type</label><select id="c_type"></select>
+      <label>Id</label><input id="c_id" placeholder="wrist_camera (lowercase, _)">
+      <label>Name</label><input id="c_name" placeholder="Wrist camera D405">
+      <label>Attached to</label><select id="c_parent"></select>
+    </div>
+    <div style="margin-top:8px"><button class="primary" onclick="addComp()">Add component</button></div>
+  </section>
+  <section><h2>Selected robot specs (catalog.yaml)</h2>
+    <div class="grid" id="robotform"></div>
+    <p class="mut">Limits: paste values from the manufacturer datasheet / RoboDK model, with a source. Tick
+      <i>verified</i> only after checking them. Unknown robots stay blocked: never invent numbers.</p>
+    <textarea id="limits" rows="12"></textarea>
+    <div style="margin-top:10px"><button class="primary" onclick="saveRobot()">Save robot specs</button></div>
+  </section>
+</div>
+</main>
+<script>
+let S=null, brand=null, dof=null;
+const $=id=>document.getElementById(id);
+const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function msg(t,bad){$("msg").textContent=t;$("msg").style.color=bad?"var(--bad)":"var(--ok)"}
+async function api(path,body){
+  const r=await fetch(path,body===undefined?{}:{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+  const j=await r.json(); if(!j.ok){msg(`${j.error.code}: ${j.error.message}`,true);return null}
+  S=j; render(); return j}
+function chips(el,vals,cur,set){el.innerHTML="";["All",...vals].forEach(v=>{const c=document.createElement("span");
+  c.className="chip"+((cur===null&&v==="All")||cur===v?" on":"");c.textContent=v==="All"?"All":(typeof v==="number"?v+" DOF":v);
+  c.onclick=()=>{set(v==="All"?null:v);render()};el.appendChild(c)})}
+function render(){
+  const cat=S.catalog, q=$("q").value.toLowerCase();
+  chips($("brands"),[...new Set(cat.map(r=>r.brand))],brand,v=>brand=v);
+  chips($("dofs"),[...new Set(cat.map(r=>r.dof))].sort((a,b)=>a-b),dof,v=>dof=v);
+  $("list").innerHTML=cat.filter(r=>(!q||`${r.brand} ${r.model} ${r.id}`.toLowerCase().includes(q))&&(!brand||r.brand===brand)&&(dof===null||r.dof===dof))
+   .map(r=>`<div class="robot ${r.active?"active":""}"><div class="row"><b>${esc(r.brand)} ${esc(r.model)}</b>
+    <span class="badge ${esc(r.status)}">${r.active?"Active · ":""}${esc(r.status)}</span></div>
+    <div class="mut">${r.dof} DOF · reach ${r.nominal_reach_m} m · payload ${r.nominal_payload_kg} kg (nominal) ·
+     model file ${r.model_file_available?"present":"missing"} · limits ${r.limits_verified?"verified":"not verified"}</div>
+    <div class="row" style="margin-top:6px"><a href="${esc(r.library_url)}" target="_blank" rel="noopener noreferrer">View in RoboDK Library</a>
+    <span>${r.active?"":`<button onclick="removeRobot('${esc(r.id)}')">Remove</button> `}<button ${r.active?"disabled":""} onclick="api('/api/select',{robot_id:'${esc(r.id)}'})">${r.active?"Selected":"Select"}</button></span></div></div>`).join("");
+  const p=S.report, li=(a,c)=>a.length?`<ul class="${c}">${a.map(i=>`<li><b>${esc(i.code)}</b> ${esc(i.message)}</li>`).join("")}</ul>`:"";
+  $("report").innerHTML=`<div class="row" style="display:flex;justify-content:space-between"><b>Selected: ${esc(p.robot||p.robot_id)} · ${esc(p.backend)} · ${p.dof??"?"} DOF</b>
+   <span class="badge ${p.status}">${p.status}</span></div>
+   <div class="mut">${p.payload_budget_kg!=null?`Payload budget ${p.payload_budget_kg} kg · reach ${p.reach_m} m + TCP ${p.tcp_length_m} m · speed ${S.hardware.speed_percent}% of ${esc(p.robot)} maximums`:""}</div>
+   ${li(p.blockers,"b")}${li(p.warnings,"w")}${li(p.notes,"n")}
+   <div class="mut">${S.selection?`selection v${S.selection.selection_version} · ${S.selection.files.length?"generated: "+S.selection.files.map(esc).join(", "):"no controller files (blocked)"}`:""}</div>`;
+  const h=S.hardware,m=h.mounting;
+  const f=(k,lab,v,type="text",opts)=>`<label>${lab}</label>`+(opts?`<select data-k="${k}">${opts.map(o=>`<option ${o===v?"selected":""}>${esc(o)}</option>`).join("")}</select>`
+     :type==="checkbox"?`<input type="checkbox" data-k="${k}" ${v?"checked":""}>`:`<input data-k="${k}" data-t="${type}" value="${esc(Array.isArray(v)?v.join(", "):v)}">`);
+  $("hwform").innerHTML=[f("backend","Backend",h.backend,0,["mock","robodk_sim"]),f("speed_percent","Speed %",h.speed_percent,"num"),
+   f("mounting.orientation","Mounting",m.orientation,0,["upright","wall","ceiling"]),f("mounting.base_in_world_m","Base x,y,z m",m.base_in_world_m,"list"),
+   f("mounting.status","Base pose is",m.status,0,["assumed","measured"])].join("");
+  renderComponents();
+  const r=cat.find(x=>x.active);
+  $("robotform").innerHTML=`<label>Robot</label><b>${esc(r.brand)} ${esc(r.model)} (${esc(r.id)})</b>
+   <label>RoboDK file</label><input id="r_lib" placeholder="UR3e.robot (in robot_controller/stations/)" value="${esc(r.library_file)}">
+   <label>Scene file</label><input id="r_scene" placeholder="${esc(r.id)}.yaml (config/scenes/)" value="${esc(r.scene_file)}">
+   <label>Workspace x,y,z (m)</label><input id="r_ws" placeholder="xmin,xmax,ymin,ymax,zmin,zmax" value="${r.default_workspace?[...r.default_workspace.x_m,...r.default_workspace.y_m,...r.default_workspace.z_m].join(", "):""}">`;
+  $("limits").value=r.limits?JSON.stringify(r.limits,null,1):JSON.stringify({verified:false,source:"",joint_min_rad:Array(r.dof).fill(null),joint_max_rad:Array(r.dof).fill(null),
+    max_joint_speed_rad_s:Array(r.dof).fill(null),max_joint_accel_rad_s2:null,max_tcp_speed_m_s:null,max_tcp_accel_m_s2:null,max_payload_kg:null,reach_m:null},null,1);
+}
+function setPath(o,path,v){const k=path.split(".");let x=o;k.slice(0,-1).forEach((p,i)=>{x[p]=x[p]??(/^\d+$/.test(k[i+1])?[]:{});x=x[p]});x[k.at(-1)]=v}
+async function saveHw(){
+  const patch={};
+  document.querySelectorAll("#hwform [data-k]").forEach(e=>{let v=e.type==="checkbox"?e.checked:e.value;
+    if(e.dataset.t==="num")v=Number(v); if(e.dataset.t==="list")v=v.split(",").map(s=>Number(s.trim())); setPath(patch,e.dataset.k,v)});
+  if(await api("/api/hardware",patch))msg("hardware.yaml saved")}
+async function saveRobot(){
+  const r=S.catalog.find(x=>x.active), body={library_file:$("r_lib").value.trim()||null,scene_file:$("r_scene").value.trim()||null};
+  const w=$("r_ws").value.trim(); if(w){const n=w.split(",").map(s=>Number(s.trim()));if(n.length!==6)return msg("workspace needs 6 numbers",true);
+    body.default_workspace={frame_id:"base",x_m:n.slice(0,2),y_m:n.slice(2,4),z_m:n.slice(4,6)}} else body.default_workspace=null;
+  let lim; try{lim=JSON.parse($("limits").value)}catch(e){return msg("limits: invalid JSON",true)}
+  const empty=Object.entries(lim).some(([k,v])=>v===null||(Array.isArray(v)&&v.includes(null))||(k==="source"&&!v));
+  if(!(empty&&!r.limits))body.limits=lim;
+  if(await api(`/api/robots/${encodeURIComponent(r.id)}`,body))msg("catalog.yaml saved")}
+async function addRobot(){
+  const v=id=>$(id).value.trim(), model=v("n_model");
+  const body={id:v("n_id"),brand:v("n_brand"),model,robodk_item_name:model,dof:Number(v("n_dof")),
+    nominal_reach_m:Number(v("n_reach")),nominal_payload_kg:Number(v("n_payload")),library_url:v("n_url"),library_file:v("n_file")||null};
+  if(await api("/api/robots",body)){msg(`${body.id} added`);["n_id","n_brand","n_model","n_reach","n_payload","n_url","n_file"].forEach(i=>$(i).value="")}}
+async function removeRobot(id){if(confirm(`Remove ${id} from catalog.yaml?`)&&await api(`/api/robots/${encodeURIComponent(id)}/delete`,{}))msg(`${id} removed`)}
+$("q").oninput=render; api("/api/state");
+</script>
+<script src="/components.js"></script></body></html>

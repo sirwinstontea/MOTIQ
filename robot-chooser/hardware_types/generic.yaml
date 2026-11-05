@@ -1,0 +1,13 @@
+# Any other hardware, recorded immediately with free-form fields (lowercase_names). When the same kind of
+# device shows up again, give it its own type file (copy one of the others) so its fields get checked.
+type: generic
+label: Other hardware
+description: Anything without a dedicated type yet (conveyor, light, fixture, sensor, PLC, ...).
+attach_to: ["*"]
+roles: [other]
+payload_field: mass_kg
+allow_extra_fields: true
+fields:
+  category: {type: string, required: true, description: "e.g. conveyor, light, fixture, plc"}
+  mass_kg: {type: number, min: 0, unit: kg, description: "required when carried by the arm"}
+drivers: []

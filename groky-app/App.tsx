@@ -25,6 +25,8 @@ import { useHistory } from './src/hooks/useHistory';
 import { useKeyboardVisible } from './src/hooks/useKeyboard';
 import { NotifyProvider, useNotify } from './src/hooks/useNotify';
 import type { SkillDoc } from './src/skills';
+import env from './src/lib/config';
+import { fullAccess } from './src/lib/fullAccess';
 import { useSkills } from './src/hooks/useSkills';
 import type { VoiceCommand } from './src/skills/fromVoice';
 import { useVoice } from './src/hooks/useVoice';
@@ -97,7 +99,11 @@ function Main() {
         title: `Learned "${doc.skill.name}"`,
         body: problems.length
           ? `Saved to Skills, but it has a problem: ${problems[0]}`
-          : 'Saved to Skills. It runs in simulation now; approve it in Skills before it moves the real robot.',
+          : !env.armUrl
+            ? 'Saved to Skills. Motion runs it in the simulator.'
+            : fullAccess()
+              ? 'Saved to Skills. Full access is on, so Motion runs it on the real arm.'
+              : 'Saved to Skills. Approve it there (or say "full access") before it moves the real arm.',
       });
       return doc.skill.id;
     },
