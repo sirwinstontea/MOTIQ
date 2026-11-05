@@ -11,7 +11,8 @@ robot-chooser/
   hardware.yaml    CELL SETUP: active robot, backend, speed, tool, mounting, cameras
                    + generated `requirements:` block (READY/BLOCKED, blockers, warnings, payload budget)
   robot_chooser/   core.py (checks + generation), cli.py, server.py + static/index.html (local UI)
-  tests/           pytest (27 tests, offline)
+  hardware_types/  one YAML per kind of hardware (gripper, camera, F/T sensor, tool changer, mobile base, generic)
+  tests/           pytest (47 tests, offline)
 ```
 
 ## Use it
@@ -50,6 +51,47 @@ cd robot-chooser
 The controller reads the generated files through its normal defaults (`config/robot.yaml` etc.), and the
 bridge loads `config/scene.yaml` when present. Restart the controller/bridge after a change; there is no
 live switching inside a running controller yet.
+
+## Any hardware: components + type files
+
+Every device in the cell is a **component** in `hardware.yaml` (gripper, cameras, sensors, tool changer, robot
+dog, conveyor, ...). What a device *is* comes from a **type file** in `hardware_types/`:
+
+```yaml
+# hardware_types/camera.yaml (excerpt)
+type: camera
+attach_to: [cell, arm, gripper, tool_changer, mobile_base]   # where it can be mounted
+roles: [camera, sensor]                                      # end_effector sets the TCP
+payload_field: mass_kg                                       # counted against payload when on the arm
+fields:
+  role: {type: enum, values: [vision, skill_recording, monitoring, other], required: true}
+  mass_kg: {type: number, min: 0, max: 10, unit: kg}
+drivers:                                                     # how it is connected
+  - {id: realsense, connects_via: computer-vision server, physical: true, actuates: false}
+```
+
+* **New device of a known kind**: `add-component` (CLI/UI). **New kind of hardware**: drop one type file in
+  `hardware_types/`; validation, the UI form and the payload/TCP logic pick it up with no code change.
+  `generic` accepts anything right away (free fields) until a proper type file exists.
+* `attached_to: cell | arm | <component id>` builds chains (arm -> changer -> F/T sensor -> gripper -> wrist camera).
+  The sum of all masses carried by the arm is the controller's `tool_mass_kg` and is checked against payload;
+  an unknown mass on the arm blocks. Exactly one end effector on the arm sets the TCP (none = flange).
+* `driver` says how the device is connected: simulated, physical read-only (e.g. RealSense via the vision
+  server), or physical actuator. Physical actuators are only **documented** here; robot-chooser never enables
+  physical motion (simulation-only build).
+
+```bash
+python -m robot_chooser types
+python -m robot_chooser components
+python -m robot_chooser add-component --id wrist_cam --type camera --name "Wrist D405" --attached-to main_tool role=vision mass_kg=0.06
+python -m robot_chooser set-component realsense_d415 driver realsense
+python -m robot_chooser remove-component wrist_cam
+```
+API: `POST /api/components`, `POST /api/components/<id>`, `POST /api/components/<id>/delete`; `GET /api/state` includes `types`.
+An old v1 `hardware.yaml` (fixed `tool:` / `cameras:`) is migrated to components automatically.
+
+What is still one-of-a-kind: one active arm per controller (the controller has a single kinematic chain);
+multi-arm cells need a controller per arm.
 
 ## Adding any other robot
 
