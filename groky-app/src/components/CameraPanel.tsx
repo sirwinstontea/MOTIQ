@@ -287,12 +287,13 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
   return (
     <View style={s.card}>
       <View style={s.head}>
-        {enabled && cameras.length < 2 ? (
-          <View style={{ flex: 1 }} />
-        ) : enabled ? (
+        {enabled ? (
           <ScrollView horizontal style={{ flex: 1 }} showsHorizontalScrollIndicator={false}>
             <Segmented
-              options={cameras.map((k) => ({ id: k.id, label: k.label }))}
+              options={cameras.map((k) => ({
+                id: k.id,
+                label: k.id === 'vision-arm' && !cameras.some(c => c.id === 'vision-webcam') ? 'PC Webcam (Vision)' : k.label,
+              }))}
               value={cam.id}
               onChange={(id) => setCam(cameras.find((k) => k.id === id) ?? cameras[0])}
             />

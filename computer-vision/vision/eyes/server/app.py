@@ -89,16 +89,29 @@ def create_app(pipeline: EyePipeline | None = None) -> FastAPI:
 
     @app.get("/state/{source}")
     def get_source_state(source: str) -> dict:
-        if source in pipeline.nodes and not pipeline._running:
-            pipeline.step(source)
-        payload = pipeline.state.get_payload(source)
+        resolved = source
+        if resolved not in pipeline.nodes:
+            if resolved in ("webcam", "arm") and ("arm" in pipeline.nodes or "webcam" in pipeline.nodes):
+                resolved = "arm" if "arm" in pipeline.nodes else "webcam"
+            elif pipeline.nodes:
+                resolved = next(iter(pipeline.nodes.keys()))
+        if resolved in pipeline.nodes and not pipeline._running:
+            pipeline.step(resolved)
+        payload = pipeline.state.get_payload(resolved)
         return payload.model_dump()
 
     @app.get("/frame/{source}.jpg")
     def get_marked_jpeg(source: str, raw: bool = Query(default=False)) -> Response:
-        if source in pipeline.nodes and not pipeline._running:
-            pipeline.step(source)
-        img = pipeline.state.get_frame(source) if raw else pipeline.state.get_marked_frame(source)
+        # Se viene richiesta la webcam o arm ma la sorgente attiva ? l'altra, fai fallback su quella disponibile
+        resolved = source
+        if resolved not in pipeline.nodes:
+            if resolved in ("webcam", "arm") and ("arm" in pipeline.nodes or "webcam" in pipeline.nodes):
+                resolved = "arm" if "arm" in pipeline.nodes else "webcam"
+            elif pipeline.nodes:
+                resolved = next(iter(pipeline.nodes.keys()))
+        if resolved in pipeline.nodes and not pipeline._running:
+            pipeline.step(resolved)
+        img = pipeline.state.get_frame(resolved) if raw else pipeline.state.get_marked_frame(resolved)
         return Response(content=encode_jpeg(img), media_type="image/jpeg")
 
     async def _mjpeg_generator(source: str, raw: bool = False, fps: float = 20.0):
