@@ -209,15 +209,14 @@ class EyePipeline:
             calibrator = ArmCalibrator()
 
         open_vocab = None
-        if source == "arm":
-            try:
-                import os
-                from ..grok.open_vocab import DESK_CLASSES, OpenVocab
-                world_conf = float(os.getenv("WORLD_CONF", "0.2"))
-                open_vocab = OpenVocab(conf=world_conf, base=DESK_CLASSES)
-                print(f"[Pipeline] YOLO-World (OpenVocab) inizializzato per '{source}' con {len(DESK_CLASSES)} classi base.")
-            except Exception as exc:
-                print(f"[Pipeline] Avviso: OpenVocab non disponibile per '{source}': {exc}")
+        try:
+            import os
+            from ..grok.open_vocab import DESK_CLASSES, OpenVocab
+            world_conf = float(os.getenv("WORLD_CONF", "0.2"))
+            open_vocab = OpenVocab(conf=world_conf, base=DESK_CLASSES)
+            print(f"[Pipeline] YOLO-World (OpenVocab) inizializzato per '{source}' con {len(DESK_CLASSES)} classi base.")
+        except Exception as exc:
+            print(f"[Pipeline] Avviso: OpenVocab non disponibile per '{source}': {exc}")
 
         calib_fn = calibrator.compute_object_coords if (calibrator and source == "arm") else None
         tracker = ObjectTracker(

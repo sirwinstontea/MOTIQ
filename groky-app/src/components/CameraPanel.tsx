@@ -29,6 +29,8 @@ type Props = {
 
 type ModelStatus = {
   ok: boolean;
+  source: string;
+  available_sources?: string[];
   custom_model: string;
   yolo_world_model: string;
   yolo_world_active: boolean;
@@ -36,6 +38,15 @@ type ModelStatus = {
   yolo_classes: string[];
   grok_active: boolean;
   reference_frame_set: boolean;
+};
+
+type DetectedBox = {
+  id: number;
+  label: string;
+  name?: string;
+  conf: number;
+  bbox: [number, number, number, number]; // [x, y, w, h] normalized 0..1
+  color?: string;
 };
 
 const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
@@ -54,15 +65,22 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
   const webVideoRef = useRef<HTMLVideoElement | null>(null);
   const mic = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
 
-  // Grok Vision state
+  // Vision state
   const [models, setModels] = useState<ModelStatus | null>(null);
   const [grokBusy, setGrokBusy] = useState<string | null>(null);
   const [grokResult, setGrokResult] = useState<{ title: string; text: string; tone?: 'neutral' | 'ok' | 'warn' | 'bad' } | null>(null);
 
+  // Overlay bounding box su Tablet / webcam locale
+  const [tabletOverlay, setTabletOverlay] = useState(false);
+  const [tabletBoxes, setTabletBoxes] = useState<DetectedBox[]>([]);
+
+  const activeSource = cam.id.startsWith('vision-') ? cam.id.replace('vision-', '') : 'arm';
+  const isVisionCam = Boolean(cam.url && cam.id.startsWith('vision-'));
+
   const fetchModelStatus = async () => {
     if (!env.visionServer) return;
     try {
-      const r = await fetch(`${env.visionServer}/models/status`);
+      const r = await fetch(`${env.visionServer}/models/status?source=${activeSource}`);
       if (r.ok) {
         const data = await r.json();
         setModels(data);
@@ -74,9 +92,59 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
 
   useEffect(() => {
     fetchModelStatus();
-    const interval = setInterval(fetchModelStatus, 8000);
+    const interval = setInterval(fetchModelStatus, 6000);
     return () => clearInterval(interval);
-  }, []);
+  }, [activeSource]);
+
+  // Loop per bounding box su webcam locale Tablet se attivato
+  useEffect(() => {
+    if (!tabletOverlay || cam.url || !enabled) {
+      setTabletBoxes([]);
+      return;
+    }
+    let cancelled = false;
+
+    async function tickDetect() {
+      if (cancelled) return;
+      if (Platform.OS === 'web' && webVideoRef.current && webVideoRef.current.videoWidth > 0 && env.visionServer) {
+        try {
+          const video = webVideoRef.current;
+          const canvas = document.createElement('canvas');
+          canvas.width = 480;
+          canvas.height = 360;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(video, 0, 0, 480, 360);
+            const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.7));
+            if (blob && !cancelled) {
+              const resp = await fetch(`${env.visionServer}/frame/process?source=${activeSource}&return_image=false`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'image/jpeg' },
+                body: blob,
+              });
+              if (resp.ok && !cancelled) {
+                const data = await resp.json();
+                if (data.ok && Array.isArray(data.objects)) {
+                  setTabletBoxes(data.objects);
+                }
+              }
+            }
+          }
+        } catch {
+          // ignore detection tick failure
+        }
+      }
+      if (!cancelled) {
+        setTimeout(tickDetect, 250);
+      }
+    }
+
+    const timer = setTimeout(tickDetect, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [tabletOverlay, cam.url, enabled, activeSource]);
 
   const runGrokAction = async (endpoint: string, title: string, successFn: (res: any) => string) => {
     if (!env.visionServer) return;
@@ -100,36 +168,36 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
   };
 
   const handleGrokDetect = () => {
-    runGrokAction('/grok/detect?source=arm', 'Grok Detect', (d) => {
+    runGrokAction(`/grok/detect?source=${activeSource}`, 'Grok Detect', (d) => {
       const names = d.objects?.map((o: any) => o.name || o.label).join(', ') || 'nessuno';
       return `Rilevati ${d.count} oggetti: ${names}. YOLO-World ora li traccia in tempo reale!`;
     });
   };
 
   const handleGrokDescribe = () => {
-    runGrokAction('/grok/describe?source=arm', 'Descrizione Scena', (d) => d.description || 'Nessuna descrizione.');
+    runGrokAction(`/grok/describe?source=${activeSource}`, 'Descrizione Scena', (d) => d.description || 'Nessuna descrizione.');
   };
 
   const handleGrokName = () => {
-    runGrokAction('/grok/name?source=arm', 'Rinomina Oggetti', (d) => {
+    runGrokAction(`/grok/name?source=${activeSource}`, 'Rinomina Oggetti', (d) => {
       const list = d.named?.map((n: any) => `ID ${n.id}: "${n.name}"`).join(', ') || 'Nessun oggetto nominato.';
       return `Oggetti riconosciuti e nominati: ${list}`;
     });
   };
 
   const handleSaveRef = () => {
-    runGrokAction('/grok/changes/reference?source=arm', 'Salva Riferimento', () => 'Scena di riferimento memorizzata! Sposta o rimuovi oggetti per calcolare le differenze.');
+    runGrokAction(`/grok/changes/reference?source=${activeSource}`, 'Salva Riferimento', () => 'Scena di riferimento memorizzata! Sposta o rimuovi oggetti per calcolare le differenze.');
   };
 
   const handleDiff = () => {
-    runGrokAction('/grok/changes/diff?source=arm', 'Analisi Differenze', (d) => {
+    runGrokAction(`/grok/changes/diff?source=${activeSource}`, 'Analisi Differenze', (d) => {
       const exp = d.explanation || 'Nessun cambiamento rilevato.';
       return `${exp} (${d.changes?.length || 0} modifiche evidenziate a video)`;
     });
   };
 
   const handleReset = () => {
-    runGrokAction('/grok/reset?source=arm', 'Reset Memoria', () => 'Memoria resettata e YOLO-World ripristinato alle classi base.');
+    runGrokAction(`/grok/reset?source=${activeSource}`, 'Reset Memoria', () => 'Memoria resettata e YOLO-World ripristinato alle classi base.');
   };
 
   // microphone alongside a url camera: browser MediaRecorder, or expo-audio on a phone / tablet
@@ -213,7 +281,8 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
     },
   }));
 
-  const isVisionCam = Boolean(cam.url && cam.id.startsWith('vision-'));
+  // Cerca se esiste una fotocamera con visione per la webcam del PC
+  const webcamVisionCam = cameras.find((c) => c.id === 'vision-webcam');
 
   return (
     <View style={s.card}>
@@ -243,8 +312,8 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
         />
       </View>
 
-      {/* Badges stato modelli (quando abilitato e connesso al vision server) */}
-      {enabled && isVisionCam && (
+      {/* Badges stato modelli (attivi sia per Arm vision che per Webcam vision) */}
+      {enabled && (
         <ScrollView horizontal style={s.modelsRow} showsHorizontalScrollIndicator={false} contentContainerStyle={s.modelsContent}>
           <Pill label="Custom ONNX (Pezzi & Mani)" tone="ok" dot />
           <Pill
@@ -258,6 +327,7 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
             dot
           />
           {models?.reference_frame_set && <Pill label="Rif. Salvato" tone="warn" dot />}
+          {isVisionCam && <Pill label={`Sorgente: ${activeSource.toUpperCase()}`} tone="neutral" />}
         </ScrollView>
       )}
 
@@ -267,13 +337,51 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
             {cam.url ? (
               <Snapshots key={cam.url} url={cam.url} open={cam.open} />
             ) : Platform.OS === 'web' ? (
-              <WebCamera
-                facing={facing}
-                onVideoRef={(el) => {
-                  webVideoRef.current = el;
-                }}
-                onFacingChange={setFacing}
-              />
+              <View style={StyleSheet.absoluteFill}>
+                <WebCamera
+                  facing={facing}
+                  onVideoRef={(el) => {
+                    webVideoRef.current = el;
+                  }}
+                  onFacingChange={setFacing}
+                />
+                {/* Overlay Bounding Box disegnate dal modello per la webcam locale */}
+                {tabletOverlay && tabletBoxes.length > 0 && (
+                  <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                    {tabletBoxes.map((box, idx) => {
+                      const [bx, by, bw, bh] = box.bbox;
+                      // Inverte x se la webcam frontale è specchiata
+                      const leftPct = facing === 'front' ? (1 - bx - bw) * 100 : bx * 100;
+                      const topPct = by * 100;
+                      const widthPct = bw * 100;
+                      const heightPct = bh * 100;
+                      const isCustom = box.id < 1000;
+                      const color = isCustom ? '#10b981' : '#3b82f6';
+                      return (
+                        <View
+                          key={`${box.id}-${idx}`}
+                          style={[
+                            s.overlayBox,
+                            {
+                              left: `${leftPct}%`,
+                              top: `${topPct}%`,
+                              width: `${widthPct}%`,
+                              height: `${heightPct}%`,
+                              borderColor: color,
+                            },
+                          ]}
+                        >
+                          <View style={[s.overlayLabel, { backgroundColor: color }]}>
+                            <Text style={s.overlayText}>
+                              {box.name || box.label} ({Math.round(box.conf * 100)}%)
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
             ) : !perm ? null : !perm.granted ? (
               <Pressable onPress={requestPerm} style={s.center}>
                 <Ionicons name="camera-outline" size={24} color={c.faint} />
@@ -302,66 +410,86 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
             )}
           </View>
 
-          {/* Barra Strumenti Grok Vision */}
-          {isVisionCam && (
-            <View style={s.grokSection}>
-              <View style={s.grokHeader}>
-                <Ionicons name="sparkles" size={14} color={c.accent} />
-                <Text style={s.grokTitle}>Grok Multimodale & YOLO</Text>
-                {grokBusy && <ActivityIndicator size="small" color={c.accent} style={{ marginLeft: 6 }} />}
-              </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.grokActions}>
+          {/* Banner su Tablet per passare a Webcam Vision o attivare overlay bounding box */}
+          {!cam.url && (
+            <View style={s.tabletBanner}>
+              {webcamVisionCam ? (
                 <Button
                   size="sm"
-                  variant="secondary"
-                  icon="scan-outline"
-                  label="Grok Detect"
-                  loading={grokBusy === 'Grok Detect'}
-                  onPress={handleGrokDetect}
+                  variant="primary"
+                  icon="videocam-outline"
+                  label="Passa a Webcam Vision (Stream Bounding Box)"
+                  onPress={() => setCam(webcamVisionCam)}
                 />
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  icon="chatbubble-ellipses-outline"
-                  label="Descrivi Scena"
-                  loading={grokBusy === 'Descrizione Scena'}
-                  onPress={handleGrokDescribe}
-                />
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  icon="pricetag-outline"
-                  label="Rinomina Oggetti"
-                  loading={grokBusy === 'Rinomina Oggetti'}
-                  onPress={handleGrokName}
-                />
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  icon="camera-outline"
-                  label="Salva Rif."
-                  loading={grokBusy === 'Salva Riferimento'}
-                  onPress={handleSaveRef}
-                />
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  icon="git-compare-outline"
-                  label="Differenze"
-                  loading={grokBusy === 'Analisi Differenze'}
-                  onPress={handleDiff}
-                />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  icon="refresh-outline"
-                  label="Reset"
-                  loading={grokBusy === 'Reset Memoria'}
-                  onPress={handleReset}
-                />
-              </ScrollView>
+              ) : null}
+              <Button
+                size="sm"
+                variant={tabletOverlay ? 'primary' : 'secondary'}
+                icon="scan-outline"
+                label={tabletOverlay ? 'Disattiva Bounding Box Live' : 'Attiva Bounding Box Live'}
+                onPress={() => setTabletOverlay(!tabletOverlay)}
+              />
             </View>
           )}
+
+          {/* Barra Strumenti Grok Vision (disponibile per qualunque sorgente attiva) */}
+          <View style={s.grokSection}>
+            <View style={s.grokHeader}>
+              <Ionicons name="sparkles" size={14} color={c.accent} />
+              <Text style={s.grokTitle}>Grok Multimodale & YOLO ({activeSource.toUpperCase()})</Text>
+              {grokBusy && <ActivityIndicator size="small" color={c.accent} style={{ marginLeft: 6 }} />}
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.grokActions}>
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="scan-outline"
+                label="Grok Detect"
+                loading={grokBusy === 'Grok Detect'}
+                onPress={handleGrokDetect}
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="chatbubble-ellipses-outline"
+                label="Descrivi Scena"
+                loading={grokBusy === 'Descrizione Scena'}
+                onPress={handleGrokDescribe}
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="pricetag-outline"
+                label="Rinomina Oggetti"
+                loading={grokBusy === 'Rinomina Oggetti'}
+                onPress={handleGrokName}
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="camera-outline"
+                label="Salva Rif."
+                loading={grokBusy === 'Salva Riferimento'}
+                onPress={handleSaveRef}
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                icon="git-compare-outline"
+                label="Differenze"
+                loading={grokBusy === 'Analisi Differenze'}
+                onPress={handleDiff}
+              />
+              <Button
+                size="sm"
+                variant="ghost"
+                icon="refresh-outline"
+                label="Reset"
+                loading={grokBusy === 'Reset Memoria'}
+                onPress={handleReset}
+              />
+            </ScrollView>
+          </View>
 
           {/* Box Risultato Grok */}
           {grokResult && (
@@ -619,6 +747,25 @@ const makeStyles = (c: Colors) =>
     watchText: { ...type.caption, fontSize: 13 },
     modelsRow: { maxHeight: 30 },
     modelsContent: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+    tabletBanner: { flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' },
+    overlayBox: {
+      position: 'absolute',
+      borderWidth: 2,
+      borderRadius: 4,
+    },
+    overlayLabel: {
+      position: 'absolute',
+      top: -18,
+      left: 0,
+      paddingHorizontal: 4,
+      paddingVertical: 1,
+      borderRadius: 2,
+    },
+    overlayText: {
+      color: '#fff',
+      fontSize: 10,
+      fontWeight: '700',
+    },
     grokSection: {
       backgroundColor: c.panelHi,
       borderRadius: radius.md,

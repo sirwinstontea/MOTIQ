@@ -15,7 +15,7 @@ const env = {
   // computer-vision server (../computer-vision/API_APP.md), used by DETECT for measured object positions
   visionServer: (process.env.EXPO_PUBLIC_VISION_SERVER ?? '').replace(/\/$/, ''),
   // which vision sources to list as cameras (the server publishes 'arm', and 'dog' if started with a dog camera)
-  visionSources: (process.env.EXPO_PUBLIC_VISION_SOURCES || 'arm') as string,
+  visionSources: (process.env.EXPO_PUBLIC_VISION_SOURCES || 'arm,webcam') as string,
   // teach server (../computer-vision-to-app/teach_server.py): demonstration video -> action tokens via vision/planner
   teachServer: (process.env.EXPO_PUBLIC_TEACH_SERVER ?? '').replace(/\/$/, ''),
   // robot-chooser (../robot-chooser): Settings picks arm / backend; LAN IP for Expo Go, e.g. http://192.168.1.50:8770

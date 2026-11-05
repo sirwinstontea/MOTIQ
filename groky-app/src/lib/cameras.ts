@@ -25,11 +25,11 @@ function visionCameras(): Camera[] {
   return env.visionSources
     .split(',')
     .map((x) => x.trim().toLowerCase())
-    .filter((x) => x === 'arm' || x === 'dog')
+    .filter((x) => x === 'arm' || x === 'dog' || x === 'webcam')
     .filter((x) => !devices[x as 'arm' | 'dog']?.url)
     .map((x) => ({
       id: `vision-${x}`,
-      label: `${devices[x as 'arm' | 'dog']?.label ?? x} vision`,
+      label: x === 'webcam' ? 'Webcam vision' : `${devices[x as 'arm' | 'dog']?.label ?? x} vision`,
       url: `${env.visionServer}/frame/${x}.jpg?raw=false`,
       open: true,
     }));

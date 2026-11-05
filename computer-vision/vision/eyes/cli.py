@@ -411,6 +411,17 @@ def _cmd_run(args: argparse.Namespace) -> int:
             target=args.dog_target,
             use_mock_tracker=args.mock_tracker,
         )
+    if mode == "realsense" and getattr(args, "include_webcam", True):
+        try:
+            pipeline.add_source(
+                source="webcam",
+                mode="webcam",
+                target=int(args.webcam_device) if str(args.webcam_device).isdigit() else 0,
+                use_mock_tracker=args.mock_tracker,
+            )
+            print(f"[Pipeline] Sorgente 'webcam' (PC webcam {args.webcam_device}) aggiunta con doppio modello attivo!")
+        except Exception as exc:
+            print(f"[Pipeline] Avviso: impossibile avviare sorgente 'webcam': {exc}")
     pipeline.start()
     app = create_app(pipeline)
     try:
@@ -491,6 +502,12 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Con la hand-eye: posa da robot_controller o della flangia da RoboDK (sola lettura)")
     p_run.add_argument("--color-labels", default=None,
                        help="Con --mock-tracker: 'arancione=vite_arancione,blu=secchio_blu' (oggetti per colore)")
+    p_run.add_argument("--include-webcam", action="store_true", default=True,
+                       help="Include anche la webcam normale del PC come sorgente 'webcam'")
+    p_run.add_argument("--no-webcam", dest="include_webcam", action="store_false",
+                       help="Disabilita l'inclusione automatica della webcam del PC")
+    p_run.add_argument("--webcam-device", default="0",
+                       help="Indice webcam del PC per la sorgente 'webcam' (default: 0)")
     _add_robodk_args(p_run)
     p_run.set_defaults(func=_cmd_run)
 
