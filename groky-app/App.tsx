@@ -13,7 +13,6 @@ import {
 import { JetBrainsMono_500Medium } from '@expo-google-fonts/jetbrains-mono';
 import BottomNav from './src/components/BottomNav';
 import CameraPanel from './src/components/CameraPanel';
-import DeviceChips from './src/components/DeviceChips';
 import Notifications from './src/components/Notifications';
 import Settings from './src/components/Settings';
 import Sidebar, { Tab } from './src/components/Sidebar';
@@ -172,9 +171,7 @@ function Main() {
 
         <View style={{ flex: 1 }}>
           <View style={[s.top, mobile && s.topMobile]}>
-            <DeviceChips compact={mobile} />
             <View style={{ flex: 1 }} />
-            {tab === 'talk' && !mobile && <IconButton icon="add" onPress={voice.clear} label="New conversation" />}
             <Notifications size={mobile ? 34 : 40} />
             {mobile && (
               <IconButton icon="settings-outline" size={34} onPress={() => setSettingsOpen(true)} label="Settings" />

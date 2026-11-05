@@ -36,7 +36,7 @@ export default function Talk({ voice, level, wide, mobile, camera, stopButton }:
 
   const live = voice.status !== 'off';
   const lastGrok = voice.lines.findLast((l) => l.kind === 'grok');
-  const headline = lastGrok?.kind === 'grok' ? lastGrok.text : 'hi, what should we build today?';
+  const headline = lastGrok?.kind === 'grok' ? lastGrok.text : 'How can I help you today?';
 
   const onMic = () => {
     if (!live || !voice.mic) voice.start();
