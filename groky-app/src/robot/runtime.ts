@@ -26,6 +26,9 @@ export const armState = () => state;
 export const armWorld = () => world;
 export const setWorld = (w: World) => (world = w);
 export const resetArm = () => (state = initialArm());
+// after a bridge move the app didn't plan itself (camera-guided ur_visit): take the real pose it reports (joints_deg),
+// so the next step moves are checked from where the arm really is
+export const syncArmFromBridge = (res: Record<string, unknown>) => (state = syncFromBridge(state, res));
 export const setArmLooker = (fn: Looker | null) => (looker = fn);
 
 export type Send = (name: string, body: Record<string, unknown>) => Promise<{ ok: boolean; [k: string]: unknown }>;

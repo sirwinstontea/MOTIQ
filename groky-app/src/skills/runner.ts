@@ -1,7 +1,7 @@
 // Executes a skill step by step: DETECT / VERIFY look through the camera (or the simulator), everything else runs
 // its primitive_sequence. Failure policies and the safety gates from the skill file are applied here.
 import { armPhysical, armSend, bridgeIsSim, devices, runTool, setArmTargetReal, stopDevice } from '../devices';
-import { armState, armWorld, detect, runArm, setWorld, verify } from '../robot/runtime';
+import { armState, armWorld, detect, runArm, setWorld, syncArmFromBridge, verify } from '../robot/runtime';
 import { worldFromEnv } from '../robot/arm';
 import { verifyCheck } from './dryrun';
 import { armOpts, CELL_OBJECTS, deviceOf, physicalArmProblems, physicalBlock, touchSimSequence } from './index';
@@ -185,6 +185,8 @@ async function runSkillOn(
         hold_s: Number(step.parameters?.hold_s ?? 2),
         come_back: step.parameters?.come_back !== false,
       });
+      // the camera chose where the arm went: the next steps are checked from that real pose
+      if (r.ok) syncArmFromBridge(r);
       return {
         ok: r.ok,
         note: typeof r.did === 'string' ? r.did : undefined,
