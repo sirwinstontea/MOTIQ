@@ -1,0 +1,112 @@
+# MOTIQ robot catalog: the robot arms the chooser can select (robot FACTS, not cell setup).
+# Edited by hand or through the robot-chooser UI (python -m robot_chooser serve). The cell setup
+# (tool, mounting, cameras, speed, which robot is active) lives in hardware.yaml.
+#
+# Rules (see README.md):
+#  * nominal_reach_m / nominal_payload_kg are catalogue numbers for filtering only. They never prove a pose
+#    is reachable or a load is liftable; the controller (IK, path, payload checks) decides that.
+#  * limits: null  = not configured. A robot is only executable when limits are filled in WITH a source and
+#    `verified: true` was set by a person who checked them against the manufacturer / RoboDK model.
+#    Do not invent joint ranges or speeds. Accelerations that are not published are demo caps, not maxima.
+#  * library_file is a file NAME inside robot_controller/stations/ (allowlist; no other paths accepted).
+#    Download it once from the robot's RoboDK library page. Missing file -> robodk_sim selection is blocked.
+#  * scene_file / default_workspace are per robot: a UR5e cell layout must never be reused for a smaller arm.
+#    Units: m, rad, kg.
+schema: motiq_robot_catalog/1
+robots:
+- id: ufactory_xarm5
+  brand: UFACTORY
+  model: xArm5
+  dof: 5
+  nominal_reach_m: 0.7
+  nominal_payload_kg: 3.0
+  library_url: https://robodk.com/robot/uFactory/xArm5
+  robodk_item_name: xArm5
+  station_name: null
+  library_file: null
+  scene_file: null
+  default_workspace: null
+  limits: null
+  notes: 5 joints - cannot impose an arbitrary 6-DOF tool pose; some rotations are still possible (decided by IK).
+- id: ur_ur3e
+  brand: Universal Robots
+  model: UR3e
+  dof: 6
+  nominal_reach_m: 0.5
+  nominal_payload_kg: 3.0
+  library_url: https://robodk.com/robot/Universal-Robots/UR3e
+  robodk_item_name: UR3e
+  station_name: UR3e Controller Demo
+  library_file: UR3e.robot
+  scene_file: null
+  default_workspace: null
+  limits:
+    verified: true
+    source: UR3e e-Series datasheet (payload 3 kg, reach 500 mm, base/shoulder/elbow 180 deg/s, wrists 360 deg/s,
+      TCP 1 m/s); elbow limited to +/-pi; accel caps are configured demo values, not datasheet
+    joint_min_rad: [-6.2832, -6.2832, -3.1416, -6.2832, -6.2832, -6.2832]
+    joint_max_rad: [6.2832, 6.2832, 3.1416, 6.2832, 6.2832, 6.2832]
+    max_joint_speed_rad_s: [3.1416, 3.1416, 3.1416, 6.2832, 6.2832, 6.2832]
+    max_joint_accel_rad_s2: 4.0
+    max_tcp_speed_m_s: 1.0
+    max_tcp_accel_m_s2: 2.0
+    max_payload_kg: 3.0
+    reach_m: 0.5
+  notes: Needs its own scene (targets inside 500 mm) and UR3e.robot in robot_controller/stations/.
+- id: ur_ur5e
+  brand: Universal Robots
+  model: UR5e
+  dof: 6
+  nominal_reach_m: 0.85
+  nominal_payload_kg: 5.0
+  library_url: https://robodk.com/robot/Universal-Robots/UR5e
+  robodk_item_name: UR5e
+  station_name: UR5e Controller Demo
+  library_file: UR5e.robot
+  scene_file: scene.example.yaml
+  default_workspace:
+    frame_id: base
+    x_m: [-0.7, -0.2]
+    y_m: [-0.4, 0.4]
+    z_m: [0.015, 0.55]
+  limits:
+    verified: true
+    source: UR5e e-Series datasheet (payload 5 kg, reach 850 mm, joint speed 180 deg/s, TCP 1 m/s); elbow limited
+      to +/-pi as in ROS ur_description; accel caps are configured demo values, not datasheet
+    joint_min_rad: [-6.2832, -6.2832, -3.1416, -6.2832, -6.2832, -6.2832]
+    joint_max_rad: [6.2832, 6.2832, 3.1416, 6.2832, 6.2832, 6.2832]
+    max_joint_speed_rad_s: [3.1416, 3.1416, 3.1416, 3.1416, 3.1416, 3.1416]
+    max_joint_accel_rad_s2: 4.0
+    max_tcp_speed_m_s: 1.0
+    max_tcp_accel_m_s2: 2.0
+    max_payload_kg: 5.0
+    reach_m: 0.85
+  notes: Reference cell of the repo (scene.example.yaml, safety.example.yaml, stations/UR5e.robot).
+- id: elite_cs63
+  brand: Elite Robots
+  model: CS63
+  dof: 6
+  nominal_reach_m: 0.624
+  nominal_payload_kg: 3.0
+  library_url: https://robodk.com/robot/Elite-Robots/CS63
+  robodk_item_name: CS63
+  station_name: null
+  library_file: null
+  scene_file: null
+  default_workspace: null
+  limits: null
+  notes: null
+- id: elite_cs66
+  brand: Elite Robots
+  model: CS66
+  dof: 6
+  nominal_reach_m: 0.914
+  nominal_payload_kg: 6.0
+  library_url: https://robodk.com/robot/Elite-Robots/CS66
+  robodk_item_name: CS66
+  station_name: null
+  library_file: null
+  scene_file: null
+  default_workspace: null
+  limits: null
+  notes: null
