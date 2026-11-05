@@ -273,9 +273,8 @@ Validation errors from the API/CLI use: `VALIDATION_ERROR`, `UNKNOWN_ROBOT`, `UN
   `RobotSelectionManager` in the controller (select without restart, 409 while a task runs).
 * **No per-skill preflight yet.** That is RoboDK IK/path checks of a skill on the selected robot, with
   `COMPATIBLE` / `REQUIRES_RETEACHING` / `INCOMPATIBLE` results.
-* **The app doesn't call these endpoints yet.** groky-app's Robots screen should reach them through the bridge.
+* **App integration is partial.** groky-app's Settings → Hardware uses `/api/state`, `/api/select` and `/api/hardware` directly through `EXPO_PUBLIC_CHOOSER_URL`. To reach it from a tablet, run `serve --host 0.0.0.0` on a trusted network: the API has no auth.
 * **No physical motion.** Physical actuators are documented, never driven, by design.
-* The guidance doc (`MOTIQ_Codex_MultiRobot_RoboDK.md`) was used as direction, not as a spec.
 
 ## 11. Tests
 

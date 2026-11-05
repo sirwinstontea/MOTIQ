@@ -1,41 +1,40 @@
-# Skill "Calibrate arm camera" per Aman
+# calibration_skill
 
-Calibra la RealSense sul polso dell'UR dall'app, **senza toccare il foglio con la punta**. La calibrazione la fai tu sul
-braccio vero: qui c'è tutto quello che serve. La visione **non muove mai il robot**: si muove solo l'app, con i
-suoi passi piccoli (bridge → `ur_jog`), e a ogni posa chiede alla visione di salvare un campione.
+An app skill that calibrates the wrist-mounted RealSense on the UR **without touching the sheet with the tool tip**. Vision never moves the robot. The app moves it in small steps through the bridge, which needs the external `ur_jog` driver, and asks vision to save a sample at each pose.
 
-## Cosa c'è
+> [!IMPORTANT]
+> The app does not support these steps yet: `calibrate_*` is not in `groky-app/src`. Apply the patch in section 1 before running the skill on the arm.
 
-| File | A cosa serve |
+| File | Purpose |
 |---|---|
-| `skill_calibra_camera_braccio.json` | la skill (schema 1.1.0, 27 passi, 12 pose). Si importa dalla scheda Skills → *Import skill* → incolla il JSON |
-| `make_skill.py` | la rigenera: cambia `POSES` per altre pose. Controlla da solo passi ≤ 10 cm e giunti ≤ 20° |
+| [`skill_calibra_camera_braccio.json`](skill_calibra_camera_braccio.json) | The skill: schema 1.1.0, 27 steps, 12 poses. Import it in Skills → *Import skill*. |
+| [`make_skill.py`](make_skill.py) | Regenerates the JSON. Edit `POSES` for other poses. Checks steps ≤ 10 cm and joints ≤ 20°. |
 
-La visione (già pronta, in `computer-vision/`) espone quattro POST. Il corpo può essere vuoto.
+The vision server exposes four POST routes. The body can be empty.
 
-| Chiamata | Cosa fa |
+| Route | What it does |
 |---|---|
-| `POST /calibration/arm/reset` | azzera i campioni |
-| `POST /calibration/arm/sample` | foglio visto ora + posa del braccio (letta via RTDE, sola lettura) → un campione. `ok:false` se il braccio si muove, il foglio non si vede o la posa è uguale alla precedente |
-| `POST /calibration/arm/solve` | hand-eye → `data/calibration/hand_eye.json` e **`markers_mm.json` con i centri dei marker nel frame Base** (niente da toccare). `ok:false` se meno di 3 campioni o dispersione > 5 mm |
-| `POST /calibration/arm/look_pose` | dalla posa di osservazione, col foglio ancora lì → `fixed_pose.json`, attivata subito senza riavvio |
+| `/calibration/arm/reset` | Clears samples |
+| `/calibration/arm/sample` | Stores the sheet as seen now plus the arm pose, read through RTDE. Returns `ok:false` if the arm is moving, the sheet is out of view, or the pose matches the last one. |
+| `/calibration/arm/solve` | Hand-eye solve. Writes `data/calibration/hand_eye.json` and `markers_mm.json` with marker centres in the base frame. Returns `ok:false` with under 3 samples or a spread over 5 mm. |
+| `/calibration/arm/look_pose` | From the observation pose, writes `fixed_pose.json` and activates it without a restart |
 
-## 1. Modifiche all'app (due file, ~25 righe)
+## 1. App patch
 
-**`groky-app/src/skills/schema.ts`** — allarga il tipo:
+In `groky-app/src/skills/schema.ts`, widen the type:
 
 ```ts
-physical_tool?: 'ur_down_up' | 'calibrate_reset' | 'calibrate_sample' | 'calibrate_solve' | 'calibrate_look_pose';
+physical_tool?: 'ur_down_up' | 'ur_visit' | 'calibrate_reset' | 'calibrate_sample' | 'calibrate_solve' | 'calibrate_look_pose';
 ```
 
-**`groky-app/src/skills/runner.ts`** — importa `env` (`import { env } from '../lib/config';`), aggiungi sopra `runSkill`:
+In `groky-app/src/skills/runner.ts`, import `env` from `../lib/config`, and add this above `runSkill`:
 
 ```ts
 const CALIBRATION = {
   calibrate_reset: 'reset', calibrate_sample: 'sample', calibrate_solve: 'solve', calibrate_look_pose: 'look_pose',
 } as const;
 
-// the vision server never moves the arm: it only saves a sample / solves / writes the calibration files
+// the vision server never moves the arm: it only saves a sample, solves, or writes the calibration files
 async function visionCalibrate(tool: keyof typeof CALIBRATION): Promise<Res> {
   if (!env.visionServer) return { ok: false, error: 'EXPO_PUBLIC_VISION_SERVER is not set' };
   try {
@@ -54,69 +53,61 @@ async function visionCalibrate(tool: keyof typeof CALIBRATION): Promise<Res> {
 }
 ```
 
-e dentro `once`, **prima** del blocco `ur_down_up`:
+Inside `once`, **before** the `ur_down_up` block:
 
 ```ts
-    if (device === 'arm' && real && step.physical_tool?.startsWith('calibrate_')) {
-      const r = await visionCalibrate(step.physical_tool as keyof typeof CALIBRATION);
-      // a missed sample (sheet out of view for one pose) is not fatal: solve checks there are enough
-      if (!r.ok && step.physical_tool === 'calibrate_sample') return { ok: true, note: `sample skipped: ${r.error}` };
-      return r;
-    }
+if (device === 'arm' && real && step.physical_tool?.startsWith('calibrate_')) {
+  const r = await visionCalibrate(step.physical_tool as keyof typeof CALIBRATION);
+  // a missed sample is not fatal: solve checks there are enough
+  if (!r.ok && step.physical_tool === 'calibrate_sample') return { ok: true, note: `sample skipped: ${r.error}` };
+  return r;
+}
 ```
 
-`index.ts` non serve toccarlo: i passi `calibrate_*` hanno un `WAIT`, ammesso sul braccio vero, quindi la validazione passa.
+`index.ts` needs no change, because `calibrate_*` steps contain a `WAIT`, which is allowed on the arm.
 
-## 2. Sul PC con la camera
+## 2. On the camera PC
 
 ```bash
 .venv\Scripts\python.exe -m pip install ur_rtde
-```
-```bash
-run_server.bat --robot-ip <IP dell'UR>
+run_server.bat --robot-ip <UR IP>
 ```
 
-`EXPO_PUBLIC_VISION_SERVER=http://<IP-del-PC>:8000` nell'`.env` dell'app (c'è già se usi le skill con la camera).
-Con `--robot-ip` la visione legge la posa dell'UR in **sola lettura** (RTDE `RTDEReceiveInterface`, che non può
-muovere il robot).
+Set `EXPO_PUBLIC_VISION_SERVER=http://<PC-IP>:8000` in the app. With `--robot-ip`, vision reads the pose through `RTDEReceiveInterface`, which can't move the robot.
 
-## 3. Prima di premere Play
+## 3. Before pressing Play
 
-1. Foglio ArUco stampato **al 100%** (quadrato nero di lato 50,8 mm), **piatto e fermo** sul tavolo per tutta la prova.
-2. Porta il braccio dal pendant nella **posa di osservazione** (camera verso il basso, flangia circa 50-55 cm sopra il
-   tavolo, foglio al centro dell'immagine: guarda `http://<IP-del-PC>:8000/stream/arm`). È anche il punto di
-   partenza della skill e quello a cui tornerà.
-3. Chiudi RealSense Viewer e `run_demo.bat`.
-4. Scheda Skills → importa il JSON → **approvala** per l'esecuzione fisica (come `ur_down_up`). Serve almeno un'occhiata
-   alle mosse: sono 12 pose di soli passi piccoli (≤ 6 cm; polsi ≤ 20° alla volta).
-5. Una mano sullo **STOP**: lo STOP dell'app ferma il braccio come per le altre skill.
+1. Print the ArUco sheet at **100%** (black square side 50.8 mm). Keep it flat and still for the whole run.
+2. Use the pendant to bring the arm to the **observation pose**: camera down, flange about 50–55 cm above the table, sheet centred. Check `http://<PC-IP>:8000/stream/arm`. The skill starts and ends here.
+3. Close RealSense Viewer and `run_demo.bat`.
+4. Import the JSON, read the moves, and **approve** it for physical execution. It makes 12 poses in small steps: at most 6 cm, wrists at most 20° at a time.
+5. Keep a hand on the **stop** button and the E-stop within reach.
 
-## 4. Cosa succede, e cosa guardare
+## 4. What to watch
 
-- Passi 2-24: per ogni posa il braccio fa una mossa piccola e poi `calibrate_sample`. L'app mostra `sample 1 … sample 12`.
-  Se un campione salta ("foglio non visto") la skill va avanti. Servono almeno 3 campioni, meglio 10-12.
-- Passo 26 (`calibrate_solve`): deve dare **`spread` sotto 5 mm** ("dispersione"). Altrimenti la visione risponde
-  `ok:false`. Cause tipiche: foglio non piatto o spostato, supporto della camera che si muove, ritardo tra
-  posa e immagine.
-- Passo 27 (`calibrate_look_pose`): il braccio è tornato nella posa di partenza. Controlla nella risposta: errore di
-  riproiezione sotto 1 px e **`table_check_mm` entro ±5**. Scrive `fixed_pose.json`.
-- Alla fine: togli il foglio e registra il tavolo vuoto:
+- Steps 2–24: a small move, then `calibrate_sample`. The app shows `sample 1 … sample 12`. A skipped sample doesn't stop the run. You need at least 3 and should aim for 10–12.
+- Step 26 (`calibrate_solve`): the **spread must be under 5 mm**. Common causes of failure are a sheet that isn't flat or moved, a loose camera mount, or lag between pose and image.
+- Step 27 (`calibrate_look_pose`): back at the start pose, check that reprojection error is under 1 px and `table_check_mm` is within ±5.
+- Finally, remove the sheet and record the empty table:
+
   ```bash
   curl.exe -X POST http://localhost:8000/empty_table/arm
   ```
 
-## 5. Se qualcosa non va
+## 5. Troubleshooting
 
-| Sintomo | Probabile causa |
+| Symptom | Likely cause |
 |---|---|
-| Quasi tutti i campioni "foglio non visto" | posa di osservazione troppo bassa o foglio non al centro: le inclinazioni di 10° spostano l'immagine di circa 8 cm |
-| `posa del braccio non disponibile` | il server non è partito con `--robot-ip`, o `ur_rtde` non è installato |
-| `il braccio si sta muovendo` | il campione è partito troppo presto: aumenta il `WAIT` prima di `calibrate_sample` in `make_skill.py` |
-| `solve` con dispersione alta | rifai con il foglio ben piatto; più pose con rotazioni diverse |
-| `look_pose` con `markers_mm.json ha ancora le posizioni sul foglio` | `calibrate_solve` non è riuscito: i centri nel Base non sono stati scritti |
+| Almost every sample reports the sheet not seen | The pose is too low or the sheet is off-centre. A 10° tilt shifts the image by about 8 cm. |
+| Arm pose not available | The server didn't start with `--robot-ip`, or `ur_rtde` isn't installed |
+| The arm is moving | The sample ran too early. Increase the `WAIT` before `calibrate_sample` in `make_skill.py`. |
+| High spread in `solve` | Flatten the sheet and use more poses with different rotations |
+| `markers_mm.json` still has sheet positions | `calibrate_solve` failed, so base-frame centres were never written |
 
-**Nota sui polsi:** i giunti `wrist_1` e `wrist_2` inclinano la camera su due assi, `wrist_3` la ruota. Se sul tuo UR
-l'effetto è diverso (dipende dalla posa), cambia i numeri in `POSES` e rigenera. Basta che le 12 pose abbiano
-rotazioni attorno ad almeno due assi diversi e il foglio sempre in vista.
+`wrist_1` and `wrist_2` tilt the camera on two axes and `wrist_3` rotates it. If your arm behaves differently, change `POSES` and regenerate. The 12 poses need rotation about at least two axes with the sheet always in view. The active TCP doesn't affect the result but must stay the same for the whole run.
 
-Il TCP attivo sul pendant non cambia l'esito della posa fissa; deve però restare lo stesso per tutta la prova.
+## Test
+
+```bash
+python -m pytest -q tests/test_calibration_skill.py
+```

@@ -1,11 +1,12 @@
 # computer-vision-to-app
 
-Shows what the computer vision sees (boxes + track numbers) in the MOTIQ app's **Cameras** tab.
-Works on Windows, macOS and Linux. Only Python 3.10+ is needed to start; the rest is installed for you.
+Connects the vision stack to the MOTIQ app with one command, and hosts the **teach server** that turns demonstration videos into action tokens. Works on Windows, macOS and Linux. Starting it only needs Python 3.10+. The rest is installed for you.
 
-```
-camera (RealSense / webcam / none) ─▶ computer-vision server :8000 ─▶ app Cameras tab ("Arm vision")
-                                          /frame/arm.jpg  (annotated)    └▶ Grok's "what do you see" + vision tools
+```text
+camera ──▶ computer-vision :8000 ──▶ app Cameras tab, Grok vision tools
+                  /frame/arm.jpg
+
+Show Motion ──▶ teach server :8001 ──▶ vision/planner tokens ──▶ app + Grok ──▶ skill.json ──▶ Skills tab
 ```
 
 ## Quick start
@@ -14,86 +15,77 @@ From the repo root:
 
 ```bash
 python computer-vision-to-app/run.py all
+python computer-vision-to-app/run.py all --mode synthetic     # no camera
 ```
 
-That installs the vision packages into `computer-vision/.venv` (first time only), writes the server address into
-`groky-app/.env`, and starts the server. Then (re)start the app (`npx expo start`, Expo reads `.env` only at start)
-and open **Cameras → Arm vision**.
-
-No camera? Try it anyway with a fake scene: `python computer-vision-to-app/run.py all --mode synthetic`.
+This installs packages into `computer-vision/.venv` the first time, writes the server addresses into `groky-app/.env`, then starts the vision and teach servers. Restart the app with `npx expo start -c` and open **Cameras**.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `run.py setup` | create `computer-vision/.venv` and install packages (falls back to no RealSense driver if it can't install) |
-| `run.py serve` | start the vision server. `--mode auto` (default: RealSense if present, else webcam), `realsense`, `webcam --device 1`, `synthetic`; `--port 8000`; `--dog-target <index or stream>` adds a second camera `dog` |
-| `run.py env` | set `EXPO_PUBLIC_VISION_SERVER` in `groky-app/.env` (this computer's network address, or `--url http://host:8000`); `--sources arm,dog` to list both cameras. Only that setting is touched |
-| `run.py check` | test a running server: health, one annotated frame per source, tracked objects |
-| `run.py all` | setup if needed, then `env`, then `serve` |
+| `run.py setup` | Create `computer-vision/.venv` and install packages. Falls back to no RealSense driver if it can't install. |
+| `run.py serve` | Start the vision server. See the options below. |
+| `run.py teach` | Start the teach server. `--teach-port 8001` |
+| `run.py env` | Write `EXPO_PUBLIC_VISION_SERVER` and `EXPO_PUBLIC_TEACH_SERVER` to `groky-app/.env`. Options: `--url`, `--port`, `--teach-port`, `--sources arm,dog`. No other setting is touched. |
+| `run.py check` | Test a running server: health, one annotated frame per source, tracked objects |
+| `run.py all` | Setup if needed, then `env`, the teach server and `serve` |
+
+Options for `serve` and `all`: `--mode auto|realsense|robodk|webcam|synthetic|replay|stream`, `--device`, `--port 8000`, `--host`, `--dog-target <index or URL>`, plus extra arguments passed to the vision server.
 
 ## In the app
 
-- `EXPO_PUBLIC_VISION_SERVER` = the server address. When it is set, the Cameras tab gets **Arm vision** (and
-  **Dog vision** if you set `EXPO_PUBLIC_VISION_SOURCES=arm,dog` and started the server with `--dog-target`).
-- If a robot's bridge URL is set (`EXPO_PUBLIC_ARM_URL`), its camera already shows the same annotated frame through
-  the bridge, so no extra vision entry is added for that robot.
-- "Show Motion" and Live view send the annotated frame to Grok, so it can refer to objects by their numbers.
+- `EXPO_PUBLIC_VISION_SERVER` adds the vision cameras, filtered by `EXPO_PUBLIC_VISION_SOURCES` (default `arm,webcam`). Start the server with `--dog-target` to publish `dog`. The `webcam` source appears only in RealSense mode.
+- If `EXPO_PUBLIC_ARM_URL` is set, the arm camera already shows the same annotated frame through the bridge.
+- Show Motion and live view send the annotated frame to Grok, so it can refer to objects by number.
 
-## Learning a skill from the camera
+## Teach server
 
-**Skills → Learn from camera** (shown when `EXPO_PUBLIC_VISION_SERVER` is set): press Start, do the task by hand in
-front of the arm camera, press Stop. The app polls `/state/arm`, works out which objects moved and where they ended
-up (grouped by name + colour, so a hand hiding an object doesn't split it), shows that summary, and Grok writes a
-skill from it (`groky-app/src/skills/fromVision.ts`). The draft opens in the skill editor, marked as a draft needing
-review, with `skill.source.type = "vision"`. Nothing is saved or run until you save and approve it.
+[`teach_server.py`](teach_server.py) reads video and calls Grok. It never runs a robot.
 
-## Show Motion: a 15 s recording becomes a skill
+| Route | Body | Result |
+|---|---|---|
+| `GET /health` | | `{ok, mock}` |
+| `POST /teach?goal=<text>` | Video file of up to 200 MB | `{ok, summary, tokens}` |
+| `POST /teach_frames` | `{frames: [base64 jpeg], fps, audio?, audio_mime?, goal?}` | Same as `/teach` |
+| `GET /skills` | | Learned skills on this PC |
+| `POST /skills` | Skill document | Saved to `computer-vision/data/skills/learned/<id>.json` |
+| `DELETE /skills/<id>` | | Removes the PC copy |
 
-Press **Show Motion** under the camera and do the task while explaining it out loud. The app records **video + audio
-for 15 seconds**, and the recording goes through the planner in `computer-vision/vision/planner` (motion keyframes,
-Grok vision, Grok speech-to-text, then action tokens). Grok then writes the MOTIQ `skill.json`. The skill is saved
-to the Skills tab as a draft, and you approve it before it can run.
+One video is processed at a time. There is no authentication, so run it on a trusted network.
 
-```
-Show Motion ─▶ 15 s video + audio ─▶ teach server :8001 ─▶ vision/planner tokens ─▶ Grok ─▶ skill.json ─▶ Skills tab
-```
+`XAI_API_KEY` comes from `computer-vision/.env`, falling back to `EXPO_PUBLIC_XAI_API_KEY` in `groky-app/.env`. With no key it runs Grok in mock mode, which is only useful for testing.
 
-- **Tablet / browser camera:** a real video file with sound is recorded (expo-camera on a device, MediaRecorder in a
-  browser).
-- **Vision-server or robot camera** (a jpeg url): the app grabs its frames at about 5 fps and records the tablet
-  microphone. The teach server joins them into one video with ffmpeg (`POST /teach_frames`).
-- `run.py all` starts the teach server next to the vision server and writes `EXPO_PUBLIC_TEACH_SERVER` to the app's
-  `.env`. On its own: `run.py teach`. It reuses the app's `EXPO_PUBLIC_XAI_API_KEY` if `computer-vision/.env` has no
-  `XAI_API_KEY`. With no key at all it runs Grok in mock mode, which is only useful for testing.
-- **Skills → Learn from camera** also has **Upload video** for a demonstration recorded earlier (`POST /teach`).
-- `./run_all.sh` (repo root) starts the teach server too, forwards port 8001 to the tablet over USB and adds
-  `EXPO_PUBLIC_TEACH_SERVER=http://127.0.0.1:8001` to `groky-app/.env` if it's missing.
-- **Learned skills are kept on the PC** as well: every skill learned from a video or the camera (and each new revision)
-  is saved to `computer-vision/data/skills/learned/<skill id>.json` (`GET/POST /skills`, `DELETE /skills/<id>`), and
-  the app loads any it doesn't have when it starts. Deleting the skill in the app deletes the PC copy.
+## Ways to teach a skill
 
-### From a phone video to the arm doing it
+| Method | Recording | Path |
+|---|---|---|
+| **Show Motion**, tablet camera | Real video with sound via `expo-camera` | `POST /teach` |
+| **Show Motion**, JPEG camera | Frames at about 5 fps + tablet mic, joined with ffmpeg | `POST /teach_frames` |
+| **Upload video** | An existing recording | `POST /teach` |
+| **Learn from camera** | The app polls `/state/arm` and works out what moved | No teach server. See `groky-app/src/skills/fromVision.ts`. |
 
-1. Talk tab, tablet camera selected → **Show Motion**, do the task with the objects while saying what you do (15 s).
-2. The teach server reads the video (keyframes, speech, actions); Grok writes a skill using only the arm's four
-   objects and its destinations (delivery zone, into the blue bucket, back to an object's spot).
-3. The skill is saved in Skills. Motion says what it understood and exactly what the arm will do, shows the plan
-   card, and waits: say "yes" (or type it, or tap Approve) and it runs on the real arm; "no" and nothing moves.
-4. On the arm each step is: **DETECT** = the arm moves its head camera around until it sees the object, **PICK/PLACE**
-   = one checked controller task each, **VERIFY** = the arm camera looks at the destination.
+Each path ends the same way: the app has Grok write a skill using only the arm's objects and destinations, saves it as a draft and shows it in Skills. Motion then explains the plan and waits for your yes. On the arm, DETECT moves the head camera until it sees the object, PICK and PLACE are one checked controller task each, and VERIFY looks at the destination.
 
-## Using a phone / tablet / another computer
+Learned skills are kept on the PC as well, and the app loads any it doesn't have when it starts. Deleting a skill in the app deletes the PC copy.
 
-Use the network address (what `run.py env` writes by default, e.g. `http://192.168.1.50:8000`), on the same Wi-Fi.
-If the app can't load it, allow Python through the firewall for private networks. In a browser (Expo web) on the same
-computer you can use `http://localhost:8000`.
+## Using a phone or tablet
+
+Use the network address that `run.py env` writes, such as `http://192.168.1.50:8000`, on the same Wi-Fi. If the app can't reach it, allow Python through the firewall for private networks.
 
 ## Troubleshooting
 
-- **"No signal" in the app:** run `python computer-vision-to-app/run.py check`; if that passes, check
-  `EXPO_PUBLIC_VISION_SERVER` is reachable from the device and the app was restarted after changing `.env`.
-- **Camera busy:** only one program can use a camera. Close other apps (and `computer-vision/run_demo.bat`).
-- **Install fails:** use Python 3.10-3.12 (newer versions may lack wheels for some packages).
-- **Nothing tracked:** objects need the model weights in `computer-vision` and good light; boxes appear on the frame
-  only for detected objects.
+| Symptom | Fix |
+|---|---|
+| "No signal" in the app | Run `run.py check`. If it passes, check the URL from the device and restart Expo after changing `.env`. |
+| Camera busy | Only one program can use a camera. Close `run_demo.bat` and other apps. |
+| Install fails | Use Python 3.10–3.12. |
+| Nothing tracked | Check the model weights in `computer-vision/data/models` and the light. |
+| Port 8001 in use | Use `--teach-port`, and update `EXPO_PUBLIC_TEACH_SERVER`. |
+
+## Files
+
+| File | Purpose |
+|---|---|
+| [`run.py`](run.py) | Setup, env wiring, serve, teach and check, standard library only |
+| [`teach_server.py`](teach_server.py) | Video and frames to tokens, plus the learned skill store |

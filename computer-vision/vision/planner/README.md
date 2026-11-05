@@ -1,82 +1,107 @@
-# vision/planner — Parte C: video → skill JSON → RoboDK
+# vision/planner
 
-Questo modulo trasforma una dimostrazione video in una sequenza di chiamate a skill e la esegue su un UR5e simulato in RoboDK. Le skill che non esistono ancora vengono definite da Grok come composizione di primitive note. Il modulo non esegue mai codice generato.
+Turns a video demonstration into a sequence of skill calls and runs it on a simulated UR5e. Skills that don't exist yet are defined by Grok as compositions of known primitives. **The module never executes generated code.**
 
-Non dipende da `vision/eyes` né da `vision/grok`, e non usa OpenCV.
+It doesn't depend on `vision/eyes` or `vision/grok`, and it doesn't use OpenCV.
 
-```
-video ─ffmpeg─┬─ LQ 64×36 grigio (tutti i frame) ─► movimento ─► keyframe (inizio/picco/fine)
-              ├─ HQ 720p (stesso indice/PTS) ◄────────── lookup ─┘
-              └─ audio ─► Grok STT ─► frasi con timestamp ─► keyframe "voice" + contesto
+```text
+video ─ffmpeg─┬─ LQ 64×36 grey, every frame ─► motion energy ─► keyframes (start, peak, end)
+              ├─ HQ 720p, same index and PTS ◄──────── lookup ─┘
+              └─ audio ─► Grok STT ─► timed phrases ─► voice keyframes + context
                                 │
-             keyframe HQ + frasi ─► Grok vision ─► token d'azione (VideoTokens)
+             HQ keyframes + phrases ─► Grok vision ─► action tokens (VideoTokens)
                                 │
- skill_library.json ◄─ Grok: sintesi skill mancanti ◄─ Grok: piano (SkillPlan)
+ skill_library.json ◄─ Grok: synthesise missing skills ◄─ Grok: plan (SkillPlan)
         │
-        └─► espansione ─► validator (regole fisiche) ─► executor RoboDK/mock ─► run_<id>.json
+        └─► expansion ─► validator (physical rules) ─► RoboDK or mock executor ─► run_<id>.json
 ```
 
-## Installazione
+The app's Show Motion path uses only the tokenizing half, through the [teach server](../../../computer-vision-to-app). The app then writes the MOTIQ `skill.json`. The full pipeline below is the command-line route.
+
+## Install
+
 ```bash
 cd computer-vision
 python3 -m venv .venv && .venv/bin/pip install -r vision/planner/requirements.txt
-cp .env.example .env   # XAI_API_KEY, XAI_BASE_URL, XAI_MODEL, XAI_STT_API_KEY (voce: solo chiave xAI)
+cp .env.example .env   # XAI_API_KEY, XAI_BASE_URL, XAI_MODEL, XAI_STT_API_KEY
 ```
-ffmpeg viene preso dal sistema se è installato (`brew install ffmpeg`). Altrimenti si usa il binario incluso in `imageio-ffmpeg`.
 
-## Uso
+Speech-to-text needs an xAI key. ffmpeg comes from the system when installed, otherwise from `imageio-ffmpeg`.
+
+## Usage
+
 ```bash
-# Solo keyframe LQ→HQ (+ grafico debug motion.svg), senza Grok vision
+# Keyframes only, with a motion.svg debug plot, no Grok
 python -m vision.planner index --video data/replays/sample_arm.mp4 --debug
 
-# Video → token d'azione (Grok vision + STT)
+# Video → action tokens
 python -m vision.planner tokenize --video demo.mp4 --out logs/tokens.json
 
-# Pipeline completa, offline (MockGrok + executor in memoria)
+# Full pipeline, offline
 python -m vision.planner --mock run --tokens tests/fixtures/planner/tokens_unscrew.json --executor mock
 
-# Preparazione stazione RoboDK (RoboDK aperto con un UR5e caricato: File > Open online library > UR5e,
-# oppure File > Open del file https://cdn.robodk.com/downloads-library/library-robots/UR5e.robot).
-# Aggiunge la pinza "Gripper" (TCP 150 mm), crea gli oggetti della scena come scatole e porta il robot in home.
+# Prepare the RoboDK station: adds Gripper (TCP 150 mm), scene objects as boxes, and goes home
 python -m vision.planner.robodk_setup [--scene tests/fixtures/planner/tokens_unscrew.json]
 
-# Pipeline completa su RoboDK (RoboDK aperto con stazione UR5e + pinza + oggetti con nome)
+# Full pipeline on RoboDK
 python -m vision.planner run --video demo.mp4 --executor robodk [--robot UR5e] [--tool Gripper] \
     [--record-program Demo] [--collisions] [--replan-on-fail] [--require-approved]
 
-# Libreria skill
-python -m vision.planner skills                    # elenco
-python -m vision.planner skills --show svitare     # dettaglio JSON
-python -m vision.planner skills --approve svitare  # needs_validation -> approved
+# Skill library
+python -m vision.planner skills
+python -m vision.planner skills --show svitare
+python -m vision.planner skills --approve svitare      # needs_validation → approved
 ```
 
-## I due JSON vivi
-| File | Contenuto |
+`--no-voice` disables speech for tokenizing. RoboDK must be open with a UR5e loaded.
+
+## The two live JSON files
+
+| File | Contents |
 |---|---|
-| `data/skills/skill_library.json` | Libreria persistente. Contiene le skill builtin (`home`, `pick`, `place`, `pick_and_place`) e quelle apprese, con `status: needs_validation`, `version` e una `history` degli eventi. |
-| `logs/runs/run_<id>.json` (+ `latest.json`) | Stato della sessione: token, piano, skill apprese, step `pending/running/done/failed/skipped` con il feedback del robot, ed eventi. Viene riscritto in modo atomico a ogni transizione, così si può leggere in polling. |
+| `data/skills/skill_library.json` | Built-in skills (`home`, `pick`, `place`, `pick_and_place`) and learned ones, with `status`, `version` and event `history` |
+| `logs/runs/run_<id>.json`, `latest.json` | Session state: tokens, plan, learned skills, steps with robot feedback, events. Rewritten atomically on each transition, so it can be polled. |
 
-Una skill è una lista `body` di elementi, ognuno dei quali è uno tra:
-- `{"primitive": "MOVE_DOWN", "args": {"distance_m": "$depth"}}`;
-- `{"skill": "pick", "args": {"target": "$obj"}}`;
-- `{"repeat": "$turns", "body": [...]}`.
+A skill is a `body` list where each item is one of:
 
-Le primitive sono quelle del catalogo chiuso in `skill_pick_place_ur5e.json`.
+```json
+{"primitive": "MOVE_DOWN", "args": {"distance_m": "$depth"}}
+{"skill": "pick", "args": {"target": "$obj"}}
+{"repeat": "$turns", "body": []}
+```
 
-## Sicurezza
-- **Validatore:** controlla la sequenza prima di eseguirla. Fa rispettare:
-  - catalogo chiuso delle primitive e parametri entro min/max;
-  - `z` sopra `min_z_above_table_m`;
-  - pinza aperta prima di scendere;
-  - salita prima di traslare;
-  - velocità entro i limiti operativi;
-  - sbraccio.
+Primitives come from the closed catalog in `skill_pick_place_ur5e.json`.
 
-  Gli errori tornano a Grok, che ha al massimo 3 iterazioni di piano e 3 tentativi di sintesi per skill.
-- **RoboDK:** gira sempre in `RUNMODE_SIMULATE`. Prima di ogni `MoveL` c'è un controllo IK (`SolveIK`); con `--collisions` si aggiunge `MoveL_Test`. Il robot reale non viene mai comandato.
-- **Skill apprese:** nascono `needs_validation`. Con `--require-approved` il run si blocca se il piano le usa.
+## Safety
+
+- **Validator.** Checks the expanded sequence before it runs: closed catalog, parameter bounds, `z` above `min_z_above_table_m`, gripper open before descending, lift before travel, speed limits and reach. Errors go back to Grok, with at most 3 plan iterations and 3 synthesis attempts per skill.
+- **RoboDK.** Always `RUNMODE_SIMULATE`. `SolveIK` runs before each `MoveL`, and `--collisions` adds `MoveL_Test`. The real robot is never commanded.
+- **Learned skills.** They start as `needs_validation`. With `--require-approved`, a run stops if the plan uses one.
+
+Units: skills and primitives use metres and degrees. Scene positions and executor TCP poses use millimetres.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `frames.py` | Dual-stream ffmpeg extraction |
+| `motion.py` | Motion energy, segmentation, keyframe selection |
+| `voice.py` | Words to timed phrases |
+| `tokenizer.py` | Chunks images to Grok and merges tokens |
+| `agent.py` | Plan, learn, validate and execute loop |
+| `library.py` | Skill library, recursive expansion, cycle checks |
+| `primitives.py` | Catalog loader |
+| `validator.py` | Physical rule checks |
+| `schemas.py` | Pydantic contracts |
+| `prompts.py` | Grok system and user prompts |
+| `grok_client.py` | Chat and speech-to-text client, plus the mock |
+| `mock_rules.py` | Deterministic mock answers |
+| `runlog.py` | Atomic run log |
+| `robodk_setup.py` | Station preparation |
+| [`executors/`](executors) | RoboDK and in-memory executors |
 
 ## Test
+
 ```bash
 GROK_MOCK=1 .venv/bin/python -m pytest tests/test_planner.py -v
 ```
