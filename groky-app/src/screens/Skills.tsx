@@ -8,6 +8,7 @@ import { teachReady, visionReady } from '../skills/fromVision';
 import { Button, IconButton, IconChip, Pill, Segmented } from '../components/ui';
 import { DeviceId, devices } from '../devices';
 import { useDevices } from '../hooks/useDevices';
+import { useFullAccess } from '../lib/fullAccess';
 import type { Run, Skills as SkillsApi } from '../hooks/useSkills';
 import {
   deviceOf,
@@ -126,6 +127,7 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
   const busy = skills.running && !active;
   const real = !!devices[device].url;
   const offline = ready && status[device].state === 'offline';
+  useFullAccess(); // re-check when full access is turned on/off
   const blocked = physicalBlock(skill, real);
 
   const start = () => {
