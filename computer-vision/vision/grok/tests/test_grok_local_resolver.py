@@ -27,6 +27,20 @@ def test_resolve_local(objs, text, expected):
         assert r.source == "local" and r.ok
 
 
+def test_desk_object_found_locally():
+    # Oggetto visto da YOLO-World (label inglese): la richiesta in italiano si risolve senza Grok
+    objs = [{"id": 2001, "label": "stapler", "conf": 0.3, "bbox": [0.1, 0.1, 0.1, 0.1]},
+            {"id": 1, "label": "vite_arancione", "color": "arancione", "conf": 0.9, "bbox": [0.5, 0.5, 0.1, 0.1]}]
+    r = resolve_local(objs, "trova la spillatrice")
+    assert r.target_id == 2001 and r.action == "point"
+    assert resolve_local(objs, "prendi la vite arancione").target_id == 1  # il nostro modello resta il core
+
+
+def test_desk_classes():
+    from vision.grok.open_vocab import DESK_CLASSES
+    assert "stapler" in DESK_CLASSES and "person" not in DESK_CLASSES
+
+
 def test_action_from_verb(objs):
     assert resolve_local(objs, "prendila, la tazza con il manico").action == "pick"
     assert resolve_local(objs, "guarda la bottiglia").action == "look"

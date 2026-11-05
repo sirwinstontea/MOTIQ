@@ -101,6 +101,17 @@ class DetectResult(Result):
     objects: list[DetectedObject] = []
 
 
+class ChangeName(GrokModel):
+    n: int                 # numero del cambiamento nelle immagini
+    name: str              # l'oggetto, tipo + colore in italiano, 1-3 parole
+    real: bool             # False = ombra, riflesso, luce: falso allarme da scartare
+
+
+class ChangesResult(Result):
+    changes: list[ChangeName] = []
+    text: str = ""         # massimo 2 frasi da leggere a voce: cosa è cambiato e, se strano, perché
+
+
 class VerifyResult(Result):
     success: bool = False
     reason: str = ""
