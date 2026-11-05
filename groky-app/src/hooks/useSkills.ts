@@ -200,8 +200,13 @@ export function useSkills() {
   const start = useCallback(
     async (id: string, via: Run['via'] = 'tap'): Promise<ToolResult> => {
       const doc = find(id);
-      if (!doc) return { ok: false, error: `no skill called ${id}` };
-      if (token.current) return { ok: false, error: 'another skill is already running' };
+      // a skill that can't even start is an error notification too (voice and Show Motion both run skills here)
+      const refuse = (error: string, name = id) => {
+        notify({ kind: 'bad', title: `Couldn't run "${name}"`, body: error });
+        return { ok: false, error };
+      };
+      if (!doc) return refuse(`no skill called ${id}`);
+      if (token.current) return refuse('another skill is already running', doc.skill.name);
 
       const me: Token = { cancelled: false };
       token.current = me;

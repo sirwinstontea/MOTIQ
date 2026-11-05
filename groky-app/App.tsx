@@ -24,7 +24,8 @@ import { useCamera } from './src/hooks/useCamera';
 import { DevicesProvider } from './src/hooks/useDevices';
 import { useHistory } from './src/hooks/useHistory';
 import { useKeyboardVisible } from './src/hooks/useKeyboard';
-import { NotifyProvider } from './src/hooks/useNotify';
+import { NotifyProvider, useNotify } from './src/hooks/useNotify';
+import type { SkillDoc } from './src/skills';
 import { useSkills } from './src/hooks/useSkills';
 import type { VoiceCommand } from './src/skills/fromVoice';
 import { useVoice } from './src/hooks/useVoice';
@@ -79,10 +80,36 @@ function Main() {
   // robot requests given by voice are saved as skills (useSkills is created after useVoice, hence the ref)
   const saveVoiceRef = useRef<((cmd: VoiceCommand) => void) | null>(null);
   const onCommand = useCallback((cmd: VoiceCommand) => saveVoiceRef.current?.(cmd), []);
-  const voice = useVoice({ onLevel, onAsked: history.add, onCommand });
-  const cam = useCamera(voice);
+  const { notify } = useNotify();
+  // a robot action Motion ran by voice failed
+  const onToolError = useCallback(
+    (what: string, error: string) => notify({ kind: 'bad', title: `Couldn't ${what}`, body: error }),
+    [notify],
+  );
+  const voice = useVoice({ onLevel, onAsked: history.add, onCommand, onToolError });
+  // Show Motion recordings become skills: saved to the Skills tab as drafts that still need approving
+  const saveRef = useRef<((doc: SkillDoc) => SkillDoc | undefined) | null>(null);
+  const onSkill = useCallback(
+    (doc: SkillDoc, problems: string[]) => {
+      const dup = saveRef.current?.(doc);
+      if (dup) return dup.skill.id; // save() already said it's a copy of an existing skill: use that one
+      notify({
+        kind: problems.length ? 'warn' : 'ok',
+        title: `Learned "${doc.skill.name}"`,
+        body: problems.length
+          ? `Saved to Skills, but it has a problem: ${problems[0]}`
+          : 'Saved to Skills. It runs in simulation now; approve it in Skills before it moves the real robot.',
+      });
+      return doc.skill.id;
+    },
+    [notify],
+  );
+  const cam = useCamera(voice, onSkill);
   const skills = useSkills();
   saveVoiceRef.current = skills.saveVoice;
+  useEffect(() => {
+    saveRef.current = skills.save;
+  }, [skills.save]);
   useAlerts(voice.lines);
 
   // let Grok run skills by voice, and tell it when the list changes
@@ -113,6 +140,8 @@ function Main() {
       ref={cam.ref}
       onShow={cam.show}
       busy={cam.looking}
+      busyLabel={cam.phase}
+      recording={cam.recording}
       enabled={cam.enabled}
       onToggle={cam.setEnabled}
       watching={cam.watching}

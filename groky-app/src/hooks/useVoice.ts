@@ -13,6 +13,8 @@ type Options = {
   onAsked?: (text: string, via: 'voice' | 'typed') => void;
   // a spoken request moved a robot; called again as more of its actions finish
   onCommand?: (cmd: VoiceCommand) => void;
+  // a robot action Grok ran failed
+  onToolError?: (what: string, error: string) => void;
 };
 
 // add or replace by id, keep the last `max`
@@ -24,7 +26,7 @@ function upsert<T extends { id: string }>(list: T[], item: T, max: number, merge
   return next;
 }
 
-export function useVoice({ onLevel, onAsked, onCommand }: Options = {}) {
+export function useVoice({ onLevel, onAsked, onCommand, onToolError }: Options = {}) {
   const [status, setStatus] = useState<Status>('off');
   const [lines, setLines] = useState<Line[]>([]);
   const [traces, setTraces] = useState<Trace[]>([]);
@@ -55,6 +57,10 @@ export function useVoice({ onLevel, onAsked, onCommand }: Options = {}) {
   useEffect(() => {
     session.setCommandHandler(onCommand ?? null);
   }, [session, onCommand]);
+
+  useEffect(() => {
+    session.setToolErrorHandler(onToolError ?? null);
+  }, [session, onToolError]);
 
   const onBuffer = (b: { data: ArrayBuffer; sampleRate: number }) => {
     if (mutedRef.current) return levelRef.current?.(0);
@@ -148,6 +154,15 @@ export function useVoice({ onLevel, onAsked, onCommand }: Options = {}) {
     () => ({
       share: (source: string, answer: string, image?: string) => session.share(source, answer, image),
       observe: (source: string, answer: string, image?: string) => session.observe(source, answer, image),
+      progress: (t: Parameters<VoiceSession['progress']>[0]) => session.progress(t),
+      // connects without the mic if needed (like typed chat); Motion still answers out loud
+      teach: (d: Parameters<VoiceSession['teach']>[0]) => {
+        if (session.status === 'off') {
+          setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
+          session.start();
+        }
+        session.teach(d); // queued until connected
+      },
       setLooker: (fn: Looker | null) => session.setLooker(fn),
       setSkills: (runner: SkillRunner | null) => session.setSkills(runner),
       refreshTools: () => session.refreshTools(),

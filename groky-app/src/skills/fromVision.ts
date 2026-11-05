@@ -1,4 +1,5 @@
 import env from '../lib/config';
+import type { Recording } from '../lib/recorder';
 import { generateSkill, Generated } from './generate';
 
 // Teach by showing: watch the computer-vision server (../../computer-vision/API_APP.md, GET /state/{source}) while a
@@ -13,6 +14,7 @@ type VisionObject = {
   bbox: [number, number, number, number];
   color: string | null;
   coords_mm: { x: number; y: number; angle_deg: number } | null;
+  xyz_base_m?: [number, number, number] | null; // hand-eye calibrated arm camera, robot base frame
 };
 type FramePayload = { frame_id: number; ts: number; objects: VisionObject[] };
 
@@ -35,21 +37,35 @@ export type Observation = {
   tracks: Track[];
 };
 
-const HAND = /\b(hand|mano|mani|person|persona)\b/i;
+// body parts: the oggetti_mani model detects braccio / mano / polso (arm, hand, wrist); never task objects
+const HAND = /\b(hand|wrist|mano|mani|polso|braccio|person|persona)\b/i;
 const MOVE_MM = 30; // a move smaller than this is tracker noise
 const MOVE_NORM = 0.05; // same, in image units, when the arm is not calibrated
 
 const keyOf = (o: VisionObject) => `${(o.name || o.label).toLowerCase()}|${(o.color ?? '').toLowerCase()}`;
+// best position first: robot base frame from the hand-eye calibrated arm camera (metres), then the ArUco table
+// calibration (mm), then the image
 const posOf = (o: VisionObject): Pos =>
-  o.coords_mm
-    ? { x: o.coords_mm.x, y: o.coords_mm.y, mm: true }
-    : { x: o.bbox[0] + o.bbox[2] / 2, y: o.bbox[1] + o.bbox[3] / 2, mm: false };
+  o.xyz_base_m
+    ? { x: o.xyz_base_m[0] * 1000, y: o.xyz_base_m[1] * 1000, mm: true }
+    : o.coords_mm
+      ? { x: o.coords_mm.x, y: o.coords_mm.y, mm: true }
+      : { x: o.bbox[0] + o.bbox[2] / 2, y: o.bbox[1] + o.bbox[3] / 2, mm: false };
 const dist = (a: Pos, b: Pos) => Math.hypot(a.x - b.x, a.y - b.y);
 const moved = (t: Track) => dist(t.first, t.last) > (t.first.mm && t.last.mm ? MOVE_MM : MOVE_NORM);
 // the vision server names colours in Italian; skills (and DETECT matching in robot/runtime.ts) use English
 const EN: Record<string, string> = { ross: 'red', blu: 'blue', verd: 'green', giall: 'yellow', ner: 'black', bianc: 'white', arancion: 'orange', viola: 'purple', grigi: 'grey', marron: 'brown', rosa: 'pink' };
 const english = (c: string) => Object.entries(EN).find(([it]) => c.toLowerCase().startsWith(it))?.[1] ?? c;
-export const describeObject = (t: Pick<Track, 'label' | 'color'>) => (t.color ? `${english(t.color)} ${t.label}` : t.label);
+// the demo pieces the custom model knows (tappo_bianco, anello_verde, vite_arancione, secchio_blu)
+const NOUN: Record<string, string> = { tappo: 'cap', anello: 'ring', vite: 'screw', secchio: 'bucket' };
+const isColor = (w: string) => english(w) !== w;
+// "vite_arancione" / "vite arancione" + colour "arancione" -> "orange screw"
+export const describeObject = (t: Pick<Track, 'label' | 'color'>) => {
+  const words = t.label.toLowerCase().split(/[_\s]+/).filter(Boolean);
+  const color = t.color ?? words.find(isColor) ?? null;
+  const noun = words.filter((w) => !isColor(w)).map((w) => NOUN[w] ?? w).join(' ') || t.label;
+  return color ? `${english(color)} ${noun}` : noun;
+};
 
 // Collects frames. Tracks are grouped by name + colour, not by track number, because the number changes when the
 // tracker loses an object behind a hand (which is exactly what happens during a demonstration).
@@ -202,4 +218,55 @@ export async function skillFromVision(obs: Observation, note = ''): Promise<Gene
     human_review_required: true,
   } as typeof doc.interpretation;
   return { ...out, doc, summary: text };
+}
+
+// ---------------------------------------------------------------- from a recorded video
+// The teach server runs computer-vision/vision/planner on the video: motion keyframes + Grok vision + Grok
+// speech-to-text -> action tokens (pick / place / rotate ..., with objects and what was said). It returns a plain
+// summary of them, which goes through the same skill generator as the live demonstration.
+
+export const teachReady = () => !!env.teachServer;
+
+export type PickedVideo = { uri: string; file?: Blob; mimeType?: string | null; name?: string };
+
+// sends one request to the teach server, then writes the skill from its summary of the action tokens
+async function teach(path: string, init: RequestInit, note: string, source: Record<string, unknown>) {
+  if (!env.teachServer) throw new Error('No teach server set (EXPO_PUBLIC_TEACH_SERVER). Run computer-vision-to-app/run.py all.');
+  let r: Response;
+  try {
+    r = await fetch(`${env.teachServer}${path}`, { method: 'POST', ...init });
+  } catch {
+    throw new Error(`Can't reach the teach server at ${env.teachServer}.`);
+  }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.ok) throw new Error(j.error ?? `teach server ${r.status}`);
+  const tokens = (j.tokens?.tokens ?? []) as unknown[];
+  if (!tokens.length) throw new Error('No actions recognised in the video. Try a clearer, slower demonstration.');
+  const summary: string = j.summary;
+  const prompt = note.trim() ? `${summary}\nThe person also said: "${note.trim()}"` : summary;
+  const out = await generateSkill(prompt);
+  const doc = out.doc;
+  doc.skill.source = { ...source, summary, note: note.trim() || undefined, tokens: tokens.length, transcript: j.tokens?.transcript || undefined };
+  doc.app = { ...doc.app, icon: 'film-outline' };
+  doc.interpretation = { ...(doc.interpretation ?? {}), status: 'draft', human_review_required: true } as typeof doc.interpretation;
+  return { ...out, doc, summary };
+}
+
+export async function skillFromVideo(video: PickedVideo, note = ''): Promise<Generated & { summary: string }> {
+  const body = video.file ?? (await (await fetch(video.uri)).blob());
+  const q = note.trim() ? `?goal=${encodeURIComponent(note.trim())}` : '';
+  return teach(`/teach${q}`, { headers: { 'Content-Type': video.mimeType || 'video/mp4' }, body }, note, {
+    type: 'video',
+    video: video.name,
+  });
+}
+
+// "Show Motion": the 15 s recording from CameraPanel.record (lib/recorder.ts)
+export async function skillFromRecording(rec: Recording, camera: string, note = ''): Promise<Generated & { summary: string }> {
+  if (rec.kind === 'video') return skillFromVideo({ uri: rec.uri ?? '', file: rec.blob, mimeType: rec.mime, name: `${camera} recording` }, note);
+  const body = JSON.stringify({ frames: rec.frames, fps: rec.fps, audio: rec.audio, audio_mime: rec.audioMime, goal: note.trim() || undefined });
+  return teach('/teach_frames', { headers: { 'Content-Type': 'application/json' }, body }, note, {
+    type: 'video',
+    video: `${camera} recording`,
+  });
 }

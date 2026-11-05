@@ -5,7 +5,7 @@ import * as Haptics from 'expo-haptics';
 import SkillEditor from '../components/SkillEditor';
 import SkillPreview from '../components/SkillPreview';
 import TeachFromCamera from '../components/TeachFromCamera';
-import { visionReady } from '../skills/fromVision';
+import { teachReady, visionReady } from '../skills/fromVision';
 import { Button, IconButton, IconChip, Pill, Segmented } from '../components/ui';
 import { DeviceId, devices } from '../devices';
 import { useDevices } from '../hooks/useDevices';
@@ -67,7 +67,7 @@ export default function Skills({ skills }: { skills: SkillsApi }) {
             icon="download-outline"
             onPress={() => setEditing({ doc: newSkill('arm'), json: true })}
           />
-          {visionReady() && (
+          {(visionReady() || teachReady()) && (
             <Button label="Learn from camera" icon="eye-outline" onPress={() => setTeaching(true)} />
           )}
           <Button
