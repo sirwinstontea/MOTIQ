@@ -2,21 +2,11 @@
 # Change it here (then run: python -m robot_chooser apply) or in the UI (python -m robot_chooser serve).
 # Everything above the `requirements:` block is input; that block is regenerated on every apply.
 # Units: m, rad, kg (deg only where the key says so). Simulation only: no physical robot is ever selected.
-schema: motiq_hardware/1
+schema: motiq_hardware/2
 
 active_robot: ur_ur5e                       # one id from catalog.yaml
 backend: mock                               # mock (no RoboDK) | robodk_sim (RoboDK, RUNMODE_SIMULATE)
 speed_percent: 10.0                         # % of the ACTIVE robot's verified maximums
-
-tool:                                       # end-of-arm tool (same physical tool for every robot)
-  name: Custom 3D-printed plastic gripper (fixed, non-actuated)
-  gripper_kind: symbolic                    # symbolic = simulated grasps | none
-  actuated: false                           # does the REAL tool open/close?
-  mass_kg: 1.0                              # tool + adapter mass
-  mass_status: placeholder                  # placeholder | measured
-  tcp_offset_m_rad: [0.0, 0.0, 0.15, 0.0, 0.0, 0.0]  # flange -> contact point [x,y,z,rx,ry,rz]
-  tcp_status: placeholder                   # placeholder | measured
-  notes: Rigid plastic tool, no hardware specs; mass and length still to be measured.
 
 mounting:
   orientation: upright                      # upright | wall | ceiling
@@ -25,19 +15,47 @@ mounting:
   table_surface_z_m: 0.0
   status: assumed                           # assumed | measured
 
-cameras:                                    # mount stays free text until calibrated
+# Every device in the cell, one entry each. type = a file in hardware_types/ (fields, units, drivers).
+# attached_to: cell | arm | <component id> (chains: arm -> tool_changer -> gripper -> camera).
+# Everything carried by the arm counts against its payload; the end effector sets the TCP.
+# status: placeholder | datasheet | measured. driver: how it is connected (see its type file).
+components:
+  - id: main_tool
+    type: gripper
+    name: Custom 3D-printed plastic gripper (fixed, non-actuated)
+    attached_to: arm
+    driver: controller_symbolic
+    status: placeholder
+    notes: Rigid plastic tool, no hardware specs; mass and length still to be measured.
+    spec:
+      kind: rigid
+      actuated: false
+      mass_kg: 1.0
+      tcp_offset_m_rad: [0.0, 0.0, 0.15, 0.0, 0.0, 0.0]
+      sim_gripper: symbolic
   - id: realsense_d415
+    type: camera
     name: Intel RealSense D415
-    role: vision
-    serial: '143122062854'
-    mount: null
-    calibrated: false
+    attached_to: cell
+    driver: realsense
+    status: placeholder
+    notes: null
+    spec:
+      role: vision
+      serial: '143122062854'
+      calibrated: false
+      model: D415
   - id: realsense_d435
+    type: camera
     name: Intel RealSense D435
-    role: skill_recording
-    serial: null
-    mount: null
-    calibrated: false
+    attached_to: cell
+    driver: null
+    status: placeholder
+    notes: null
+    spec:
+      role: skill_recording
+      calibrated: false
+      model: D435
 
 workspace_overrides:                        # per robot id; empty = catalog default_workspace
   {}
@@ -59,22 +77,27 @@ requirements:
   blockers: []
   warnings:
   - level: warning
-    code: PAYLOAD
-    message: tool mass 1.0 kg is a placeholder - weigh the tool; the payload budget is only as good as this number
-  - level: warning
-    code: TCP
-    message: TCP offset [0.0, 0.0, 0.15] m is a placeholder - measure it
-  - level: warning
     code: GRIPPER
     message: 'the real tool (Custom 3D-printed plastic gripper (fixed, non-actuated)) does not open/close: grasp/release
       only work in simulation'
   - level: warning
-    code: CAMERA
-    message: 'camera Intel RealSense D415 (vision) is not calibrated: its detections do not give executable pick coordinates'
+    code: PLACEHOLDER
+    message: 'Custom 3D-printed plastic gripper (fixed, non-actuated): values are placeholders - measure them or take
+      them from the datasheet, then set status'
+  - level: warning
+    code: PLACEHOLDER
+    message: 'Intel RealSense D415: values are placeholders - measure them or take them from the datasheet, then set
+      status'
   - level: warning
     code: CAMERA
-    message: 'camera Intel RealSense D435 (skill_recording) is not calibrated: its detections do not give executable
-      pick coordinates'
+    message: 'camera Intel RealSense D415 is not calibrated: its detections do not give executable pick coordinates'
+  - level: warning
+    code: PLACEHOLDER
+    message: 'Intel RealSense D435: values are placeholders - measure them or take them from the datasheet, then set
+      status'
+  - level: warning
+    code: CAMERA
+    message: 'camera Intel RealSense D435 is not calibrated: its detections do not give executable pick coordinates'
   notes:
   - level: info
     code: GRIPPER
@@ -84,13 +107,40 @@ requirements:
     message: robot base pose in the cell is assumed, not measured
   model_file_ok: true
   payload_budget_kg: 4.0
+  carried_mass_kg: 1.0
   reach_m: 0.85
   tcp_length_m: 0.15
+  end_effector: main_tool
+  components:
+  - id: main_tool
+    type: gripper
+    name: Custom 3D-printed plastic gripper (fixed, non-actuated)
+    attached_to: arm
+    carried_by_arm: true
+    driver: controller_symbolic
+    connection: simulated via robot_controller (mock / robodk_sim backends)
+    status: placeholder
+  - id: realsense_d415
+    type: camera
+    name: Intel RealSense D415
+    attached_to: cell
+    carried_by_arm: false
+    driver: realsense
+    connection: physical, read-only via computer-vision server
+    status: placeholder
+  - id: realsense_d435
+    type: camera
+    name: Intel RealSense D435
+    attached_to: cell
+    carried_by_arm: false
+    driver: null
+    connection: documented only (no driver)
+    status: placeholder
   workspace:
     frame_id: base
     x_m: [-0.7, -0.2]
     y_m: [-0.4, 0.4]
     z_m: [0.015, 0.55]
-  selection_version: 7
+  selection_version: 12
   generated_files: [robot_controller/config/robot.yaml, robot_controller/config/safety.yaml, robot_controller/config/scene.yaml]
-  generated_at: '2026-11-05T00:50:57+00:00'
+  generated_at: '2026-11-05T01:07:59+00:00'
