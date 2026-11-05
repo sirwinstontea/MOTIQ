@@ -1,0 +1,19 @@
+# Mobile robot (e.g. the MOTIQ robot dog). Documented here; it is driven by its own stack, not by the arm controller.
+type: mobile_base
+label: Mobile robot / base
+description: Legged or wheeled robot in the cell (e.g. the robot dog). Not part of the arm's kinematic chain.
+attach_to: [cell]
+roles: [mobility]
+payload_field: null
+fields:
+  kind: {type: enum, values: [legged, wheeled, tracked, other], required: true}
+  model: {type: string}
+  payload_kg: {type: number, min: 0, unit: kg}
+  max_speed_m_s: {type: number, min: 0, unit: m/s}
+  battery_wh: {type: number, min: 0, unit: Wh}
+drivers:
+  - id: groky_dog
+    description: robot dog device of groky-app (src/devices) + dog telemetry/safety stop in computer-vision
+    connects_via: groky-app (outside robot_controller)
+    physical: true
+    actuates: true
