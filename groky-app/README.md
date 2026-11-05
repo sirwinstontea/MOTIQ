@@ -139,6 +139,7 @@ Backend URLs (`EXPO_PUBLIC_ARM_URL`, `EXPO_PUBLIC_VISION_SERVER`, `EXPO_PUBLIC_T
 | `EXPO_PUBLIC_CAMERAS` | extra cameras, `Name=url,Name=url`, each url returns a JPEG |
 | `EXPO_PUBLIC_VISION_SERVER` | computer-vision server (`../computer-vision/API_APP.md`), used by skill DETECT steps |
 | `EXPO_PUBLIC_GROK_VOICE` | voice, default `eve` |
+| `EXPO_PUBLIC_GROK_LANGUAGE_HINT` | optional BCP-47 ASR hint (`it`, `ja`, `es-MX`, …). Empty (default) = auto-detect all Grok Voice languages |
 | `EXPO_PUBLIC_GROK_VISION_MODEL` | model for camera questions, default `grok-4.20-0309-non-reasoning` (~1s; `grok-4.7` ~4s) |
 
 Restart with `npx expo start -c` after changing `.env`.
@@ -173,6 +174,8 @@ src/preview/         2D skill preview timeline
 
 Motion plans tasks and runs skills (full access is on at every start; "safe mode" turns it off). Before the arm
 moves — **simulator or real** — it calls `propose_plan` and asks out loud. Tools stay locked
-(`src/voice/session.ts`, `src/lib/armApproval.ts`) until **you** say or type a short "yes" / "go ahead" / "sì" /
-"vai" (or "no"). There is no separate Approve card. Stop, a new request, or 5 minutes ends approval. Grok can't
-approve its own plan. Skills-tab approval still gates real-robot skill runs when full access is off.
+(`src/voice/session.ts`, `src/lib/armApproval.ts`) until **you** say or type a short yes / no in your language
+("yes", "sì", "oui", "はい", "好的", … or "no" / "non" / "いいえ" / …). Hearing uses `grok-transcribe` with
+auto language detection (override with `EXPO_PUBLIC_GROK_LANGUAGE_HINT`). There is no separate Approve card.
+Stop, a new request, or 5 minutes ends approval. Grok can't approve its own plan. Skills-tab approval still
+gates real-robot skill runs when full access is off.

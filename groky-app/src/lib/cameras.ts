@@ -36,11 +36,11 @@ function visionCameras(): Camera[] {
 }
 
 export const cameras: Camera[] = [
+  ...visionCameras(),
   { id: 'tablet', label: 'Tablet' },
   ...Object.entries(devices)
     .filter(([, d]) => d.url)
     .map(([id, d]) => ({ id, label: d.label, url: `${d.url}/camera.jpg` })),
-  ...visionCameras(),
   ...parseExtra(env.cameras),
 ];
 

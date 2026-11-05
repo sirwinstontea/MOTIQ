@@ -38,24 +38,10 @@ function pickMime(video: boolean): string {
 export async function recordWeb(video: boolean, seconds: number, signal?: AbortSignal): Promise<{ blob: Blob; mime: string }> {
   const MR = (globalThis as any).MediaRecorder;
   if (!MR || !navigator.mediaDevices?.getUserMedia) throw new Error('this browser cannot record');
-
-  let stream: MediaStream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true },
-      video: video ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
-    });
-  } catch (e: any) {
-    const name = e?.name || 'Error';
-    if (name === 'NotReadableError' || name === 'TrackStartError') {
-      throw new Error('camera is busy (close other apps using it, or wait for the preview to release)');
-    }
-    if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
-      throw new Error('camera / microphone permission denied');
-    }
-    throw new Error(`could not open ${video ? 'camera' : 'microphone'}: ${e?.message ?? name}`);
-  }
-
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true },
+    video: video ? { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+  });
   const mime = pickMime(video);
   const chunks: Blob[] = [];
   let rec: InstanceType<typeof MR>;

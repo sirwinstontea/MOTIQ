@@ -4,6 +4,9 @@ const env = {
   xaiKey: process.env.EXPO_PUBLIC_XAI_API_KEY ?? '',
   voiceModel: process.env.EXPO_PUBLIC_GROK_VOICE_MODEL || 'grok-voice-latest',
   voice: process.env.EXPO_PUBLIC_GROK_VOICE || 'eve',
+  // Optional BCP-47 hint for ASR (e.g. "it", "ja", "es-MX"). Empty = auto-detect all Grok Voice languages.
+  // Spanish/Portuguese need a regional tag; bare "es" / "pt" are ignored by the API.
+  languageHint: (process.env.EXPO_PUBLIC_GROK_LANGUAGE_HINT ?? '').trim(),
   dogUrl: (process.env.EXPO_PUBLIC_DOG_URL ?? '').replace(/\/$/, ''),
   armUrl: (process.env.EXPO_PUBLIC_ARM_URL ?? '').replace(/\/$/, ''),
   bridgeKey: process.env.EXPO_PUBLIC_BRIDGE_KEY ?? '',

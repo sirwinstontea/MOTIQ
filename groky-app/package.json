@@ -39,6 +39,7 @@
     "tunnel": "expo start --tunnel",
     "lint": "eslint App.tsx src",
     "typecheck": "tsc --noEmit",
+    "test:voice": "npx --yes tsx scripts/test-voice-hearing.ts",
     "format": "prettier --write App.tsx \"src/**/*.{ts,tsx}\""
   },
   "private": true
