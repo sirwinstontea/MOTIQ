@@ -1,25 +1,21 @@
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import SkillEditor from '../components/SkillEditor';
-import SkillPreview from '../components/SkillPreview';
 import TeachFromCamera from '../components/TeachFromCamera';
 import { teachReady, visionReady } from '../skills/fromVision';
 import { Button, IconButton, IconChip, Pill, Segmented } from '../components/ui';
 import { DeviceId, devices } from '../devices';
 import { useDevices } from '../hooks/useDevices';
 import type { Run, Skills as SkillsApi } from '../hooks/useSkills';
-import { ago } from '../lib/time';
 import {
   deviceOf,
-  exportSkill,
   icon,
   isLookStep,
   newSkill,
   newSkillId,
   physicalBlock,
-  primitiveCount,
   primLabel,
   realArmProblems,
   SkillDoc,
@@ -125,15 +121,12 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
   const id = skill.skill.id;
   const device = deviceOf(skill);
   const builtin = !!skill.app?.builtin;
-  const st = skills.stats[id];
   const run = skills.run?.skillId === id ? skills.run : null;
   const active = run?.state === 'running';
   const busy = skills.running && !active;
   const real = !!devices[device].url;
   const offline = ready && status[device].state === 'offline';
   const blocked = physicalBlock(skill, real);
-  const [showSteps, setShowSteps] = useState(false);
-  const [showPreview, setShowPreview] = useState(false);
 
   const start = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -159,15 +152,6 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
     );
   };
 
-  const share = async () => {
-    try {
-      await Share.share({ message: JSON.stringify(exportSkill(skill), null, 2), title: `${skill.skill.id}.json` });
-    } catch (e: any) {
-      Alert.alert('Export', String(e?.message ?? e));
-    }
-  };
-
-  const expanded = showSteps || !!run;
   const progress = run ? run.results.filter((r) => r?.ok).length / skill.steps.length : 0;
   const statusPill =
     run?.state === 'running'
@@ -179,36 +163,29 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
           : run?.state === 'done'
             ? { label: 'done', tone: 'ok' as const }
             : null;
-  const reviewPill = skill.review?.approved
-    ? skill.safety?.physical_execution_allowed
-      ? { label: 'approved · real', tone: 'ok' as const }
-      : { label: 'approved · sim', tone: 'accent' as const }
-    : { label: skill.skill.status || 'draft', tone: 'warn' as const };
 
+  // minimal card: name, one line of description, edit and run. Steps only show while running or after a run.
+  // Preview, export and delete live in the editor (and delete on long press); approval only shows when the real
+  // robot needs it.
+  const needsApproval = !!blocked && !realArmProblems(skill).length;
   return (
-    <View style={[s.card, active && { backgroundColor: c.panel, boxShadow: `inset 0 0 0 1px ${c.accentSoft}` }]}>
+    <Pressable
+      onLongPress={builtin ? undefined : confirmDelete}
+      style={[s.card, active && { backgroundColor: c.panel, boxShadow: `inset 0 0 0 1px ${c.accentSoft}` }]}
+    >
       <View style={s.cardHead}>
         <IconChip icon={icon(skill)} color={active ? c.accent : c.text} bg={active ? c.accentSoft : undefined} />
         <View style={{ flex: 1, minWidth: 0 }}>
           <Text style={s.name} numberOfLines={1}>
             {skill.skill.name}
           </Text>
-          <Text style={s.meta} numberOfLines={1}>
-            {devices[device].label}
-            {device === 'arm' ? ' (UR5e)' : ''} · {skill.steps.length} steps · {primitiveCount(skill)} primitives
-            {builtin ? ' · built-in' : ''}
-          </Text>
+          {skill.skill.description ? (
+            <Text style={s.meta} numberOfLines={1}>
+              {skill.skill.description}
+            </Text>
+          ) : null}
         </View>
-        {statusPill && <Pill label={statusPill.label} tone={statusPill.tone} dot={statusPill.tone !== 'accent'} />}
-        <IconButton
-          icon={showPreview ? 'film' : 'film-outline'}
-          plain
-          size={32}
-          color={showPreview ? c.accent : c.faint}
-          onPress={() => setShowPreview((v) => !v)}
-          label={showPreview ? 'Hide preview' : 'Preview'}
-        />
-        <IconButton icon="share-outline" plain size={32} color={c.faint} onPress={share} label="Export JSON" />
+        {statusPill && statusPill.tone !== 'accent' && <Pill label={statusPill.label} tone={statusPill.tone} dot />}
         <IconButton
           icon={builtin ? 'copy-outline' : 'create-outline'}
           plain
@@ -217,31 +194,22 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
           onPress={builtin ? onDuplicate : onEdit}
           label={builtin ? 'Duplicate' : 'Edit'}
         />
-        {!builtin && (
-          <IconButton icon="trash-outline" plain size={32} color={c.faint} onPress={confirmDelete} label="Delete" />
+        {active ? (
+          <Button label="Stop" icon="hand-left" variant="danger" size="sm" onPress={skills.stop} />
+        ) : needsApproval ? (
+          <Button label="Approve" icon="shield-checkmark-outline" size="sm" variant="ghost" onPress={review} />
+        ) : (
+          <Button
+            label={offline ? 'Offline' : 'Run'}
+            icon="play"
+            size="sm"
+            onPress={start}
+            disabled={busy || offline || !!blocked}
+          />
         )}
       </View>
 
-      <Text style={s.desc}>{skill.skill.description || 'No description.'}</Text>
-
-      <View style={s.reviewRow}>
-        <Pill label={reviewPill.label} tone={reviewPill.tone} dot />
-        {skill.interpretation?.uncertainties?.length ? (
-          <Text style={s.meta}>{skill.interpretation.uncertainties.length} uncertainties</Text>
-        ) : null}
-        <View style={{ flex: 1 }} />
-        <Button
-          label={skill.review?.approved ? 'Revoke' : 'Review & approve'}
-          icon={skill.review?.approved ? 'close-circle-outline' : 'shield-checkmark-outline'}
-          size="sm"
-          variant="ghost"
-          onPress={review}
-        />
-      </View>
-
-      {showPreview && <SkillPreview skill={skill} />}
-
-      {run && (
+      {active && (
         <View style={s.progress}>
           <View
             style={[
@@ -253,61 +221,12 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
         </View>
       )}
 
-      {expanded ? (
-        <Steps skill={skill} run={run} />
-      ) : (
-        <Pressable onPress={() => setShowSteps(true)} style={s.previewRow}>
-          <Text style={s.preview} numberOfLines={1}>
-            {skill.steps.map(stepLabel).join('  →  ')}
-          </Text>
-          <Ionicons name="chevron-down" size={14} color={c.faint} />
-        </Pressable>
-      )}
+      {active && <Steps skill={skill} run={run} />}
 
       {run?.error && run.state !== 'running' && <Text style={s.runError}>{run.error}</Text>}
-
-      <View style={s.foot}>
-        <Text style={s.stats} numberOfLines={2}>
-          {run && run.state !== 'running'
-            ? runSummary(run)
-            : blocked
-              ? `Real robot: ${blocked}`
-              : st
-                ? `ran ${st.runs}x · ${st.ok}/${st.runs} ok · last ${ago(st.lastAt)}${real ? '' : ' · simulated'}`
-                : real
-                  ? 'never run'
-                  : 'never run · runs in the simulator'}
-        </Text>
-        {active ? (
-          <Button label="Stop" icon="hand-left" variant="danger" size="sm" onPress={skills.stop} />
-        ) : (
-          <Button
-            label={
-              offline
-                ? 'Offline'
-                : busy
-                  ? 'Busy'
-                  : blocked
-                    ? realArmProblems(skill).length
-                      ? 'Not on real arm'
-                      : 'Needs approval'
-                    : 'Run'
-            }
-            icon="play"
-            size="sm"
-            onPress={start}
-            disabled={busy || offline || !!blocked}
-          />
-        )}
-      </View>
-    </View>
+      {!run && blocked && !needsApproval && <Text style={s.runError}>{blocked}</Text>}
+    </Pressable>
   );
-}
-
-function runSummary(run: Run) {
-  const secs = (((run.endedAt ?? Date.now()) - run.startedAt) / 1000).toFixed(1);
-  const label = { done: 'finished', failed: 'failed', stopped: 'stopped', running: 'running' }[run.state];
-  return `${label} in ${secs}s${run.via === 'voice' ? ' · by Motion' : ''}`;
 }
 
 function Steps({ skill, run }: { skill: SkillDoc; run: Run | null }) {
