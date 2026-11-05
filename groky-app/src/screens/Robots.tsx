@@ -4,7 +4,7 @@ import * as Haptics from 'expo-haptics';
 import { devices, DeviceId, getArmSpeed, setArmSpeed, stopDevice } from '../devices';
 import { useDevices } from '../hooks/useDevices';
 import type { Line } from '../voice/types';
-import { Button, IconButton, IconChip, Pill } from '../components/ui';
+import { Button, IconButton, IconChip, Pill, Slider } from '../components/ui';
 import { Colors, fonts, radius, type, useStyles, useTheme } from '../theme';
 import { ago } from '../lib/time';
 
@@ -187,6 +187,7 @@ function ArmSpeed({ online, busy }: { online: boolean; busy: boolean }) {
   }
 
   const locked = busy || saving || speed == null;
+  const shown = speed ?? 10;
   return (
     <View style={s.speedBox}>
       <View style={s.speedHead}>
@@ -196,21 +197,28 @@ function ArmSpeed({ online, busy }: { online: boolean; busy: boolean }) {
           icon="remove"
           size={30}
           label="Slower"
-          disabled={locked || (speed ?? 0) <= 1}
-          onPress={() => apply((speed ?? 10) - STEP)}
+          disabled={locked || shown <= 1}
+          onPress={() => apply(shown - STEP)}
         />
         <Text style={s.speedValue}>{speed != null ? `${speed}%` : '—'}</Text>
         <IconButton
           icon="add"
           size={30}
           label="Faster"
-          disabled={locked || (speed ?? 100) >= 100}
-          onPress={() => apply((speed ?? 10) + STEP)}
+          disabled={locked || shown >= 100}
+          onPress={() => apply(shown + STEP)}
         />
       </View>
-      <View style={s.track}>
-        <View style={[s.fill, { width: `${speed ?? 0}%`, backgroundColor: (speed ?? 0) > 50 ? c.warn : c.accent }]} />
-      </View>
+      <Slider
+        value={shown}
+        min={1}
+        max={100}
+        step={STEP}
+        disabled={locked}
+        color={shown > 50 ? c.warn : c.accent}
+        onChange={(v) => setSpeed(v)}
+        onCommit={(v) => apply(v)}
+      />
       <View style={s.presets}>
         {PRESETS.map((p) => (
           <Button
@@ -277,8 +285,6 @@ const makeStyles = (c: Colors) =>
     speedHead: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     speedValue: { ...type.stat, color: c.text, minWidth: 56, textAlign: 'center' },
     speedHint: { ...type.caption, fontSize: 11, color: c.faint },
-    track: { height: 4, borderRadius: 2, backgroundColor: c.hover, overflow: 'hidden' },
-    fill: { height: 4, borderRadius: 2 },
     presets: { flexDirection: 'row', gap: 6 },
     empty: { ...type.caption, fontSize: 12, color: c.faint },
     dot: { width: 6, height: 6, borderRadius: 3 },

@@ -1,5 +1,15 @@
-import { ReactNode } from 'react';
-import { ActivityIndicator, Pressable, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { ReactNode, useCallback, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  GestureResponderEvent,
+  LayoutChangeEvent,
+  Pressable,
+  StyleProp,
+  StyleSheet,
+  Text,
+  View,
+  ViewStyle,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, radius, type, useStyles, useTheme } from '../theme';
 
@@ -183,6 +193,114 @@ export function IconChip({ icon, color, bg }: { icon: IconName; color?: string; 
   );
 }
 
+type SliderProps = {
+  value: number;
+  onChange: (v: number) => void;
+  onCommit?: (v: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+  disabled?: boolean;
+  /** fill colour; defaults to accent (warn when value is high is left to the caller) */
+  color?: string;
+  style?: StyleProp<ViewStyle>;
+};
+
+// Motiq-native horizontal slider (dark track, accent fill, round thumb). Replaces browser range
+// inputs and bare progress bars so controls match the rest of the UI on web and Expo Go.
+export function Slider({
+  value,
+  onChange,
+  onCommit,
+  min = 0,
+  max = 100,
+  step = 1,
+  disabled,
+  color,
+  style,
+}: SliderProps) {
+  const { c } = useTheme();
+  const s = useStyles(makeStyles);
+  const [width, setWidth] = useState(0);
+  const widthRef = useRef(0);
+  const dragging = useRef(false);
+
+  const clamp = useCallback(
+    (n: number) => {
+      const snapped = Math.round(n / step) * step;
+      return Math.max(min, Math.min(max, snapped));
+    },
+    [min, max, step],
+  );
+
+  const fromX = useCallback(
+    (x: number) => {
+      if (widthRef.current <= 0) return value;
+      const t = Math.max(0, Math.min(1, x / widthRef.current));
+      return clamp(min + t * (max - min));
+    },
+    [clamp, min, max, value],
+  );
+
+  const onLayout = (e: LayoutChangeEvent) => {
+    const w = e.nativeEvent.layout.width;
+    widthRef.current = w;
+    setWidth(w);
+  };
+
+  const setFromEvent = (e: GestureResponderEvent, commit?: boolean) => {
+    if (disabled) return;
+    const next = fromX(e.nativeEvent.locationX);
+    onChange(next);
+    if (commit) onCommit?.(next);
+  };
+
+  const pct = max === min ? 0 : ((value - min) / (max - min)) * 100;
+  const fill = color ?? c.accent;
+  const thumb = 18;
+
+  return (
+    <View
+      style={[s.sliderHit, style, disabled && { opacity: 0.4 }]}
+      onLayout={onLayout}
+      onStartShouldSetResponder={() => !disabled}
+      onMoveShouldSetResponder={() => !disabled}
+      onResponderGrant={(e) => {
+        dragging.current = true;
+        setFromEvent(e);
+      }}
+      onResponderMove={(e) => setFromEvent(e)}
+      onResponderRelease={(e) => {
+        dragging.current = false;
+        setFromEvent(e, true);
+      }}
+      onResponderTerminate={() => {
+        dragging.current = false;
+        onCommit?.(value);
+      }}
+      accessibilityRole="adjustable"
+      accessibilityValue={{ min, max, now: value }}
+    >
+      <View style={s.sliderTrack}>
+        <View style={[s.sliderFill, { width: `${pct}%`, backgroundColor: fill }]} />
+      </View>
+      {width > 0 && (
+        <View
+          pointerEvents="none"
+          style={[
+            s.sliderThumb,
+            {
+              left: Math.max(0, Math.min(width - thumb, (pct / 100) * width - thumb / 2)),
+              backgroundColor: c.text,
+              borderColor: fill,
+            },
+          ]}
+        />
+      )}
+    </View>
+  );
+}
+
 const makeStyles = (c: Colors) =>
   StyleSheet.create({
     btn: {
@@ -224,4 +342,16 @@ const makeStyles = (c: Colors) =>
     pillText: { ...type.caption, fontFamily: type.label.fontFamily },
     dot: { width: 6, height: 6, borderRadius: 3 },
     card: { backgroundColor: c.panel, borderRadius: radius.lg, padding: 16 },
+    sliderHit: { height: 28, justifyContent: 'center' },
+    sliderTrack: { height: 6, borderRadius: 3, backgroundColor: c.hover, overflow: 'hidden' },
+    sliderFill: { height: 6, borderRadius: 3 },
+    sliderThumb: {
+      position: 'absolute',
+      top: 5,
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      borderWidth: 2,
+      boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+    },
   });
