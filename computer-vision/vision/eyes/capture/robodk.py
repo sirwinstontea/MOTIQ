@@ -47,7 +47,13 @@ def connect(rdk: Any = None) -> Any:
         robolink = importlib.import_module("robodk.robolink")
     except ImportError as exc:  # pragma: no cover - dipende dall'ambiente
         raise RuntimeError("manca il pacchetto robodk: pip install robodk (e RoboDK avviato)") from exc
-    return robolink.Robolink()
+    rdk = robolink.Robolink()
+    try:  # senza TCP_NODELAY ogni chiamata aspetta ~40 ms (Nagle); con, ~0,2 ms
+        import socket
+        rdk.COM.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    except Exception:  # noqa: BLE001 - versione di robolink diversa: solo più lento
+        pass
+    return rdk
 
 
 def mat_to_np(pose: Any) -> np.ndarray:

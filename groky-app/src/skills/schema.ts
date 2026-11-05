@@ -100,7 +100,7 @@ export type PrimitiveCall = { primitive: string; parameters?: Record<string, unk
 export type FailurePolicy =
   'STOP_AND_REOBSERVE' | 'RETRY_WITH_REOBSERVATION' | 'STOP_AND_REPLAN' | 'REPORT_FAILURE' | (string & {});
 
-export type StepAction = 'DETECT' | 'PICK' | 'PLACE' | 'VERIFY' | 'SEQUENCE' | (string & {});
+export type StepAction = 'DETECT' | 'PICK' | 'PLACE' | 'VISIT' | 'VERIFY' | 'SEQUENCE' | (string & {});
 
 export type SkillStep = {
   id: string;
@@ -114,7 +114,7 @@ export type SkillStep = {
   success_conditions?: string[];
   failure_policy?: FailurePolicy;
   // run this step as one fixed bridge tool on the PHYSICAL arm instead of its primitives (sim runs the primitives)
-  physical_tool?: 'ur_down_up';
+  physical_tool?: 'ur_down_up' | 'ur_visit';
 };
 
 export type SkillDoc = {

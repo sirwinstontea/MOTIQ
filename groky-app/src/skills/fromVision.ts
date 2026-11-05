@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+import { FileSystemUploadType, uploadAsync } from 'expo-file-system/legacy';
 import env from '../lib/config';
 import type { Recording } from '../lib/recorder';
 import { generateSkill, Generated } from './generate';
@@ -233,16 +235,34 @@ export const teachReady = () => !!env.teachServer;
 export type PickedVideo = { uri: string; file?: Blob; mimeType?: string | null; name?: string };
 
 // sends one request to the teach server, then writes the skill from its summary of the action tokens
-async function teach(path: string, init: RequestInit, note: string, source: Record<string, unknown>) {
+// `fileUri` (phone/tablet): the recorded file is streamed from disk by expo-file-system. React Native's fetch can't
+// send a Blob body on Android (the server got bytes that weren't the video: "video non leggibile").
+async function teach(path: string, init: RequestInit, note: string, source: Record<string, unknown>, fileUri?: string) {
   if (!env.teachServer) throw new Error('No teach server set (EXPO_PUBLIC_TEACH_SERVER). Run computer-vision-to-app/run.py all.');
-  let r: Response;
+  let status: number;
+  let text: string;
   try {
-    r = await fetch(`${env.teachServer}${path}`, { method: 'POST', ...init });
+    if (fileUri) {
+      const up = await uploadAsync(`${env.teachServer}${path}`, fileUri, {
+        httpMethod: 'POST',
+        uploadType: FileSystemUploadType.BINARY_CONTENT,
+        headers: (init.headers as Record<string, string>) ?? {},
+      });
+      status = up.status;
+      text = up.body;
+    } else {
+      const r = await fetch(`${env.teachServer}${path}`, { method: 'POST', ...init });
+      status = r.status;
+      text = await r.text();
+    }
   } catch {
     throw new Error(`Can't reach the teach server at ${env.teachServer}.`);
   }
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok || !j.ok) throw new Error(j.error ?? `teach server ${r.status}`);
+  let j: any = {};
+  try {
+    j = JSON.parse(text);
+  } catch {}
+  if (status >= 400 || !j.ok) throw new Error(j.error ?? `teach server ${status}`);
   const tokens = (j.tokens?.tokens ?? []) as unknown[];
   if (!tokens.length) throw new Error('No actions recognised in the video. Try a clearer, slower demonstration.');
   const summary: string = j.summary;
@@ -256,12 +276,13 @@ async function teach(path: string, init: RequestInit, note: string, source: Reco
 }
 
 export async function skillFromVideo(video: PickedVideo, note = ''): Promise<Generated & { summary: string }> {
-  const body = video.file ?? (await (await fetch(video.uri)).blob());
   const q = note.trim() ? `?goal=${encodeURIComponent(note.trim())}` : '';
-  return teach(`/teach${q}`, { headers: { 'Content-Type': video.mimeType || 'video/mp4' }, body }, note, {
-    type: 'video',
-    video: video.name,
-  });
+  const headers = { 'Content-Type': video.mimeType || 'video/mp4' };
+  const src = { type: 'video', video: video.name };
+  // native with a file on disk: upload the file itself (no Blob)
+  if (Platform.OS !== 'web' && !video.file && video.uri) return teach(`/teach${q}`, { headers }, note, src, video.uri);
+  const body = video.file ?? (await (await fetch(video.uri)).blob());
+  return teach(`/teach${q}`, { headers, body }, note, src);
 }
 
 // "Show Motion": the 15 s recording from CameraPanel.record (lib/recorder.ts)
