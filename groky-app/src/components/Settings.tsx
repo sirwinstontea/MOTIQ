@@ -46,12 +46,14 @@ export default function Settings({ open, onClose }: Props) {
             <View style={{ flexShrink: 1 }}>
               <Text style={s.rowLabel}>Full access</Text>
               <Text style={[s.rowValue, full && { color: c.warn }]}>
-                {full ? 'ON: Motion runs skills and tasks on the real arm' : 'Off: skills need approval first'}
+                {full
+                  ? 'ON: Motion plans and runs skills and tasks; it tells you the plan and waits for your yes before the real arm moves'
+                  : 'Off: skills also need approval in the Skills tab first'}
               </Text>
             </View>
             <Switch value={full} onValueChange={setFullAccess} />
           </View>
-          <Text style={s.hint}>Or say "full access" / "full access off". Resets to off when the app restarts.</Text>
+          <Text style={s.hint}>On at every app start. Say "safe mode" / "full access off" to turn it off.</Text>
         </Pressable>
       </Pressable>
     </Modal>

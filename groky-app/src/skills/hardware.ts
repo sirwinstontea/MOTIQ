@@ -184,7 +184,7 @@ alias('VERIFY', 'VERIFY', 'CHECK', 'INSPECT', 'CONFIRM', 'VALIDATE');
 alias('PICK', 'PICK', 'PICK_UP', 'PICKUP', 'GRASP', 'GRAB', 'TAKE', 'FETCH');
 alias('PLACE', 'PLACE', 'PUT', 'PUT_DOWN', 'DROP', 'DEPOSIT', 'SET_DOWN', 'STACK', 'PUT_IN', 'PUT_INTO');
 alias('SEQUENCE', 'SEQUENCE');
-alias('MOVE', 'MOVE', 'MOVE_TO', 'GO_TO', 'REACH', 'APPROACH');
+alias('MOVE', 'MOVE', 'MOVE_TO', 'GO_TO', 'REACH', 'APPROACH', 'VISIT');
 alias('HOME', 'HOME', 'GO_HOME', 'PARK');
 alias('WAIT', 'WAIT', 'PAUSE');
 

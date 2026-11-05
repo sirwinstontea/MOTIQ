@@ -1,9 +1,10 @@
 import { Platform } from 'react-native';
 import env, { SAMPLE_RATE } from '../lib/config';
-import { grokTools, runTool } from '../devices';
+import { devices, grokTools, runTool } from '../devices';
+import { approve, approvedNow, currentPlan, propose, reject, userSaid, waitForAnswer } from '../lib/armApproval';
 import { fromBase64, toBase64 } from './pcm';
 import { Player } from './player';
-import { editSkillTool, FULL_ACCESS_NOTE, fullAccessTool, lookTool, PROMPT, skillTool } from './prompt';
+import { editSkillTool, FULL_ACCESS_NOTE, fullAccessTool, lookTool, PROMPT, proposePlanTool, skillTool } from './prompt';
 import { fullAccess, setFullAccess } from '../lib/fullAccess';
 import { getToken } from './token';
 import { isRobotTool } from '../skills/fromVoice';
@@ -17,6 +18,11 @@ type Events = {
 };
 
 const pretty = (name: string) => name.replace(/_/g, ' ');
+
+// tools that move the REAL arm: locked until the user approves Motion's plan (lib/armApproval.ts)
+const ARM_NO_MOTION = new Set(['arm_verify', 'arm_wait', 'arm_stop']);
+const movesRealArm = (name: string) =>
+  !!devices.arm.url && ((name.startsWith('arm_') && !ARM_NO_MOTION.has(name)) || name === 'run_skill');
 
 let seq = 0;
 const uid = () => `${Date.now().toString(36)}${seq++}`;
@@ -80,8 +86,9 @@ export class VoiceSession {
       `[I just showed you a task through the camera, a short video where I explained it out loud.${said}\n` +
         `The video planner understood:\n${d.summary.split('\nWrite a skill')[0]}\n` +
         `It is saved as the skill "${d.skillName}" (id ${d.skillId}). Answer me out loud in one or two short ` +
-        `sentences with what you understood I want. Then run it with run_skill (skill "${d.skillId}"). ` +
-        `If it can't run, tell me why.]`,
+        `sentences with what you understood I want and exactly what the arm will do, step by step in plain words. ` +
+        `Then call propose_plan for running skill "${d.skillId}" and ask me to approve it. After I say yes, run it ` +
+        `with run_skill (skill "${d.skillId}"). If it can't run, tell me why.]`,
       false,
     );
   }
@@ -97,6 +104,7 @@ export class VoiceSession {
       ...grokTools(),
       lookTool,
       fullAccessTool,
+      proposePlanTool,
       ...this.visionTools,
       ...(list.length ? [skillTool(list), editSkillTool(list)] : []),
     ];
@@ -252,6 +260,7 @@ export class VoiceSession {
       return;
     }
     if (record) {
+      this.answerPlan(text, 'typed');
       this.cmd = null; // typed requests aren't saved as voice skills
       this.onAsked?.(text, 'typed');
       this.line({ id: uid(), kind: 'user', text });
@@ -266,7 +275,30 @@ export class VoiceSession {
     this.set('thinking');
   }
 
+  // the user's own words decide a pending plan; Grok's words never do
+  private answerPlan(text: string, via: 'voice' | 'typed') {
+    const r = userSaid(text, via);
+    if (r === 'approved') this.trace({ kind: 'plan', title: 'You approved the plan: real arm unlocked', detail: currentPlan()?.say, ok: true });
+    if (r === 'rejected') this.trace({ kind: 'plan', title: 'You said no: the real arm stays still', ok: false });
+  }
+
+  // Approve / Cancel buttons on the plan card
+  planDecision(ok: boolean) {
+    const p = currentPlan();
+    if (!p || p.state !== 'pending') return;
+    if (ok) approve('tap');
+    else reject();
+    this.trace({ kind: 'plan', title: ok ? 'You approved the plan on screen' : 'You cancelled the plan on screen', detail: p.say, ok });
+    this.sendText(
+      ok
+        ? '[I approved your plan on the screen. Do it now on the real arm, all steps in order.]'
+        : "[I cancelled your plan on the screen. Don't move the arm; ask me what to change.]",
+      false,
+    );
+  }
+
   async emergencyStop() {
+    reject(); // a stop also withdraws any approval
     this.player.stop();
     const t0 = Date.now();
     const res = await runTool('stop', {});
@@ -345,6 +377,7 @@ export class VoiceSession {
       this.cmd = { id: uid(), text: this.heard, calls: [] }; // robot calls from here on belong to this request
       this.onAsked?.(this.heard, 'voice');
       this.trace({ kind: 'hear', title: 'Understood', detail: this.heard });
+      this.answerPlan(this.heard, 'voice');
     }
     this.heard = null;
   }
@@ -359,7 +392,34 @@ export class VoiceSession {
     } catch {}
 
     let res: Record<string, unknown> & { ok: boolean };
-    if (name === 'camera_look') {
+    const locked = movesRealArm(name) && !approvedNow() && !(await waitForAnswer());
+    if (name === 'propose_plan') {
+      const steps = Array.isArray(args.steps) ? args.steps.map(String) : [];
+      const say = String(args.say ?? steps.join(', '));
+      if (!devices.arm.url) {
+        res = { ok: true, simulated: true, note: 'The arm is simulated: no approval needed, go ahead.' };
+      } else {
+        propose(say, steps);
+        res = {
+          ok: true,
+          status: 'waiting_for_approval',
+          note:
+            'Now tell the user this plan out loud in one or two short sentences and ask "Shall I do it on the real ' +
+            'arm?". Do NOT call arm tools or run_skill until they say yes or tap Approve.',
+        };
+      }
+      this.trace({ id, kind: 'plan', title: devices.arm.url ? 'Plan for the real arm: waiting for your yes' : 'Plan (simulated arm)', detail: [say, ...steps.map((x, i) => `${i + 1}. ${x}`)].join('\n'), ok: true, ms: Date.now() - t0 });
+    } else if (locked) {
+      const pending = currentPlan()?.state === 'pending';
+      res = {
+        ok: false,
+        needs_approval: true,
+        error: pending
+          ? 'The user has not approved the plan yet. Ask them "Shall I do it on the real arm?" and wait for yes.'
+          : 'Not approved. First call propose_plan with what the arm will do, tell the user, and wait for their yes.',
+      };
+      this.trace({ id, kind: 'plan', title: `Held ${pretty(name)}: waiting for your approval`, ok: false, ms: Date.now() - t0 });
+    } else if (name === 'camera_look') {
       this.trace({ id, kind: 'vision', title: 'Looking through the camera', detail: args.question });
       res = await this.runLook(args.question ?? 'What do you see?');
       this.trace({
@@ -446,7 +506,7 @@ export class VoiceSession {
 
     this.line({ id, kind: 'tool', name, args: raw, ok: res.ok, ms: Date.now() - t0, at: t0, speed: speedOf(res) });
     // skill runs report their own failures (useSkills.start); robot actions Grok ran directly are reported here
-    if (!res.ok && isRobotTool(name)) this.onToolError?.(pretty(name), String(res.error ?? res.status ?? 'failed'));
+    if (!res.ok && !res.needs_approval && isRobotTool(name)) this.onToolError?.(pretty(name), String(res.error ?? res.status ?? 'failed'));
     return { call_id, output: JSON.stringify(res) };
   }
 
