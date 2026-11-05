@@ -108,7 +108,7 @@ def make_handler(ch: Chooser):
     return H
 
 
-def serve(ch: Chooser, host: str = "127.0.0.1", port: int = 8770) -> None:
+def serve(ch: Chooser, host: str = "127.0.0.1", port: int = 8771) -> None:
     if host not in ("127.0.0.1", "localhost", "::1"):
         print(f"WARNING: serving on {host} - anyone on that network can change the hardware files (no auth).")
     httpd = ThreadingHTTPServer((host, port), make_handler(ch))

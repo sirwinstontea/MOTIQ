@@ -153,6 +153,14 @@ class URSimSyncController(RoboDKSimController):
             c = self.rtde_c
             if c is None:
                 return
+            # URSim was restarted (the bridge starts it on demand in SIM=1): the receive link is dead too
+            r = self.rtde_r
+            try:
+                if r is not None and not r.isConnected():
+                    log.info("URSim RTDE receive disconnected (URSim restarted?); reconnecting")
+                    r.reconnect()
+            except Exception as e:
+                log.warning("could not reconnect URSim RTDE receive: %s", e)
             try:
                 if not c.isConnected():
                     c.reconnect()

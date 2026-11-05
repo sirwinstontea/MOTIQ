@@ -9,7 +9,7 @@ import SkillPreview from '../components/SkillPreview';
 import TeachFromCamera from '../components/TeachFromCamera';
 import { teachReady, visionReady } from '../skills/fromVision';
 import { Button, IconButton, IconChip, Pill } from '../components/ui';
-import { devices } from '../devices';
+import { bridgeRealArm, devices } from '../devices';
 import { useDevices } from '../hooks/useDevices';
 import { useFullAccess } from '../lib/fullAccess';
 import { confirmAction } from '../lib/confirm';
@@ -18,6 +18,7 @@ import { isLearned } from '../skills/store';
 import { calibration, calibrationReady, CardState } from '../lib/calibration';
 import { digitalTwin, digitalTwinReady, TwinState } from '../lib/digitalTwin';
 import type { Run, Skills as SkillsApi } from '../hooks/useSkills';
+import type { RunTarget } from '../skills/runner';
 import {
   deviceOf,
   exportSkill,
@@ -25,6 +26,7 @@ import {
   isLookStep,
   newSkill,
   newSkillId,
+  physicalArmProblems,
   physicalBlock,
   primLabel,
   primitiveCount,
@@ -242,6 +244,7 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
   const { status, ready } = useDevices();
   const [open, setOpen] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
+  const [choosing, setChoosing] = useState(false); // Run asks: simulator or real arm
   const id = skill.skill.id;
   const device = deviceOf(skill);
   const builtin = !!skill.app?.builtin;
@@ -250,13 +253,17 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
   const busy = skills.running && !active;
   const real = !!devices[device].url;
   const offline = ready && status[device].state === 'offline';
+  // the PC stack runs SIM=1: the bridge's "real arm" is URSim mirrored into RoboDK, not the physical UR
+  const roboDK = (status[device].info as { physical_arm?: { sim?: boolean } } | undefined)?.physical_arm?.sim === true;
+  const realName = roboDK ? 'RoboDK' : 'real arm';
   const st = skills.stats[id];
   useFullAccess(); // re-check when full access is turned on/off
-  const blocked = physicalBlock(skill, real);
+  const blocked = physicalBlock(skill, real, roboDK);
 
-  const start = () => {
+  const start = (where: RunTarget) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    skills.start(id);
+    setChoosing(false);
+    skills.start(id, 'tap', where);
   };
 
   // only skills someone made or recorded can be deleted; built-ins are part of the app
@@ -302,6 +309,8 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
           : run?.state === 'done'
             ? { label: 'done', tone: 'ok' as const }
             : null;
+  if (statusPill && run)
+    statusPill.label += run.where === 'robot' ? ' · real arm' : run.where === 'real' ? ` · ${realName}` : ' · tablet sim';
   const reviewPill = skill.review?.approved
     ? skill.safety?.physical_execution_allowed
       ? { label: 'approved · real', tone: 'ok' as const }
@@ -313,6 +322,45 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
   // compact by default: name, one line of description, details, edit, delete and run. Details open the full
   // description, where the skill came from (video / camera / voice / Grok), approval, preview, steps and run stats.
   const needsApproval = !!blocked && !realArmProblems(skill).length;
+  // why the real arm can't run it right now (null = it can)
+  const realWhyNot = !real
+    ? 'not connected (no arm bridge configured)'
+    : offline
+      ? 'the arm bridge is offline'
+      : blocked;
+  const directSim = roboDK && !realWhyNot;
+  // SIM=1 stack with the physical UR5e attached too: "Real arm" runs it on the physical arm (camera + force moves
+  // only, real-robot approval required), next to "Run in RoboDK"
+  const realArm = roboDK && !offline ? bridgeRealArm(device) : null;
+  const physicalWhyNot = !realArm
+    ? null
+    : !realArm.reachable
+      ? `the real arm is not connected (${realArm.note ?? 'check the ethernet cable'})`
+      : !realArm.ready
+        ? `the real arm is not ready (${[realArm.mode, realArm.safety].filter(Boolean).join(', ')}). Power on + brake release on the pendant.`
+        : (physicalArmProblems(skill)[0] ?? physicalBlock(skill, true, false));
+  const runPhysical = () => {
+    if (!physicalWhyNot)
+      return Alert.alert(
+        `Run "${skill.skill.name}" on the REAL arm?`,
+        'The physical UR5e will move. Keep the emergency stop in reach.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Run on real arm', style: 'destructive', onPress: () => start('robot') },
+        ],
+      );
+    const approvable = !physicalArmProblems(skill).length && realArm?.ready && !skill.review?.approved;
+    Alert.alert(
+      "Can't run on the real arm",
+      physicalWhyNot,
+      approvable
+        ? [
+            { text: 'OK', style: 'cancel' },
+            { text: 'Approve for real robot', style: 'destructive', onPress: () => skills.approve(id, true) },
+          ]
+        : [{ text: 'OK' }],
+    );
+  };
   return (
     <View style={[s.card, active && { backgroundColor: c.panel, boxShadow: `inset 0 0 0 1px ${c.accentSoft}` }]}>
       <View style={s.cardHead}>
@@ -357,18 +405,62 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
         )}
         {active ? (
           <Button label="Stop" icon="hand-left" variant="danger" size="sm" onPress={skills.stop} />
-        ) : needsApproval ? (
-          <Button label="Approve" icon="shield-checkmark-outline" size="sm" variant="ghost" onPress={review} />
         ) : (
           <Button
-            label={offline ? 'Offline' : 'Run'}
-            icon="play"
+            label={choosing ? 'Cancel' : directSim ? 'Run in RoboDK' : 'Run'}
+            icon={choosing ? 'close' : 'play'}
             size="sm"
-            onPress={start}
-            disabled={busy || offline || !!blocked}
+            variant={choosing ? 'ghost' : directSim ? 'primary' : 'secondary'}
+            // SIM=1 demo: one tap runs it on URSim + RoboDK (the bridge starts URSim if needed); otherwise ask where
+            onPress={() => (directSim ? start('real') : setChoosing((v) => !v))}
+            disabled={busy}
+          />
+        )}
+        {!active && !choosing && realArm && (
+          <Button
+            label="Run on real arm"
+            icon="hardware-chip-outline"
+            size="sm"
+            variant="secondary"
+            onPress={runPhysical}
+            disabled={busy}
           />
         )}
       </View>
+
+      {choosing && !active && (
+        <View style={s.chooser}>
+          <Text style={s.chooserTitle}>Where should it run?</Text>
+          <View style={s.reviewRow}>
+            <Button label="Tablet sim" icon="tablet-landscape-outline" size="sm" onPress={() => start('sim')} />
+            <Button
+              label={roboDK ? 'RoboDK' : 'Real arm'}
+              icon={roboDK ? 'desktop-outline' : 'hardware-chip-outline'}
+              size="sm"
+              variant="primary"
+              onPress={() => start('real')}
+              disabled={!!realWhyNot}
+            />
+            {real && !offline && needsApproval && (
+              <Button label="Approve" icon="shield-checkmark-outline" size="sm" variant="ghost" onPress={review} />
+            )}
+          </View>
+          <Text style={s.meta}>Tablet sim: runs on this tablet only, nothing is sent to the PC or RoboDK.</Text>
+          {realWhyNot ? (
+            <Text style={[s.meta, { color: c.warn }]}>{roboDK ? 'RoboDK' : 'Real arm'}: {realWhyNot}</Text>
+          ) : roboDK ? (
+            <Text style={s.meta}>
+              RoboDK: runs on the PC simulation (URSim mirrored live into RoboDK, simulated gripper). The physical arm
+              does not move.
+            </Text>
+          ) : (
+            <Text style={[s.meta, { color: c.warn }]}>
+              Real arm: locate and small steps move the physical UR5e; pick, place and push run through the robot
+              controller. Keep the stop button in reach.
+            </Text>
+          )}
+        </View>
+      )}
 
       {active && (
         <View style={s.progress}>
@@ -443,7 +535,7 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
 
           <Text style={s.stats}>
             {run && run.state !== 'running'
-              ? runSummary(run)
+              ? runSummary(run, realName)
               : st
                 ? `ran ${st.runs}× · ${st.ok}/${st.runs} ok · last ${ago(st.lastAt)}${real ? '' : ' · simulated'}`
                 : real
@@ -456,7 +548,6 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
       {active && <Steps skill={skill} run={run} />}
 
       {run?.error && run.state !== 'running' && <Text style={s.runError}>{run.error}</Text>}
-      {!run && blocked && !needsApproval && <Text style={s.runError}>{blocked}</Text>}
     </View>
   );
 }
@@ -497,10 +588,10 @@ function sourceIcon(src?: SourceInfo): keyof typeof Ionicons.glyphMap {
         : 'sparkles-outline';
 }
 
-function runSummary(run: Run) {
+function runSummary(run: Run, realName = 'real arm') {
   const secs = (((run.endedAt ?? Date.now()) - run.startedAt) / 1000).toFixed(1);
   const label = { done: 'finished', failed: 'failed', stopped: 'stopped', running: 'running' }[run.state];
-  return `${label} in ${secs}s${run.via === 'voice' ? ' · by Motion' : ''}`;
+  return `${label} in ${secs}s ${run.where === 'robot' ? 'on the real arm' : run.where === 'real' ? (realName === 'RoboDK' ? 'in RoboDK' : 'on the real arm') : 'in the tablet sim'}${run.via === 'voice' ? ' · by Motion' : ''}`;
 }
 
 function Steps({ skill, run }: { skill: SkillDoc; run: Run | null }) {
@@ -574,6 +665,8 @@ const makeStyles = (c: Colors) =>
     meta: { ...type.caption, color: c.faint, marginTop: 2 },
     desc: { ...type.body, color: c.dim },
     details: { gap: 10 },
+    chooser: { backgroundColor: c.panelHi, borderRadius: radius.md, padding: 12, gap: 8 },
+    chooserTitle: { ...type.body, color: c.text, fontWeight: '600' },
     source: { backgroundColor: c.panelHi, borderRadius: radius.md, padding: 12, gap: 6 },
     sourceHead: { ...type.caption, color: c.dim },
     sourceText: { ...type.body, color: c.text },

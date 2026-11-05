@@ -132,6 +132,12 @@ class RobotController(ABC):
     @abstractmethod
     def target_exists(self, target_id: str) -> bool: ...
 
+    def retarget_pick(self, object_id: str) -> Optional[list[float]]:
+        """Simulation only: move the object's approach/grasp/lift targets over where the simulated object really is
+        and return its bottom-centre [x, y, z] (m, base frame). Default (mock / real hardware): no-op, None, so picks
+        keep using the taught targets."""
+        return None
+
     @abstractmethod
     def plan_segment(self, target_id: str, motion: MotionType,
                      start_joints: Optional[list[float]] = None) -> PlannedSegment: ...

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { devices, stopDevice, ToolResult } from '../devices';
+import { bridgeIsSim, devices, stopDevice, ToolResult } from '../devices';
 import {
   approved,
   builtinSkills,
@@ -17,7 +17,7 @@ import type { VoiceCommand } from '../skills/fromVoice';
 import { generateSkill } from '../skills/generate';
 import { nameSkill } from '../skills/nameSkill';
 import { deleteLearned, fetchLearned, isLearned, storeLearned } from '../skills/store';
-import { Progress, runSkill, StepResult, Token } from '../skills/runner';
+import { Progress, runSkill, RunTarget, StepResult, Token } from '../skills/runner';
 import { useNotify } from './useNotify';
 
 export type { StepResult };
@@ -31,6 +31,7 @@ export type Run = {
   startedAt: number;
   endedAt?: number;
   via: 'tap' | 'voice';
+  where: RunTarget;
   error?: string;
 };
 
@@ -230,7 +231,7 @@ export function useSkills() {
   );
 
   const start = useCallback(
-    async (id: string, via: Run['via'] = 'tap'): Promise<ToolResult> => {
+    async (id: string, via: Run['via'] = 'tap', target?: RunTarget): Promise<ToolResult> => {
       const doc = find(id);
       // a skill that can't even start is an error notification too (voice and Show Motion both run skills here)
       const refuse = (error: string, name = id) => {
@@ -244,12 +245,17 @@ export function useSkills() {
       token.current = me;
       const startedAt = Date.now();
       const device = deviceOf(doc);
-      const real = !!devices[device].url;
-      setRun({ skillId: id, state: 'running', step: 0, prim: null, results: [], startedAt, via });
+      if ((target === 'real' || target === 'robot') && !devices[device].url) {
+        token.current = null;
+        return refuse('the real arm is not connected (no arm bridge)', doc.skill.name);
+      }
+      const real = target === 'sim' ? false : !!devices[device].url;
+      const where: RunTarget = !real ? 'sim' : target === 'robot' ? 'robot' : 'real';
+      setRun({ skillId: id, state: 'running', step: 0, prim: null, results: [], startedAt, via, where });
       notify({
         kind: 'info',
         title: `Running "${doc.skill.name}"`,
-        body: `${doc.steps.length} steps on the ${devices[device].label.toLowerCase()}${real ? '' : ' (simulated)'}`,
+        body: `${doc.steps.length} steps ${where === 'robot' ? 'on the REAL arm' : real ? (bridgeIsSim(device) ? 'in RoboDK (URSim, the physical arm does not move)' : 'on the real arm') : 'in the simulator'}`,
         silent: via === 'voice',
       });
 
@@ -262,7 +268,7 @@ export function useSkills() {
             results[i] = res;
             return { ...r, results };
           }),
-      });
+      }, where);
 
       const endedAt = Date.now();
       token.current = null;
@@ -306,7 +312,8 @@ export function useSkills() {
     if (!me) return;
     me.cancelled = true;
     const doc = run && find(run.skillId);
-    if (doc) await stopDevice(deviceOf(doc));
+    // a simulator run never touches the bridge, not even its stop
+    if (doc && run?.where !== 'sim') await stopDevice(deviceOf(doc));
   }, [run, find]);
 
   // The user asked (by voice) to change a saved skill: Grok rewrites that skill and it is saved over itself, same id.

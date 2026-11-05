@@ -75,7 +75,7 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("remove-component").add_argument("comp_id")
     sv = sub.add_parser("serve")
     sv.add_argument("--host", default="127.0.0.1")
-    sv.add_argument("--port", type=int, default=8770)
+    sv.add_argument("--port", type=int, default=8771)   # 8770 = digital twin service
     return ap
 
 

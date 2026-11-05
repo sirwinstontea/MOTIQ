@@ -89,3 +89,13 @@ curl -X POST localhost:8765/operator/reset -H 'content-type: application/json' -
 ```
 
 That endpoint only accepts loopback callers and the bridge never forwards it, so Grok can't clear a fault on its own.
+
+## Arm catalog (robot-chooser)
+
+`GET /robots/catalog`, `GET /robots/active`, `POST /robots/select {"robot_id"}`, `POST /robots/add {catalog entry}`
+are proxied to the local robot-chooser (`--robot-chooser`, default `http://127.0.0.1:8771`, env
+`ROBOT_CHOOSER_URL`, `''` disables). `start_stack.sh` starts it (`CHOOSER=0` to skip). `add` only accepts the
+catalog facts (`id, brand, model, dof, nominal_reach_m, nominal_payload_kg, library_url, library_file,
+robodk_item_name, notes`). Limits, scene and workspace are set in robot-chooser, so a new arm stays BLOCKED until
+they are verified. These routes only rewrite config files. They never reach the controller, and the change takes
+effect after a restart. See `../robot-chooser/README.md`.

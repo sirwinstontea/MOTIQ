@@ -1,0 +1,484 @@
+# Demo scene for the xArm5 (ufactory_xarm5): the UR5e demo cell (scene.example.yaml) moved within this arm's
+# reach by scripts/build_arm_stations.py: cell shifted +80 mm along base X, heights above
+# 60 mm scaled by 0.85. Every target was IK-checked in RoboDK with the 150 mm gripper TCP.
+# SIMULATION PLACEHOLDERS: re-teach every target on a real cell. Units: m, rad (rotation vector).
+home_target: home
+targets:
+  home:
+    joints_rad:
+    - 3.14159
+    - -0.36902
+    - -0.82011
+    - -0.0
+    - 1.18913
+    - 3.14159
+    pose_m_rad:
+    - -0.37
+    - 0.0
+    - 0.249
+    - 3.14159
+    - -0.0
+    - -0.0
+    description: safe home posture (tool down above the table, solved by RoboDK IK for the xArm5)
+  shake_center:
+    pose_m_rad:
+    - -0.37
+    - 0.0
+    - 0.264
+    - 3.14159
+    - 0
+    - 0
+  shake_left:
+    pose_m_rad:
+    - -0.37
+    - 0.04
+    - 0.264
+    - 3.14159
+    - 0
+    - 0
+  shake_right:
+    pose_m_rad:
+    - -0.37
+    - -0.04
+    - 0.264
+    - 3.14159
+    - 0
+    - 0
+  delivery_approach:
+    pose_m_rad:
+    - -0.37
+    - 0.2
+    - 0.1365
+    - 3.14159
+    - 0
+    - 0
+  delivery_place:
+    pose_m_rad:
+    - -0.37
+    - 0.2
+    - 0.028
+    - 3.14159
+    - 0
+    - 0
+  delivery_retreat:
+    pose_m_rad:
+    - -0.37
+    - 0.2
+    - 0.179
+    - 3.14159
+    - 0
+    - 0
+  scan_right:
+    pose_m_rad:
+    - -0.47
+    - -0.2
+    - 0.349
+    - 3.14159
+    - 0
+    - 0
+  scan_center:
+    pose_m_rad:
+    - -0.47
+    - 0.0
+    - 0.349
+    - 3.14159
+    - 0
+    - 0
+  scan_left:
+    pose_m_rad:
+    - -0.47
+    - 0.2
+    - 0.349
+    - 3.14159
+    - 0
+    - 0
+  scan_delivery:
+    pose_m_rad:
+    - -0.37
+    - 0.2
+    - 0.264
+    - 3.14159
+    - 0
+    - 0
+  blue_bucket_01_above:
+    pose_m_rad:
+    - -0.54
+    - -0.24
+    - 0.264
+    - 3.14159
+    - 0
+    - 0
+  blue_bucket_01_drop:
+    pose_m_rad:
+    - -0.54
+    - -0.24
+    - 0.1705
+    - 3.14159
+    - 0
+    - 0
+  blue_bucket_01_approach:
+    pose_m_rad:
+    - -0.54
+    - -0.24
+    - 0.2215
+    - 3.14159
+    - 0
+    - 0
+  blue_bucket_01_grasp:
+    pose_m_rad:
+    - -0.54
+    - -0.24
+    - 0.0575
+    - 3.14159
+    - 0
+    - 0
+  blue_bucket_01_lift:
+    pose_m_rad:
+    - -0.54
+    - -0.24
+    - 0.264
+    - 3.14159
+    - 0
+    - 0
+  green_ring_02_approach:
+    pose_m_rad:
+    - -0.54
+    - -0.07
+    - 0.2215
+    - 3.14159
+    - 0
+    - 0
+  green_ring_02_grasp:
+    pose_m_rad:
+    - -0.54
+    - -0.07
+    - 0.015
+    - 3.14159
+    - 0
+    - 0
+  green_ring_02_lift:
+    pose_m_rad:
+    - -0.54
+    - -0.07
+    - 0.264
+    - 3.14159
+    - 0
+    - 0
+  orange_screw_03_approach:
+    pose_m_rad:
+    - -0.54
+    - 0.08
+    - 0.2215
+    - 3.14159
+    - 0
+    - 0
+  orange_screw_03_grasp:
+    pose_m_rad:
+    - -0.54
+    - 0.08
+    - 0.045
+    - 3.14159
+    - 0
+    - 0
+  orange_screw_03_lift:
+    pose_m_rad:
+    - -0.54
+    - 0.08
+    - 0.264
+    - 3.14159
+    - 0
+    - 0
+  white_bucket_lid_04_approach:
+    pose_m_rad:
+    - -0.54
+    - 0.24
+    - 0.2215
+    - 3.14159
+    - 0
+    - 0
+  white_bucket_lid_04_grasp:
+    pose_m_rad:
+    - -0.54
+    - 0.24
+    - 0.0265
+    - 3.14159
+    - 0
+    - 0
+  white_bucket_lid_04_lift:
+    pose_m_rad:
+    - -0.54
+    - 0.24
+    - 0.264
+    - 3.14159
+    - 0
+    - 0
+  blue_bucket_01_push_above:
+    pose_m_rad:
+    - -0.54
+    - -0.1455
+    - 0.2215
+    - 3.14159
+    - 0
+    - 0
+  blue_bucket_01_push_start:
+    pose_m_rad:
+    - -0.54
+    - -0.1455
+    - 0.05
+    - 3.14159
+    - 0
+    - 0
+  blue_bucket_01_push_end:
+    pose_m_rad:
+    - -0.54
+    - -0.1955
+    - 0.05
+    - 3.14159
+    - 0
+    - 0
+  blue_bucket_01_push_lift:
+    pose_m_rad:
+    - -0.54
+    - -0.1955
+    - 0.2215
+    - 3.14159
+    - 0
+    - 0
+  orange_screw_03_push_above:
+    pose_m_rad:
+    - -0.58
+    - 0.08
+    - 0.2215
+    - 3.14159
+    - 0
+    - 0
+  orange_screw_03_push_start:
+    pose_m_rad:
+    - -0.58
+    - 0.08
+    - 0.03
+    - 3.14159
+    - 0
+    - 0
+  orange_screw_03_push_end:
+    pose_m_rad:
+    - -0.53
+    - 0.08
+    - 0.03
+    - 3.14159
+    - 0
+    - 0
+  orange_screw_03_push_lift:
+    pose_m_rad:
+    - -0.53
+    - 0.08
+    - 0.2215
+    - 3.14159
+    - 0
+    - 0
+  white_bucket_lid_04_push_above:
+    pose_m_rad:
+    - -0.54
+    - 0.1455
+    - 0.2215
+    - 3.14159
+    - 0
+    - 0
+  white_bucket_lid_04_push_start:
+    pose_m_rad:
+    - -0.54
+    - 0.1455
+    - 0.03
+    - 3.14159
+    - 0
+    - 0
+  white_bucket_lid_04_push_end:
+    pose_m_rad:
+    - -0.54
+    - 0.1955
+    - 0.03
+    - 3.14159
+    - 0
+    - 0
+  white_bucket_lid_04_push_lift:
+    pose_m_rad:
+    - -0.54
+    - 0.1955
+    - 0.2215
+    - 3.14159
+    - 0
+    - 0
+objects:
+  blue_bucket_01:
+    dimensions_m:
+    - 0.139
+    - 0.139
+    - 0.115
+    approach_target: blue_bucket_01_approach
+    grasp_target: blue_bucket_01_grasp
+    lift_target: blue_bucket_01_lift
+    class_labels:
+    - secchio_blu
+    - secchio
+    - blue bucket
+    - bucket
+    - Blue_Bucket_01
+    station_item: Blue_Bucket_01
+    push:
+      above_target: blue_bucket_01_push_above
+      start_target: blue_bucket_01_push_start
+      end_target: blue_bucket_01_push_end
+      lift_target: blue_bucket_01_push_lift
+      distance_m: 0.05
+      description: 50 mm along -Y (away from the ring)
+  green_ring_02:
+    dimensions_m:
+    - 0.139
+    - 0.139
+    - 0.007
+    approach_target: green_ring_02_approach
+    grasp_target: green_ring_02_grasp
+    lift_target: green_ring_02_lift
+    class_labels:
+    - anello_verde
+    - anello
+    - green ring
+    - ring
+    - Green_Ring_02
+    station_item: Green_Ring_02
+  orange_screw_03:
+    dimensions_m:
+    - 0.03
+    - 0.03
+    - 0.09
+    approach_target: orange_screw_03_approach
+    grasp_target: orange_screw_03_grasp
+    lift_target: orange_screw_03_lift
+    class_labels:
+    - vite_arancione
+    - vite arancione
+    - vite
+    - orange screw
+    - screw
+    - Orange_Screw_03
+    station_item: Orange_Screw_03
+    push:
+      above_target: orange_screw_03_push_above
+      start_target: orange_screw_03_push_start
+      end_target: orange_screw_03_push_end
+      lift_target: orange_screw_03_push_lift
+      distance_m: 0.05
+      description: 50 mm along +X (towards the robot)
+  white_bucket_lid_04:
+    dimensions_m:
+    - 0.139
+    - 0.139
+    - 0.053
+    approach_target: white_bucket_lid_04_approach
+    grasp_target: white_bucket_lid_04_grasp
+    lift_target: white_bucket_lid_04_lift
+    class_labels:
+    - tappo_bianco
+    - tappo
+    - white lid
+    - white bucket lid
+    - bucket lid
+    - lid
+    - White_Bucket_Lid_04
+    station_item: White_Bucket_Lid_04
+    push:
+      above_target: white_bucket_lid_04_push_above
+      start_target: white_bucket_lid_04_push_start
+      end_target: white_bucket_lid_04_push_end
+      lift_target: white_bucket_lid_04_push_lift
+      distance_m: 0.05
+      description: 50 mm along +Y (away from the screw)
+destinations:
+  blue_bucket_01_inside:
+    approach_target: blue_bucket_01_above
+    place_target: blue_bucket_01_drop
+    retreat_target: blue_bucket_01_above
+  delivery_zone:
+    approach_target: delivery_approach
+    place_target: delivery_place
+    retreat_target: delivery_retreat
+  blue_bucket_01_slot:
+    approach_target: blue_bucket_01_approach
+    place_target: blue_bucket_01_grasp
+    retreat_target: blue_bucket_01_approach
+  green_ring_02_slot:
+    approach_target: green_ring_02_approach
+    place_target: green_ring_02_grasp
+    retreat_target: green_ring_02_approach
+  orange_screw_03_slot:
+    approach_target: orange_screw_03_approach
+    place_target: orange_screw_03_grasp
+    retreat_target: orange_screw_03_approach
+  white_bucket_lid_04_slot:
+    approach_target: white_bucket_lid_04_approach
+    place_target: white_bucket_lid_04_grasp
+    retreat_target: white_bucket_lid_04_approach
+patterns:
+  gentle_shake:
+    description: +/-40 mm side-to-side at 0.30 m height, linear moves at configured speed
+    max_cycles: 3
+    requires_grip: true
+    max_payload_kg: 0.5
+    start_target: shake_center
+    cycle_targets:
+    - shake_left
+    - shake_right
+    end_target: shake_center
+search:
+  camera: arm_mounted
+  scan_targets:
+  - scan_center
+  - scan_right
+  - scan_left
+  - scan_delivery
+  look_first: object_approach
+  settle_s: 0.6
+  look_s: 1.5
+  description: eye-in-hand search over the demo table
+motions:
+  go_home:
+    targets:
+    - home
+    description: return to home posture
+station_geometry:
+  table:
+    size_m:
+    - 0.5
+    - 0.8
+    - 0.02
+    pose_m_rad:
+    - -0.37
+    - 0.0
+    - -0.02
+    - 0
+    - 0
+    - 0
+    color:
+    - 0.55
+    - 0.4
+    - 0.25
+    - 1.0
+  delivery_pad:
+    size_m:
+    - 0.12
+    - 0.12
+    - 0.003
+    pose_m_rad:
+    - -0.37
+    - 0.2
+    - 0.0
+    - 0
+    - 0
+    - 0
+    color:
+    - 0.2
+    - 0.7
+    - 0.3
+    - 1.0
+    no_collision_with:
+    - table

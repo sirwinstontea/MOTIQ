@@ -11,13 +11,35 @@ export type Health = {
   info?: Record<string, unknown>; // whatever the bridge returns on /health
 };
 
+// last /health answer per device: is that bridge on SIM=1 (URSim mirrored into RoboDK, physical arm never used)?
+const bridgeSim: Partial<Record<DeviceId, boolean>> = {};
+/** true when the PC stack runs SIM=1, so "real" runs go to URSim + RoboDK and never to the physical arm */
+export const bridgeIsSim = (id: DeviceId) => bridgeSim[id] === true;
+
+// SIM=1 stacks also hold the PHYSICAL UR5e for "Run on real arm": its last /health status (null = no physical arm)
+export type RealArmStatus = { reachable: boolean; ready: boolean; ip?: string; note?: string; mode?: string; safety?: string };
+const bridgeReal: Partial<Record<DeviceId, RealArmStatus | null>> = {};
+export const bridgeRealArm = (id: DeviceId): RealArmStatus | null => bridgeReal[id] ?? null;
+
+// while a "Run on real arm" skill runs, every arm-bridge request carries X-Arm-Target: real (and never X-Require-Sim):
+// the SIM=1 bridge then runs that tool on the physical arm. Everything else (voice, RoboDK runs) stays on URSim.
+let armTargetReal = false;
+export const setArmTargetReal = (on: boolean) => {
+  armTargetReal = on;
+};
+
 async function request(url: string, init: RequestInit = {}, timeout = 15000) {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeout);
+  // the app trusts the bridge's SIM flag (it skips the real-robot approval for RoboDK runs), so it also tells the
+  // bridge: if that bridge turns out to drive the physical arm, it refuses instead of moving it
+  const toArm = url.startsWith(devices.arm.url ?? '\0');
+  const simOnly: Record<string, string> =
+    toArm && armTargetReal ? { 'X-Arm-Target': 'real' } : bridgeSim.arm && toArm ? { 'X-Require-Sim': '1' } : {};
   try {
     return await fetch(url, {
       ...init,
-      headers: { 'Content-Type': 'application/json', 'X-Bridge-Key': env.bridgeKey },
+      headers: { 'Content-Type': 'application/json', 'X-Bridge-Key': env.bridgeKey, ...simOnly },
       signal: ctl.signal,
     });
   } finally {
@@ -135,6 +157,9 @@ export async function ping(id: DeviceId): Promise<Health> {
   try {
     const res = await request(`${url}/health`, {}, 2500);
     const info = await res.json().catch(() => undefined);
+    const pa = (info as { physical_arm?: { sim?: unknown } } | undefined)?.physical_arm;
+    if (pa) bridgeSim[id] = pa.sim === true;
+    if (info && typeof info === 'object') bridgeReal[id] = ((info as { real_arm?: RealArmStatus }).real_arm ?? null);
     return { state: res.ok ? 'online' : 'offline', ms: Date.now() - started, info };
   } catch {
     return { state: 'offline' };

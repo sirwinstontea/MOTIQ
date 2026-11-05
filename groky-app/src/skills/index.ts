@@ -27,7 +27,7 @@ export const skillIcons: Icon[] = [
   'sparkles-outline',
 ];
 
-export const STEP_ACTIONS = ['OVERVIEW', 'DETECT', 'PICK', 'PLACE', 'VISIT', 'PUSH', 'VERIFY', 'SEQUENCE'] as const;
+export const STEP_ACTIONS = ['OVERVIEW', 'DETECT', 'PICK', 'PLACE', 'VISIT', 'TOUCH', 'PUSH', 'VERIFY', 'SEQUENCE'] as const;
 export const FAILURE_POLICIES = ['STOP_AND_REOBSERVE', 'RETRY_WITH_REOBSERVATION', 'STOP_AND_REPLAN', 'REPORT_FAILURE'];
 // steps that look instead of moving (OVERVIEW = the arm camera looks at the table from where it is, no motion)
 export const isLookStep = (s: SkillStep) => s.action === 'DETECT' || s.action === 'VERIFY' || s.action === 'OVERVIEW';
@@ -137,6 +137,7 @@ export function realArmProblems(doc: SkillDoc): string[] {
         ? undefined
         : out.push(`Step ${i + 1}: the arm can push ${PUSHABLE_OBJECTS.join(', ')} (not "${s.target ?? 'nothing'}").`));
     if (s.physical_tool === 'ur_down_up') return; // one fixed bridge tool, see runner.ts
+    if (s.action === 'TOUCH') return; // bridge touch: camera-guided + force-guarded contact, see runner.ts
     if (s.action === 'VISIT') return; // bridge ur_visit: the arm camera guides the arm over it, see runner.ts
     const bad = [
       ...new Set((s.primitive_sequence ?? []).map((c) => c.primitive).filter((p) => !REAL_ARM_PRIMITIVES.includes(p))),
@@ -151,14 +152,48 @@ export function realArmProblems(doc: SkillDoc): string[] {
   return out;
 }
 
+// "Run on real arm" while the PC stack is SIM=1: the PHYSICAL UR5e only does what it can on its own (camera + wrist
+// force sensor): look, locate, touch, push, small steps, joints. It has no gripper, and the controller (pick, place,
+// home, move above) drives the simulation only -> those skills run in RoboDK.
+// (HOME is skipped on the real arm, see runner.ts: its locate / touch / push already go back to where they started)
+const PHYSICAL_ONLY_PRIMITIVES = REAL_ARM_PRIMITIVES.filter((p) => !['MOVE_ABOVE', 'OPEN_GRIPPER'].includes(p));
+export function physicalArmProblems(doc: SkillDoc): string[] {
+  const out: string[] = [];
+  doc.steps.forEach((s, i) => {
+    if (s.action === 'DETECT' || s.action === 'OVERVIEW') return;
+    if (s.action === 'VERIFY') {
+      if (doc.steps.slice(0, i).some((p) => p.action === 'PLACE'))
+        out.push(`Step ${i + 1}: checking a place needs pick and place, which run in RoboDK only.`);
+      return;
+    }
+    if (['VISIT', 'TOUCH', 'PUSH'].includes(s.action) || s.physical_tool === 'ur_down_up') return;
+    if (['PICK', 'PLACE', 'SHAKE'].includes(s.action))
+      return void out.push(
+        `Step ${i + 1}: ${s.action.toLowerCase()} runs in RoboDK only (the real arm has no gripper). ` +
+          'On the real arm: locate, touch, push, small steps and joint moves.',
+      );
+    const bad = [
+      ...new Set((s.primitive_sequence ?? []).map((c) => c.primitive).filter((p) => !PHYSICAL_ONLY_PRIMITIVES.includes(p))),
+    ];
+    if (bad.length || !s.primitive_sequence?.length)
+      out.push(
+        `Step ${i + 1}: ${bad.length ? bad.map((p) => p.toLowerCase().replace(/_/g, ' ')).join(', ') : s.action.toLowerCase()} ` +
+          'runs in RoboDK only. On the real arm: locate, touch, push, small steps and joint moves.',
+      );
+  });
+  return out;
+}
+
 // ---------- safety gates ----------
 
 // why the skill may not move a real robot, or null
-export function physicalBlock(doc: SkillDoc, real: boolean): string | null {
+// roboDK: the bridge runs SIM=1 (URSim + RoboDK, the physical arm is never used), so no real-robot approval is
+// needed; the bridge still refuses if it is in fact on the physical arm (X-Require-Sim)
+export function physicalBlock(doc: SkillDoc, real: boolean, roboDK = false): string | null {
   if (!real) return null;
   const arm = realArmProblems(doc);
   if (arm.length) return `${arm[0]} Edit the skill (or ask Grok to change it) to run it on the arm.`;
-  if (fullAccess()) {
+  if (fullAccess() || roboDK) {
     // operator turned on full access: no per-skill approval, but a broken skill still doesn't run
     const errs = validateSkill(doc).errors;
     return errs.length ? `the skill has errors: ${errs[0]}` : null;
@@ -197,7 +232,8 @@ export function validateSkill(doc: SkillDoc): Validation {
     if (s.action === 'DETECT' && !s.target) errors.push(`${at}: say which object to detect.`);
     if (s.action === 'VISIT' && !s.target) errors.push(`${at}: say which object to visit.`);
     if (s.action === 'PUSH' && !s.target) errors.push(`${at}: say which object to push.`);
-    if (!isLookStep(s) && s.action !== 'VISIT' && s.action !== 'PUSH' && !s.primitive_sequence?.length)
+    if (s.action === 'TOUCH' && !s.target) errors.push(`${at}: say which object to touch.`);
+    if (!isLookStep(s) && !['VISIT', 'TOUCH', 'PUSH'].includes(s.action) && !s.primitive_sequence?.length)
       errors.push(`${at}: add at least one primitive.`);
     s.primitive_sequence?.forEach((c, j) => {
       const p = prims.find((x) => x.id === c.primitive);
@@ -473,6 +509,37 @@ const locate = (oid: string) =>
     ],
   });
 
+// Real arm: hover over the object like Locate, put the taught touching point over it, go down at 10 mm/s until the
+// UR5e wrist force sensor feels contact (15 N, checked on the robot), lift and go back. Needs the touch offset taught
+// once (Grok: "teach the touch offset"). The primitives are what the app's simulator runs.
+export const touchSimSequence = (target: string): PrimitiveCall[] => [
+  { primitive: 'MOVE_ABOVE', parameters: { target, height_m: 0.15 } },
+  { primitive: 'MOVE_DOWN', parameters: { distance_m: 0.05, speed_mps: 0.05 } },
+  { primitive: 'MOVE_UP', parameters: { distance_m: 0.05 } },
+];
+
+const touch = (oid: string) =>
+  makeSkill({
+    id: `arm_touch_${oid}`,
+    name: `Touch the ${objName(oid)}`,
+    description: `The arm camera finds the ${objName(oid)}, the arm goes over it, comes down slowly (10 mm/s) until its force sensor feels the ${objName(oid)}, lifts and goes back to where it started. STOP halts it. Needs the touch offset taught once.`,
+    device: 'arm',
+    icon: 'hand-left-outline',
+    builtin: true,
+    objects: armObjects,
+    success: [`The arm touched the ${objName(oid)} and is back at its starting pose.`],
+    steps: [
+      {
+        id: 'step_001',
+        action: 'TOUCH',
+        target: oid,
+        description: `Go over the ${objName(oid)}, come down until it touches, lift, come back.`,
+        failure_policy: 'REPORT_FAILURE',
+        primitive_sequence: touchSimSequence(oid),
+      },
+    ],
+  });
+
 const PUSH_DIRECTION: Record<string, string> = {
   blue_bucket_01: 'sideways, away from the ring',
   orange_screw_03: 'towards the robot',
@@ -485,7 +552,7 @@ const push = (oid: string) =>
   makeSkill({
     id: `arm_push_${oid}`,
     name: `Push the ${objName(oid)}`,
-    description: `Simulation (RoboDK / URSim): the arm closes the gripper, comes down beside the ${objName(oid)}, pushes it 5 cm ${PUSH_DIRECTION[oid]}, lifts and goes home. The push path is not taught on the real table yet.`,
+    description: `Real arm: the camera finds the ${objName(oid)}, the arm comes down beside it until it feels the table (force sensor), pushes it 5 cm ${PUSH_DIRECTION[oid]}, lifts and goes back (needs the touch offset taught once). SIM=1: RoboDK / URSim on the taught push path.`,
     device: 'arm',
     icon: 'arrow-forward-circle-outline',
     builtin: true,
@@ -507,6 +574,7 @@ const push = (oid: string) =>
 export const builtinSkills: SkillDoc[] = [
   overview,
   ...CELL_OBJECTS.map(locate),
+  ...CELL_OBJECTS.map(touch),
   ...PUSHABLE_OBJECTS.map(push),
 ];
 

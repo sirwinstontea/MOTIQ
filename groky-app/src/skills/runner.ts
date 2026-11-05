@@ -1,10 +1,10 @@
 // Executes a skill step by step: DETECT / VERIFY look through the camera (or the simulator), everything else runs
 // its primitive_sequence. Failure policies and the safety gates from the skill file are applied here.
-import { armPhysical, armSend, devices, runTool, stopDevice } from '../devices';
+import { armPhysical, armSend, bridgeIsSim, devices, runTool, setArmTargetReal, stopDevice } from '../devices';
 import { armState, armWorld, detect, runArm, setWorld, verify } from '../robot/runtime';
 import { worldFromEnv } from '../robot/arm';
 import { verifyCheck } from './dryrun';
-import { armOpts, CELL_OBJECTS, deviceOf, physicalBlock } from './index';
+import { armOpts, CELL_OBJECTS, deviceOf, physicalArmProblems, physicalBlock, touchSimSequence } from './index';
 import type { PrimitiveCall, SkillDoc, SkillStep } from './schema';
 
 export type StepResult = { ok: boolean; ms: number; error?: string; note?: string; attempts: number };
@@ -20,14 +20,37 @@ const wait = (ms: number, token: Token) =>
     tick();
   });
 
-export async function runSkill(
+// where a run happens: 'sim' = the tablet's own simulator (nothing is sent to the bridge, not even stop),
+// 'real' = through the arm bridge. Omitted: the bridge when one is configured (voice runs), else the simulator.
+// 'robot' = the PHYSICAL arm while the PC stack runs SIM=1 (bridge X-Arm-Target: real; needs the real-arm approval).
+export type RunTarget = 'sim' | 'real' | 'robot';
+
+type Callbacks = { progress: (p: Progress) => void; result: (i: number, r: StepResult) => void };
+
+export async function runSkill(doc: SkillDoc, token: Token, on: Callbacks, target?: RunTarget) {
+  if (target !== 'robot') return runSkillOn(doc, token, on, target);
+  const problems = physicalArmProblems(doc);
+  if (problems.length) return { ok: false, state: 'failed' as const, error: problems[0], results: [] };
+  setArmTargetReal(true);
+  try {
+    return await runSkillOn(doc, token, on, target);
+  } finally {
+    setArmTargetReal(false);
+  }
+}
+
+async function runSkillOn(
   doc: SkillDoc,
   token: Token,
   on: { progress: (p: Progress) => void; result: (i: number, r: StepResult) => void },
+  target?: RunTarget,
 ): Promise<{ ok: boolean; state: 'done' | 'failed' | 'stopped'; error?: string; results: StepResult[] }> {
   const device = deviceOf(doc);
-  const real = !!devices[device].url;
-  const blocked = physicalBlock(doc, real);
+  if ((target === 'real' || target === 'robot') && !devices[device].url)
+    return { ok: false, state: 'failed', error: 'no arm bridge connected (EXPO_PUBLIC_ARM_URL)', results: [] };
+  const real = target === 'sim' ? false : !!devices[device].url;
+  // 'robot' = the physical arm: the real-robot approval applies even though the bridge runs SIM=1
+  const blocked = physicalBlock(doc, real, real && bridgeIsSim(device) && target !== 'robot');
   if (blocked) return { ok: false, state: 'failed', error: blocked, results: [] };
 
   const opts = armOpts(doc);
@@ -36,11 +59,14 @@ export async function runSkill(
   if (device === 'arm') setWorld(worldFromEnv(doc.environment?.objects ?? []));
 
   const prim = async (c: PrimitiveCall): Promise<Res & { object_detected?: unknown }> => {
+    // physical arm on a SIM=1 stack: home is a controller (simulation) move; locate / touch / push already went back
+    if (target === 'robot' && c.primitive === 'HOME')
+      return { ok: true, note: 'real arm: home skipped (it runs in RoboDK only); the arm stays where it is' };
     if (c.primitive === 'WAIT') {
       await wait(Math.min(10, Number(c.parameters?.seconds ?? 0.5)) * 1000, token);
       return { ok: true };
     }
-    const r = await runArm(c.primitive, c.parameters ?? {}, armSend(), opts);
+    const r = await runArm(c.primitive, c.parameters ?? {}, real ? armSend() : null, opts);
     return {
       ok: r.ok,
       error: r.ok ? undefined : String(r.error ?? r.status ?? 'failed'),
@@ -139,6 +165,17 @@ export async function runSkill(
         refused: !!r.refused,
       };
     }
+    // Physical arm, TOUCH: the bridge hovers over the target with the camera, comes down until the wrist force sensor
+    // feels contact, lifts and goes back. STOP -> stopDevice -> the bridge stops it too.
+    if (device === 'arm' && real && step.action === 'TOUCH' && step.target) {
+      const r = await runTool('arm_touch', { object: step.target, ...(step.parameters ?? {}) });
+      return {
+        ok: r.ok,
+        note: typeof r.did === 'string' ? r.did : undefined,
+        error: r.ok ? undefined : String(r.error ?? r.status ?? 'failed'),
+        refused: !!r.refused,
+      };
+    }
     // Physical arm, VISIT: the vision server (arm camera) guides the arm over the target, sideways at the same height,
     // then the arm goes back to where it started. STOP -> stopDevice -> the bridge stops it too.
     if (device === 'arm' && real && (step.action === 'VISIT' || step.physical_tool === 'ur_visit')) {
@@ -175,6 +212,8 @@ export async function runSkill(
       const d = await look(step.target);
       if (!d.ok) return { ok: false, error: `re-identify ${step.target}: ${d.error}` };
     }
+    if (step.action === 'TOUCH' && !step.primitive_sequence?.length && step.target)
+      return sequence(i, { ...step, primitive_sequence: touchSimSequence(step.target) });
     if (step.action === 'VISIT' && !step.primitive_sequence?.length && step.target)
       return sequence(i, { ...step, primitive_sequence: [
         { primitive: 'MOVE_ABOVE', parameters: { target: step.target, height_m: 0.15 } },
@@ -224,7 +263,7 @@ export async function runSkill(
   }
 
   if (token.cancelled) {
-    await stopDevice(device);
+    if (real) await stopDevice(device);
     return { ok: false, state: 'stopped', results };
   }
   return { ok: !error, state: error ? 'failed' : 'done', error, results };

@@ -65,6 +65,7 @@ const fromPrimitives = (list: Primitive[], device: DeviceId): Tool[] =>
 // taught positions. Small step moves (move_up/down/..., move_joint, rotate_yaw) go to the physical arm via ur_jog.
 export const ARM_TASK_TOOLS = new Set([
   'pick_and_place', 'pick', 'place', 'shake', 'find', 'scan', 'check_placed', 'overview', 'push',
+  'touch', 'touch_teach_start', 'touch_teach_save',
 ]);
 const objectParam = {
   type: 'string',
@@ -119,6 +120,36 @@ const armTools: Tool[] = [
     name: 'shake',
     description: 'Gently shake the held object side to side.',
     parameters: params({ cycles: { type: 'integer', minimum: 1, maximum: 3, description: 'default 2' } }),
+  },
+  {
+    name: 'touch',
+    description:
+      'Real arm: the camera finds the object, the arm goes over it, comes down slowly until its force sensor feels the object, lifts and goes back to where it started. Needs the touch offset taught once (touch_teach_start + touch_teach_save).',
+    parameters: params(
+      {
+        object: objectParam,
+        max_down_mm: { type: 'number', minimum: 10, maximum: 400, description: 'give up after going this far down, default 250' },
+        force_n: { type: 'number', minimum: 5, maximum: 40, description: 'contact force that counts as touching, default 15' },
+      },
+      ['object'],
+    ),
+  },
+  {
+    name: 'push',
+    description:
+      'Push an object about 5 cm (blue bucket, orange screw or white lid; the ring is too flat). Real arm: the camera finds it, the arm comes down beside it until it feels the table, pushes, lifts and goes back. Needs the touch offset taught once.',
+    parameters: params({ object: objectParam }, ['object']),
+  },
+  {
+    name: 'touch_teach_start',
+    description:
+      'Teach the touch offset, step 1: the arm camera centres over the object and the arm stays there. Then the user (or you, with small move_left/right/forward/backward steps they ask for) moves the touching part right above the object, without going down, then call touch_teach_save.',
+    parameters: params({ object: objectParam }, ['object']),
+  },
+  {
+    name: 'touch_teach_save',
+    description: 'Teach the touch offset, step 2: save where the touching part is now relative to where the camera was centred. Does not move the arm.',
+    parameters: params({}),
   },
   ...fromPrimitives(ARM_PRIMITIVES, 'arm'),
   {

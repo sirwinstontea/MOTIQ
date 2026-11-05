@@ -84,7 +84,7 @@ const SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['OVERVIEW', 'DETECT', 'PICK', 'PLACE', 'VISIT', 'PUSH', 'VERIFY', 'SEQUENCE'] },
+          action: { type: 'string', enum: ['OVERVIEW', 'DETECT', 'PICK', 'PLACE', 'VISIT', 'TOUCH', 'PUSH', 'VERIFY', 'SEQUENCE'] },
           target: { type: 'string' },
           description: { type: 'string' },
           primitive_sequence: {
@@ -170,6 +170,8 @@ Rules:
    arm's camera guides it over the object and it returns to where it started by itself (no HOME needed).
    Its primitive_sequence is only for the simulator: [{"primitive":"MOVE_ABOVE","parameters":{"target":"<id>"}},
    {"primitive":"WAIT","parameters":{"seconds":2}}]. Use VISIT whenever the user says visit / go to / go over.
+   TOUCH (arm only): touch an object and come back. One TOUCH step with "target" = the object id; the real arm
+   comes down until its force sensor feels the object. Use it when the person touches / taps / pokes an object.
    PUSH (arm only): push an object 5 cm with the closed gripper. One PUSH step with "target" = ${PUSHABLE_OBJECTS.join(
      ' or ',
    )} (the green ring is too flat to push), then a SEQUENCE with HOME. Use it when the person pushes / slides / nudges
@@ -196,7 +198,7 @@ THE REAL ARM IS CONNECTED. Arm skills must run on it, so for the arm:
   (blue_bucket_01 = drop it INTO the blue bucket; <object>_slot = put it back where it was; delivery_zone = the pad).
 - DETECT before each PICK makes the arm look around with its camera until it sees the object. End with VERIFY
   (target = the object) after the last PLACE, then a SEQUENCE with HOME.
-- Allowed steps: OVERVIEW, DETECT, VERIFY, PICK (with target), PLACE (with target), VISIT (with target), PUSH (target
+- Allowed steps: OVERVIEW, DETECT, VERIFY, PICK (with target), PLACE (with target), VISIT (with target), TOUCH (with target), PUSH (target
   ${PUSHABLE_OBJECTS.join(', ')}), and SEQUENCE steps that use ONLY
   these primitives: ${REAL_ARM_PRIMITIVES.filter((p) => p !== 'STOP').join(', ')}.
 - PICK and PLACE run as one controller task each (the controller does the approach, grasp and release itself),
@@ -277,6 +279,7 @@ const POLICY: Record<string, string> = {
   DETECT: 'STOP_AND_REOBSERVE',
   PICK: 'RETRY_WITH_REOBSERVATION',
   VISIT: 'REPORT_FAILURE',
+  TOUCH: 'REPORT_FAILURE',
   PUSH: 'REPORT_FAILURE',
   OVERVIEW: 'STOP_AND_REOBSERVE',
   PLACE: 'STOP_AND_REPLAN',

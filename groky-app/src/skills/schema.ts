@@ -106,6 +106,7 @@ export type StepAction =
   | 'PICK'
   | 'PLACE'
   | 'VISIT'
+  | 'TOUCH'
   | 'PUSH'
   | 'VERIFY'
   | 'SEQUENCE'

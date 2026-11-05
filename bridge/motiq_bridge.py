@@ -17,12 +17,23 @@ The app (EXPO_PUBLIC_ARM_URL) speaks the "bridge" protocol:
     POST /tools/scan                  -> look at the whole table: which of the known objects are there
     POST /tools/check_placed {"object","destination"} -> look at the destination after a place
     POST /tools/overview              -> the arm camera looks from where the arm is now (NO motion): which objects
-    POST /tools/push {"object"}       -> controller task: identify -> push_object along the object's taught push path
-                                         (robot_controller backends: RoboDK / URSim simulation, closed empty gripper)
+    POST /tools/push {"object"}       -> SIM=1: controller task (identify -> push_object on the taught push path, RoboDK /
+                                         URSim). Real arm: camera hover, beside the object, force-guarded down to the
+                                         table, push 5 cm along the scene's push direction, lift, back to the start.
+    POST /tools/touch {"object", "max_down_mm": 250, "force_n": 15}
+                          -> PHYSICAL: camera hover (as ur_visit), taught touching point over the object, down at
+                             10 mm/s until the UR5e wrist force sensor reads > force_n (checked on the robot), lift,
+                             back to the start pose. /tools/stop stops it.
+    POST /tools/touch_teach_start {"object"} -> centre the camera over the object and stay there
+    POST /tools/touch_teach_save      -> save the touching point's offset (operator jogged it over the object)
     GET  /digital-twin/status, POST /digital-twin/check|snapshot|start|stop {"objects": bool}
                           -> READ-ONLY digital twin (real UR5e + RealSense -> RoboDK simulation), proxied to the local
                              twin service (robot_control.digital_twin, 127.0.0.1:8770). MIRROR ONLY: these routes never
                              reach the controller, PhysicalArm or /tools/stop; Stop ends mirroring, not the robot.
+    GET  /robots/catalog, GET /robots/active, POST /robots/select {"robot_id"}, POST /robots/add {catalog entry}
+                          -> arm catalog, proxied to the local robot-chooser (python -m robot_chooser serve,
+                             127.0.0.1:8771). Adding/selecting an arm only rewrites config files (simulation only);
+                             it takes effect after the controller + bridge restart. Never reaches the controller.
 
 The controller only accepts allowlisted high-level tasks (AI_ACTION_CONTRACT.md) and only on
 127.0.0.1, so this bridge runs on the same PC, translates tool calls into task JSON and is the
@@ -117,16 +128,164 @@ VISIT_MAX_TRAVEL_MM = 350.0    # never wander farther than this from the start p
 VISIT_TOL = 0.03               # centred when within 3 % of the image size
 VISIT_MAX_ITERS = 8
 VISIT_MIN_CONF = 0.4           # hovering touches nothing, so a lower bar than picks
+# touch / push on the PHYSICAL arm: hover (as ur_visit), shift by the taught camera->touching-point offset, then a
+# force-guarded move down (UR5e wrist F/T sensor, checked on the robot every cycle)
+TOUCH_SPEED_MPS = 0.010        # 10 mm/s going down
+TOUCH_FORCE_N = 15.0           # contact = more than this on the (zeroed) wrist sensor
+TOUCH_FORCE_RANGE_N = (5.0, 40.0)
+TOUCH_MAX_DOWN_MM = 250.0      # default: give up after this much descent without contact
+TOUCH_MAX_DOWN_CAP_MM = 400.0
+TOUCH_MAX_OFFSET_M = 0.20      # a taught camera->tip offset bigger than this is a mistake
+PUSH_STANDOFF_MM = 25.0        # start this far from the object's side
+PUSH_HEIGHT_MM = 20.0          # push this high above the table (at most half the object's height)
+PUSH_SPEED_MPS = 0.03
+TOUCH_OFFSET_FILE = HERE.parent / "computer-vision" / "data" / "calibration" / "touch_offset.json"
 _STOP_SCRIPT = b"def stop_jog():\n  stopl(1.0)\nend\nstop_jog()\n"
 
 
-class PhysicalArm:
-    def __init__(self):
-        import sys
+URSIM_HOST = "127.0.0.1"          # URSim's ports are published on loopback only
+URSIM_UI = "http://127.0.0.1:6080/vnc.html?autoconnect=true&resize=scale"
+
+
+def is_loopback_host(host: str) -> bool:
+    import ipaddress
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+class URSimLauncher:
+    """SIM=1: before any motion, make sure URSim (the local docker container) is up, powered on, brakes released
+    and not protective-stopped, so tapping Run on a skill "just works" even if URSim was closed. Also opens the
+    URSim pendant (noVNC) in the PC's browser once, so the demo shows URSim next to RoboDK.
+    Only ever talks to 127.0.0.1: it can't reach the physical arm."""
+
+    def __init__(self, container: str = "ursim-ur5e", open_ui: bool = True, boot_timeout_s: float = 120.0):
         import threading
-        sys.path.insert(0, str(HERE.parent.parent / "ur_manual"))
-        import ur_jog  # noqa: E402  (robot IP lives in ur_jog.ROBOT_IP)
+        self.container = container
+        self.open_ui = open_ui
+        self.boot_timeout_s = boot_timeout_s
+        self.lock = threading.Lock()
+        self.ui_opened = False
+        self.last_ok = 0.0
+
+    @staticmethod
+    def _dash(cmd: str, timeout: float = 2.0) -> str:
+        import socket
+        with socket.create_connection((URSIM_HOST, 29999), timeout=timeout) as s:
+            s.settimeout(timeout)
+            s.recv(1024)
+            s.sendall((cmd + "\n").encode())
+            return s.recv(1024).decode().strip()
+
+    def _docker(self, *args: str) -> tuple[int, str]:
+        import subprocess
+        try:
+            p = subprocess.run(["docker", *args], capture_output=True, text=True, timeout=60)
+            return p.returncode, (p.stderr or p.stdout).strip()
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return 1, str(e)
+
+    def _start_container(self) -> None:
+        log.info("URSim: not answering, starting docker container %s", self.container)
+        rc, out = self._docker("start", self.container)
+        if rc == 0:
+            return
+        if "No such container" not in out:
+            raise Refused(f"could not start URSim (docker start {self.container}: {out[:200]})")
+        progs = Path.home() / "ursim-ur5e" / "programs"
+        progs.mkdir(parents=True, exist_ok=True)
+        rc, out = self._docker("run", "-d", "--name", self.container, "-e", "ROBOT_MODEL=UR5",
+                               "-p", "127.0.0.1:5900:5900", "-p", "127.0.0.1:6080:6080",
+                               "-p", "127.0.0.1:29999:29999", "-p", "127.0.0.1:30001-30004:30001-30004",
+                               "-v", f"{progs}:/ursim/programs", "universalrobots/ursim_e-series")
+        if rc != 0:
+            raise Refused(f"could not create the URSim container: {out[:200]}")
+
+    def _open_ui(self) -> None:
+        if self.ui_opened or not self.open_ui:
+            return
+        self.ui_opened = True
+        if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+            return
+        import subprocess
+        try:
+            subprocess.Popen(["xdg-open", URSIM_UI], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+            log.info("URSim: opened the pendant at %s", URSIM_UI)
+        except OSError:
+            pass
+
+    def ensure(self) -> None:
+        """Bring URSim to RUNNING + NORMAL or raise Refused. Cheap when it already is."""
+        with self.lock:
+            if time.monotonic() - self.last_ok < 2.0:
+                return
+            deadline = time.monotonic() + self.boot_timeout_s
+            started = False
+            mode = "unreachable"
+            while time.monotonic() < deadline:
+                try:
+                    mode = self._dash("robotmode")
+                    safety = self._dash("safetystatus")
+                except OSError:
+                    if not started:
+                        self._start_container()
+                        started = True
+                    time.sleep(1.0)
+                    continue
+                if "PROTECTIVE_STOP" in safety:
+                    self._dash("unlock protective stop")
+                elif "RUNNING" in mode and "NORMAL" in safety:
+                    self.last_ok = time.monotonic()
+                    self._open_ui()
+                    if started:
+                        log.info("URSim: started and ready")
+                    return
+                elif "POWER_OFF" in mode or "DISCONNECTED" in mode or "CONFIDENTIAL" in mode:
+                    self._dash("close safety popup")
+                    self._dash("power on")
+                elif "IDLE" in mode:
+                    self._dash("brake release")
+                time.sleep(1.0)
+            raise Refused(f"URSim did not become ready within {self.boot_timeout_s:.0f}s (robot mode: {mode}). "
+                          "Open http://127.0.0.1:6080/vnc.html to check it.")
+
+
+import contextvars
+
+_ARM: "contextvars.ContextVar[Optional[PhysicalArm]]" = contextvars.ContextVar("motiq_arm", default=None)
+
+
+class PhysicalArm:
+    """Small step moves on a UR. sim=True (SIM=1 / --sim) sends them to URSim on 127.0.0.1 instead of the real arm;
+    the controller's ursim_sync backend mirrors URSim into RoboDK, so they show up in the RoboDK simulation."""
+
+    def __init__(self, sim: bool = False, sim_arm: str = "UR5e"):
+        import importlib.util
+        import threading
+        # a private copy of ur_jog per arm: its robot IP is a module global (ur_jog.ROBOT_IP) that send_script /
+        # move_rel / stop read, so the URSim arm and the physical arm (SIM=1 + real-arm runs) must never share it
+        spec = importlib.util.spec_from_file_location(f"ur_jog_{'sim' if sim else 'real'}_{id(self):x}",
+                                                      HERE.parent.parent / "ur_manual" / "ur_jog.py")
+        ur_jog = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(ur_jog)
+        self.sim = sim
+        # SIM=1 with another arm selected (robot-chooser): RoboDK runs that arm via the controller, URSim is not
+        # mirrored, so free step/joint moves on URSim would move nothing visible -> refused (named moves still work)
+        self.jog_refusal = (f"step and joint moves only exist for the UR5e simulation (URSim); the simulated "
+                            f"{sim_arm} does named moves only: home, pick, place, push, look at an object"
+                            if sim and sim_arm != "UR5e" else "")
+        if sim:
+            ur_jog.ROBOT_IP = URSIM_HOST      # URSim (docker, loopback only): never the physical arm
+            if not is_loopback_host(ur_jog.ROBOT_IP):
+                raise SystemExit(f"SIM=1 but the arm IP is {ur_jog.ROBOT_IP}, not loopback: refusing to start")
         self.jog, self.ip = ur_jog, ur_jog.ROBOT_IP
+        self.where = "in the RoboDK simulation" if sim else "on the physical arm"
+        self.name = "the simulated arm (URSim)" if sim else "the physical arm"
         self.lock = threading.Lock()
         self.cancel = threading.Event()
 
@@ -142,8 +301,9 @@ class PhysicalArm:
                 s.sendall(b"safetystatus\n")
                 safety = s.recv(1024).decode().strip().removeprefix("Safetystatus: ")
         except OSError:
-            return {"reachable": False, "ready": False, "note": f"no answer from {self.ip}: ethernet unplugged?"}
-        return {"reachable": True, "ready": "RUNNING" in mode and "NORMAL" in safety,
+            return {"reachable": False, "ready": False, "sim": self.sim,
+                    "note": f"no answer from {self.ip}: " + ("URSim container down?" if self.sim else "ethernet unplugged?")}
+        return {"reachable": True, "sim": self.sim, "ip": self.ip, "ready": "RUNNING" in mode and "NORMAL" in safety,
                 "mode": mode, "safety": safety, "busy": self.lock.locked()}
 
     def stop(self) -> bool:
@@ -159,16 +319,18 @@ class PhysicalArm:
 
     def _preflight(self) -> list:
         """Refuse unless the arm is reachable, RUNNING and NORMAL. Returns the start TCP pose."""
+        if self.jog_refusal:
+            raise Refused(self.jog_refusal)
         try:
             mode = self.jog.dashboard("robotmode", self.ip)
             safety = self.jog.dashboard("safetystatus", self.ip)
             start, _ = self.jog.read_state(self.ip)
         except OSError as e:
-            raise Refused(f"physical arm not reachable at {self.ip} ({e.__class__.__name__}); check the ethernet cable")
+            raise Refused(f"{self.name} not reachable at {self.ip} ({e.__class__.__name__}); " + ("is the URSim container running?" if self.sim else "check the ethernet cable"))
         if "RUNNING" not in mode:
-            raise Refused(f"physical arm not ready ({mode}): power on + brake release on the pendant")
+            raise Refused(f"{self.name} not ready ({mode}): power on + brake release on the pendant")
         if "NORMAL" not in safety:
-            raise Refused(f"physical arm safety is not NORMAL ({safety})")
+            raise Refused(f"{self.name} safety is not NORMAL ({safety})")
         return start
 
     def _wait(self, reached) -> Optional[dict]:
@@ -188,13 +350,13 @@ class PhysicalArm:
     def _locked(self, fn) -> dict:
         # calls from one voice turn arrive back to back ("up 5 cm, then down"): wait for the previous one
         if not self.lock.acquire(timeout=PHYSICAL_STEP_TIMEOUT_S * 2):
-            raise Refused("the physical arm is still busy with the previous move")
+            raise Refused(f"{self.name} is still busy with the previous move")
         try:
             self.cancel.clear()
             self._preflight()
             return fn()
         except OSError as e:
-            return {"ok": False, "error": f"lost connection to the physical arm ({e.__class__.__name__}); arm stopped"}
+            return {"ok": False, "error": f"lost connection to {self.name} ({e.__class__.__name__}); arm stopped"}
         finally:
             self.stop()
             self.lock.release()
@@ -202,7 +364,7 @@ class PhysicalArm:
     def _result(self, did: str) -> dict:
         tcp, q = self.jog.read_state(self.ip)
         # joints_deg lets the app sync its arm model to the real pose
-        return {"ok": True, "did": did, "physical": True, "joints_deg": [round(math.degrees(v), 2) for v in q],
+        return {"ok": True, "did": did, "physical": not self.sim, "simulation": self.sim, "joints_deg": [round(math.degrees(v), 2) for v in q],
                 "tcp_mm": [round(v * 1000, 1) for v in tcp[:3]]}
 
     def step(self, direction: str, distance_m: Any, axis_sign: tuple[int, int]) -> dict:
@@ -212,7 +374,7 @@ class PhysicalArm:
         except (TypeError, ValueError):
             raise Refused("distance_m must be a number")
         if not 1 <= mm <= PHYSICAL_STEP_MAX_MM:
-            raise Refused(f"on the physical arm a step must be 1..{PHYSICAL_STEP_MAX_MM / 10:g} cm")
+            raise Refused(f"on {self.name} a step must be 1..{PHYSICAL_STEP_MAX_MM / 10:g} cm")
         axis, sign = axis_sign
         d = [0.0, 0.0, 0.0]
         d[axis] = sign * mm
@@ -221,88 +383,142 @@ class PhysicalArm:
             log.info("physical step %s %.0f mm", direction, mm)
             target = self.jog.move_rel(*d)
             err = self._wait(lambda tcp, q: all(abs(tcp[i] - target[i]) < 0.0005 for i in range(3)))
-            return err or self._result(f"moved {mm / 10:g} cm {direction} on the physical arm")
+            return err or self._result(f"moved {mm / 10:g} cm {direction} {self.where}")
         return self._locked(run)
 
     def joint(self, index: int, label: str, delta_deg: float) -> dict:
         """Rotate one joint by delta_deg (capped by ur_jog.MAX_JOINT_DEG), slowly."""
         if not 0.5 <= abs(delta_deg) <= self.jog.MAX_JOINT_DEG:
-            raise Refused(f"on the physical arm a joint step must be 0.5..{self.jog.MAX_JOINT_DEG} degrees")
+            raise Refused(f"on {self.name} a joint step must be 0.5..{self.jog.MAX_JOINT_DEG} degrees")
 
         def run():
             log.info("physical joint %s %+.1f deg", label, delta_deg)
             target = self.jog.move_joint_rel(index + 1, delta_deg)
             err = self._wait(lambda tcp, q: all(abs(q[i] - target[i]) < 0.002 for i in range(6)))
-            return err or self._result(f"turned the {label} {delta_deg:+g}° on the physical arm")
+            return err or self._result(f"turned the {label} {delta_deg:+g}° {self.where}")
         return self._locked(run)
 
-    def visit(self, locate, label: str, hold_s: float = 2.0, come_back: bool = True) -> dict:
-        """Hover the arm camera over an object the vision server sees, then (by default) go back to the start pose.
+    # ---- camera-guided hover (shared by visit, touch, push and touch-offset teaching) -------------------------
+    def _centre_over(self, locate, label: str) -> Optional[dict]:
+        """Lock held + preflight done. Centre the arm camera over the object, sideways only at the same height.
+        None = centred, else an error result.
 
         `locate(after_ts)` -> (u, v) bbox centre normalised 0-1 from a vision frame newer than `after_ts`, or None.
         No hand-eye calibration: two VISIT_NUDGE_MM nudges (base X, base Y) measure how the object moves in the
-        image, then sideways moves at the same height (never down) centre it. Every move is a ur_jog movel at 50 mm/s,
-        <= VISIT_STEP_MM, and the whole visit stays within VISIT_MAX_TRAVEL_MM of the start. STOP cancels it.
-        """
+        image, then sideways moves centre it. Every move is a ur_jog movel at 50 mm/s, <= VISIT_STEP_MM, and the
+        whole hover stays within VISIT_MAX_TRAVEL_MM of the start. STOP cancels it."""
         import numpy as np
 
+        def look():
+            p = locate(time.time() + 0.3)       # only frames taken after the arm settled
+            return None if p is None else np.array(p, dtype=float)
+
+        def go(dx, dy):
+            target = self.jog.move_rel(dx, dy, 0)
+            return self._wait(lambda tcp, q: all(abs(tcp[i] - target[i]) < 0.0005 for i in range(3)))
+
+        p0 = look()
+        if p0 is None:
+            return {"ok": False, "error": f"the camera can't see the {label} from here"}
+        start, _ = self.jog.read_state(self.ip)
+        log.info("physical hover %s: seen at (%.3f, %.3f), start %s mm", label, *p0,
+                 [round(v * 1000, 1) for v in start[:3]])
+        moved = np.zeros(2)
+        err = go(VISIT_NUDGE_MM, 0) or None
+        p1 = None if err else look()
+        err = err or (go(0, VISIT_NUDGE_MM) if p1 is not None else None)
+        p2 = None if err or p1 is None else look()
+        moved += [VISIT_NUDGE_MM, VISIT_NUDGE_MM]
+        if err:
+            return err
+        if p1 is None or p2 is None:
+            return {"ok": False, "error": f"lost sight of the {label} while testing the camera direction"}
+        J = np.column_stack([(p1 - p0) / VISIT_NUDGE_MM, (p2 - p1) / VISIT_NUDGE_MM])  # image units per mm
+        if abs(np.linalg.det(J)) < 1e-8:
+            return {"ok": False, "error": "the object didn't move in the image during the test nudges"}
+        p = p2
+        for _ in range(VISIT_MAX_ITERS):
+            if self.cancel.is_set():
+                return {"ok": False, "error": "stopped"}
+            e = np.array([0.5, 0.5]) - p
+            if np.linalg.norm(e) < VISIT_TOL:
+                break
+            d = np.linalg.solve(J, e)
+            if np.abs(d).max() > VISIT_STEP_MM:
+                d *= VISIT_STEP_MM / np.abs(d).max()
+            if np.abs(moved + d).max() > VISIT_MAX_TRAVEL_MM:
+                return {"ok": False, "error": f"the {label} is more than {VISIT_MAX_TRAVEL_MM / 10:g} cm away; "
+                        "not going that far"}
+            err = go(float(d[0]), float(d[1]))
+            if err:
+                return err
+            moved += d
+            p = look()
+            if p is None:
+                return {"ok": False, "error": f"lost sight of the {label}"}
+        else:
+            return {"ok": False, "error": f"couldn't centre the {label} under the camera"}
+        over, _ = self.jog.read_state(self.ip)
+        log.info("physical hover %s: over it at %s mm", label, [round(v * 1000, 1) for v in over[:3]])
+        return None
+
+    def _movel(self, pose: list, speed: Optional[float] = None) -> Optional[dict]:
+        """Straight line to an absolute TCP pose (base frame), wait until there. None = reached."""
+        p = "p[%s]" % ",".join("%.6f" % v for v in pose)
+        self.jog.send_script("def motiq_l():\n  movel(%s, a=%s, v=%s)\nend\nmotiq_l()"
+                             % (p, self.jog.ACCEL, speed or self.jog.SPEED))
+        return self._wait(lambda tcp, q: all(abs(tcp[i] - pose[i]) < 0.0005 for i in range(3)))
+
+    def _back_to(self, start: list) -> None:
+        """Return to `start`: first straight UP to its height if the arm is lower (never drag sideways near the
+        table), then a straight line to the exact start pose. Best effort, never raises."""
+        try:
+            for target in ("up", "start"):
+                tcp, _ = self.jog.read_state(self.ip)
+                if target == "up":
+                    if tcp[2] >= start[2] - 0.002:
+                        continue
+                    pose = tcp[:2] + [start[2]] + tcp[3:]
+                else:
+                    pose = list(start)
+                p = "p[%s]" % ",".join("%.6f" % v for v in pose)
+                self.jog.send_script("def back():\n  movel(%s, a=%s, v=%s)\nend\nback()"
+                                     % (p, self.jog.ACCEL, self.jog.SPEED))
+                t0 = time.monotonic()
+                while time.monotonic() - t0 < 30 and not self.cancel.is_set():
+                    tcp, _ = self.jog.read_state(self.ip)
+                    if all(abs(tcp[i] - pose[i]) < 0.0005 for i in range(3)):
+                        break
+                    time.sleep(0.1)
+                if self.cancel.is_set():
+                    return
+        except OSError:
+            pass
+
+    def _hover_session(self, locate, label: str, then, come_back: bool) -> dict:
+        """Lock, preflight, centre over the object, run then(start, over) -> result, and (by default) go back."""
         if not self.lock.acquire(timeout=PHYSICAL_STEP_TIMEOUT_S * 2):
-            raise Refused("the physical arm is still busy with the previous move")
+            raise Refused(f"{self.name} is still busy with the previous move")
         start = None
         try:
             self.cancel.clear()
             start = self._preflight()
-
-            def look():
-                p = locate(time.time() + 0.3)       # only frames taken after the arm settled
-                return None if p is None else np.array(p, dtype=float)
-
-            def go(dx, dy):
-                target = self.jog.move_rel(dx, dy, 0)
-                return self._wait(lambda tcp, q: all(abs(tcp[i] - target[i]) < 0.0005 for i in range(3)))
-
-            p0 = look()
-            if p0 is None:
-                return {"ok": False, "error": f"the camera can't see the {label} from here"}
-            log.info("physical visit %s: seen at (%.3f, %.3f), start %s mm", label, *p0,
-                     [round(v * 1000, 1) for v in start[:3]])
-            moved = np.zeros(2)
-            err = go(VISIT_NUDGE_MM, 0) or None
-            p1 = None if err else look()
-            err = err or (go(0, VISIT_NUDGE_MM) if p1 is not None else None)
-            p2 = None if err or p1 is None else look()
-            moved += [VISIT_NUDGE_MM, VISIT_NUDGE_MM]
+            err = self._centre_over(locate, label)
             if err:
                 return err
-            if p1 is None or p2 is None:
-                return {"ok": False, "error": f"lost sight of the {label} while testing the camera direction"}
-            J = np.column_stack([(p1 - p0) / VISIT_NUDGE_MM, (p2 - p1) / VISIT_NUDGE_MM])  # image units per mm
-            if abs(np.linalg.det(J)) < 1e-8:
-                return {"ok": False, "error": "the object didn't move in the image during the test nudges"}
-            p = p2
-            for _ in range(VISIT_MAX_ITERS):
-                if self.cancel.is_set():
-                    return {"ok": False, "error": "stopped"}
-                e = np.array([0.5, 0.5]) - p
-                if np.linalg.norm(e) < VISIT_TOL:
-                    break
-                d = np.linalg.solve(J, e)
-                if np.abs(d).max() > VISIT_STEP_MM:
-                    d *= VISIT_STEP_MM / np.abs(d).max()
-                if np.abs(moved + d).max() > VISIT_MAX_TRAVEL_MM:
-                    return {"ok": False, "error": f"the {label} is more than {VISIT_MAX_TRAVEL_MM / 10:g} cm away; "
-                            "not going that far"}
-                err = go(float(d[0]), float(d[1]))
-                if err:
-                    return err
-                moved += d
-                p = look()
-                if p is None:
-                    return {"ok": False, "error": f"lost sight of the {label}"}
-            else:
-                return {"ok": False, "error": f"couldn't centre the {label} under the camera"}
             over, _ = self.jog.read_state(self.ip)
-            log.info("physical visit %s: over it at %s mm", label, [round(v * 1000, 1) for v in over[:3]])
+            return then(start, over)
+        except OSError as e:
+            return {"ok": False, "error": f"lost connection to {self.name} ({e.__class__.__name__}); arm stopped"}
+        finally:
+            if come_back and start is not None and not self.cancel.is_set():
+                self._back_to(start)
+            self.stop()
+            self.lock.release()
+
+    def visit(self, locate, label: str, hold_s: float = 2.0, come_back: bool = True) -> dict:
+        """Hover the arm camera over an object the vision server sees, then (by default) go back to the start pose."""
+        def then(start, over):
             t_end = time.monotonic() + max(0.0, min(10.0, hold_s))
             while time.monotonic() < t_end:
                 if self.cancel.is_set():
@@ -311,25 +527,143 @@ class PhysicalArm:
             res = self._result(f"went over the {label}" + (" and came back" if come_back else ""))
             res["over_tcp_mm"] = [round(v * 1000, 1) for v in over[:3]]
             return res
-        except OSError as e:
-            return {"ok": False, "error": f"lost connection to the physical arm ({e.__class__.__name__}); arm stopped"}
-        finally:
-            stopped = self.cancel.is_set()
-            if come_back and start is not None and not stopped:
-                try:  # straight line back to the exact start pose (same height the whole way)
-                    pose = "p[%s]" % ",".join("%.6f" % v for v in start)
-                    self.jog.send_script("def back():\n  movel(%s, a=%s, v=%s)\nend\nback()"
-                                         % (pose, self.jog.ACCEL, self.jog.SPEED))
-                    t0 = time.monotonic()
-                    while time.monotonic() - t0 < 30 and not self.cancel.is_set():
-                        tcp, _ = self.jog.read_state(self.ip)
-                        if all(abs(tcp[i] - start[i]) < 0.0005 for i in range(3)):
-                            break
-                        time.sleep(0.1)
-                except OSError:
-                    pass
-            self.stop()
-            self.lock.release()
+        return self._hover_session(locate, label, then, come_back)
+
+    def tcp_now(self) -> list:
+        tcp, _ = self.jog.read_state(self.ip)
+        return tcp
+
+    # ---- contact moves: force-guarded touch and push (physical UR5e, uses its built-in wrist F/T sensor) -------
+    @staticmethod
+    def rotvec_to_mat(rv):
+        import numpy as np
+        rv = np.asarray(rv, dtype=float)
+        th = float(np.linalg.norm(rv))
+        if th < 1e-12:
+            return np.eye(3)
+        k = rv / th
+        K = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
+        return np.eye(3) + math.sin(th) * K + (1 - math.cos(th)) * K @ K
+
+    def _tip_over(self, over: list, offset_tool_m: list) -> list:
+        """TCP pose that puts the taught touching point where the camera centre was (base XY only, same height)."""
+        import numpy as np
+        d = self.rotvec_to_mat(over[3:6]) @ np.asarray(offset_tool_m, dtype=float)
+        d[2] = 0.0
+        if float(np.linalg.norm(d)) > TOUCH_MAX_OFFSET_M:
+            raise Refused("the taught touch offset is larger than "
+                          f"{TOUCH_MAX_OFFSET_M * 1000:.0f} mm; teach it again")
+        return [over[0] + float(d[0]), over[1] + float(d[1]), over[2]] + list(over[3:6])
+
+    def _guarded_down(self, max_mm: float, force_n: float) -> tuple[Optional[dict], float, bool]:
+        """Go straight down at TOUCH_SPEED_MPS until the wrist force sensor reads > force_n (contact) or max_mm.
+        Runs on the robot (URScript loop at controller rate), so the stop doesn't depend on the network.
+        Returns (error or None, mm descended, contact?)."""
+        z_start = self.tcp_now()[2]
+        script = (
+            "def motiq_touch():\n"
+            "  zero_ftsensor()\n"
+            "  sleep(0.3)\n"
+            "  z0 = get_actual_tcp_pose()[2]\n"
+            "  going = True\n"
+            "  while going:\n"
+            f"    if force() > {force_n:.2f} or z0 - get_actual_tcp_pose()[2] > {max_mm / 1000:.4f}:\n"
+            "      going = False\n"
+            "    else:\n"
+            f"      speedl([0, 0, -{TOUCH_SPEED_MPS:.4f}, 0, 0, 0], 0.5, 0.02)\n"
+            "    end\n"
+            "  end\n"
+            "  stopl(2.0)\n"
+            "end\n"
+            "motiq_touch()")
+        self.jog.send_script(script)
+        time.sleep(0.8)                      # zero the sensor + start moving
+        deadline = time.monotonic() + max_mm / 1000 / TOUCH_SPEED_MPS + 8
+        last_z, still_since = self.tcp_now()[2], time.monotonic()
+        while True:
+            if self.cancel.is_set():
+                return {"ok": False, "error": "stopped"}, (z_start - last_z) * 1000, False
+            time.sleep(0.1)
+            z = self.tcp_now()[2]
+            if abs(z - last_z) > 0.0001:
+                last_z, still_since = z, time.monotonic()
+            elif time.monotonic() - still_since > 0.5:
+                break
+            if time.monotonic() > deadline:
+                return ({"ok": False, "error": "the guarded move down took too long; arm stopped"},
+                        (z_start - z) * 1000, False)
+        safety = self.jog.dashboard("safetystatus", self.ip)
+        down = (z_start - last_z) * 1000
+        if "NORMAL" not in safety:
+            return ({"ok": False, "error": f"the arm stopped itself on contact ({safety}); clear it on the pendant"},
+                    down, True)
+        return None, down, down < max_mm - 2
+
+    def touch(self, locate, label: str, offset_tool_m: list, max_down_mm: float, force_n: float,
+              come_back: bool = True) -> dict:
+        """Hover over the object, put the taught touching point above it, go down slowly until contact (force),
+        lift back to the hover height, then go back to the start pose."""
+        def then(start, over):
+            tip = self._tip_over(over, offset_tool_m)
+            err = self._movel(tip)
+            if err:
+                return err
+            log.info("physical touch %s: guarded down <= %.0f mm, stop at %.0f N", label, max_down_mm, force_n)
+            err, down, contact = self._guarded_down(max_down_mm, force_n)
+            if err:
+                return err
+            if not contact:
+                self._movel(tip)
+                return {"ok": False, "error": f"went down {down:.0f} mm and touched nothing; came back up. "
+                        "The object may be lower than that (raise max_down_mm) or the touch offset is off"}
+            touched_at = self.tcp_now()
+            err = self._movel(tip)       # straight back up
+            if err:
+                return err
+            res = self._result(f"touched the {label} ({down:.0f} mm below the hover height)"
+                               + (" and came back" if come_back else ""))
+            res["touch_tcp_mm"] = [round(v * 1000, 1) for v in touched_at[:3]]
+            return res
+        return self._hover_session(locate, label, then, come_back)
+
+    def push(self, locate, label: str, offset_tool_m: list, dir_xy: tuple[float, float], footprint_mm: float,
+             height_mm: float, distance_mm: float, max_down_mm: float, force_n: float) -> dict:
+        """Hover over the object, move beside it (opposite the push direction), find the table with a guarded move
+        down, lift a little, push `distance_mm` sideways, lift back to the hover height, go back to the start."""
+        ux, uy = dir_xy
+
+        def then(start, over):
+            tip = self._tip_over(over, offset_tool_m)
+            back = footprint_mm / 2 + PUSH_STANDOFF_MM
+            beside = [tip[0] - ux * back / 1000, tip[1] - uy * back / 1000] + tip[2:]
+            err = self._movel(beside)
+            if err:
+                return err
+            log.info("physical push %s: beside it at %s mm, finding the table", label,
+                     [round(v * 1000, 1) for v in beside[:3]])
+            err, down, contact = self._guarded_down(max_down_mm, force_n)
+            if err:
+                return err
+            if not contact:
+                self._movel(beside)
+                return {"ok": False, "error": f"went down {down:.0f} mm beside the {label} and found no table; "
+                        "came back up (raise max_down_mm?)"}
+            low = self.tcp_now()
+            lift = min(PUSH_HEIGHT_MM, height_mm / 2)
+            at = [low[0], low[1], low[2] + lift / 1000] + beside[3:]
+            err = self._movel(at)
+            if err:
+                return err
+            travel = PUSH_STANDOFF_MM + distance_mm
+            end = [at[0] + ux * travel / 1000, at[1] + uy * travel / 1000, at[2]] + at[3:]
+            err = self._movel(end, speed=PUSH_SPEED_MPS)
+            if err:
+                return err
+            err = self._movel(end[:2] + [beside[2]] + end[3:])     # straight up to the hover height
+            if err:
+                return err
+            return self._result(f"pushed the {label} about {distance_mm:.0f} mm and came back")
+        return self._hover_session(locate, label, then, True)
 
     def joints_now_deg(self) -> list[float]:
         _, q = self.jog.read_state(self.ip)
@@ -343,7 +677,7 @@ class PhysicalArm:
         if not 1 <= mm <= PHYSICAL_MAX_MM:
             raise Refused(f"down/up distance must be 1..{PHYSICAL_MAX_MM:.0f} mm")
         if not self.lock.acquire(blocking=False):
-            raise Refused("the physical arm is already moving")
+            raise Refused(f"{self.name} is already moving")
         try:
             self.cancel.clear()
             start = self._preflight()
@@ -364,10 +698,10 @@ class PhysicalArm:
                                 + self.jog.dashboard("safetystatus", self.ip) + ")"}
                     time.sleep(0.1)
             end, _ = self.jog.read_state(self.ip)
-            return {"ok": True, "did": f"moved {mm / 10:g} cm down and back up on the physical arm, then stopped",
+            return {"ok": True, "did": f"moved {mm / 10:g} cm down and back up {self.where}, then stopped",
                     "start_z_mm": round(start[2] * 1000, 1), "end_z_mm": round(end[2] * 1000, 1)}
         except OSError as e:
-            return {"ok": False, "error": f"lost connection to the physical arm ({e.__class__.__name__}); arm stopped"}
+            return {"ok": False, "error": f"lost connection to {self.name} ({e.__class__.__name__}); arm stopped"}
         finally:
             self.stop()
             self.lock.release()
@@ -375,7 +709,7 @@ class PhysicalArm:
 
 class Bridge:
     def __init__(self, controller: str, vision: str, scene_path: Path, vision_file: Path,
-                 task_timeout_s: float = 180.0, min_conf: float = 0.6):
+                 task_timeout_s: float = 180.0, min_conf: float = 0.6, sim: bool = False, sim_arm: str = "UR5e"):
         self.controller = controller.rstrip("/")
         self.vision = vision.rstrip("/")
         self.vision_file = vision_file
@@ -384,11 +718,28 @@ class Bridge:
         self.scene = yaml.safe_load(scene_path.read_text(encoding="utf-8"))
         self.http = httpx.Client(timeout=10.0)
         self.active_task: Optional[str] = None
-        self.physical = PhysicalArm()
+        self._physical = PhysicalArm(sim, sim_arm)
+        # SIM=1 on the UR5e: the physical UR5e as well, for "Run on real arm" (requests with X-Arm-Target: real).
+        # Only camera/force moves (locate, touch, push, small steps): the controller drives the simulation only.
+        self.real_arm = (PhysicalArm(False) if sim and sim_arm == "UR5e" and os.environ.get("REAL_ARM", "1") == "1"
+                         else None)
+        # SIM=1 on the UR5e: URSim is started / powered on on demand before every motion (see tool())
+        self.ursim = (URSimLauncher(os.environ.get("URSIM_CONTAINER", "ursim-ur5e"),
+                                    open_ui=os.environ.get("URSIM_OPEN_UI", "1") == "1")
+                      if sim and sim_arm == "UR5e" else None)
         self.directions = load_direction_mapping()
         import threading
         self.search_cancel = threading.Event()   # set by stop: ends an arm-camera search between poses
         self.seen: dict[str, dict] = {}          # last confident sighting per object id (arm camera search)
+
+    # the arm the current request drives: the default one, or the physical arm while a real-target tool runs
+    @property
+    def physical(self) -> "PhysicalArm":
+        return _ARM.get() or self._physical
+
+    @physical.setter
+    def physical(self, arm: "PhysicalArm") -> None:
+        self._physical = arm
 
     # ------------------------------------------------------------------ scene helpers
     @property
@@ -583,7 +934,7 @@ class Bridge:
     @property
     def eye_in_hand(self) -> bool:
         s = self.scene.get("search") or {}
-        return bool(self.vision) and s.get("camera") == "arm_mounted" and bool(s.get("scan_targets"))
+        return (bool(self.vision) or self.physical.sim) and s.get("camera") == "arm_mounted" and bool(s.get("scan_targets"))
 
     def _look(self, target: Optional[str], seconds: float) -> dict[str, dict]:
         """Move the camera to `target` (None = stay where it is), let it settle, then watch for `seconds`.
@@ -595,6 +946,8 @@ class Bridge:
                 raise Refused(f"couldn't move the camera to {target.replace('_', ' ')}: {r.get('error')}")
             if self.search_cancel.wait(cfg["settle_s"]):
                 raise Refused("stopped")
+        if self.physical.sim:
+            return self._sim_seen(target)
         arrived = time.time()
         best: dict[str, dict] = {}
         last_fid = None
@@ -622,6 +975,36 @@ class Bridge:
         self.seen.update(best)
         return best
 
+    def _sim_seen(self, target: Optional[str]) -> dict[str, dict]:
+        """SIM=1: the objects are RoboDK station items the real camera can't see. The simulated camera reports every
+        registered object that isn't in the gripper, clearly marked simulated (the arm still moves to the look pose)."""
+        try:
+            holding = (self._get("/status").get("robot") or {}).get("holding")
+        except Exception:
+            holding = None
+        best = {oid: {"conf": 1.0, "simulated": True, "label": oid.replace("_", " "),
+                      "seen_from": target or "current pose", "ts": time.time()}
+                for oid in self.objects if oid != holding}
+        self.seen.update(best)
+        return best
+
+    def _sim_visit(self, q: Any, hold_s: float, come_back: bool) -> dict:
+        """SIM=1 VISIT: hover over the object's taught approach pose in RoboDK, wait, then go home (the controller
+        moves between taught targets, so 'back' is home rather than the exact start pose)."""
+        oid = self.resolve_object(q)
+        name = oid.replace("_", " ")
+        r = self.run_task([("move_to_target", {"target_id": self.approach_target(oid)})], f"over the {name}")
+        if not r.get("ok"):
+            return r
+        if self.search_cancel.wait(max(0.0, min(hold_s, 10.0))):
+            return {"ok": False, "error": "stopped"}
+        if come_back:
+            r = self.run_task([("perform_motion", {"motion_id": "go_home"})], "home")
+            if not r.get("ok"):
+                return r
+        return {**r, "ok": True, "simulation": True,
+                "did": f"hovered over the {name} in the RoboDK simulation" + (", then went home" if come_back else "")}
+
     def _look_plan(self, oid: Optional[str]) -> list[str]:
         cfg = self._search_cfg()
         plan = []
@@ -631,11 +1014,12 @@ class Bridge:
 
     def find(self, oid: str) -> dict:
         """Search for one object with the arm camera. Stops at the first pose where it's seen."""
-        if not self.vision:
+        if not self.vision and not self.physical.sim:
             raise Refused("no vision server configured, so the arm can't look for anything")
         self.search_cancel.clear()
         name = oid.replace("_", " ")
-        if not self.active_task and (hit := self._look(None, 0.5).get(oid)):
+        # (in SIM=1 skip "already in view" so RoboDK shows the arm going to look)
+        if not self.physical.sim and not self.active_task and (hit := self._look(None, 0.5).get(oid)):
             return {"ok": True, "did": f"the camera already sees the {name}", "object": oid, "found": hit}
         if not self.eye_in_hand:
             return {"ok": False, "object": oid, "error": f"the camera can't see the {name}, and it isn't on the arm "
@@ -654,7 +1038,7 @@ class Bridge:
 
     def scan(self) -> dict:
         """Look at the whole table from every scan pose: which of the known objects are there."""
-        if not self.vision:
+        if not self.vision and not self.physical.sim:
             raise Refused("no vision server configured")
         self.search_cancel.clear()
         found: dict[str, dict] = {}
@@ -672,7 +1056,7 @@ class Bridge:
 
     def overview(self) -> dict:
         """What the arm camera sees from where the arm is right now. Never moves anything."""
-        if not self.vision:
+        if not self.vision and not self.physical.sim:
             raise Refused("no vision server configured")
         self.search_cancel.clear()
         found = self._look(None, self._search_cfg()["look_s"])
@@ -683,10 +1067,119 @@ class Bridge:
             did += f"; not in view: {', '.join(o.replace('_', ' ') for o in missing)}"
         return {"ok": True, "did": did, "objects": found, "missing": missing, "moved": False}
 
-    def push(self, oid: str) -> dict:
+    # ------------------------------------------------------------------ touch / push on the physical arm
+    def _touch_offset(self) -> list:
+        try:
+            return list(json.loads(TOUCH_OFFSET_FILE.read_text())["offset_tool_m"])
+        except (OSError, ValueError, KeyError):
+            raise Refused("the touch offset isn't taught yet: run touch_teach_start on an object, jog the touching "
+                          "part right above it, then touch_teach_save")
+
+    def _contact_args(self, a: dict) -> tuple[float, float]:
+        try:
+            down = float(a.get("max_down_mm") or TOUCH_MAX_DOWN_MM)
+            force = float(a.get("force_n") or TOUCH_FORCE_N)
+        except (TypeError, ValueError):
+            raise Refused("max_down_mm and force_n must be numbers")
+        if not 10 <= down <= TOUCH_MAX_DOWN_CAP_MM:
+            raise Refused(f"max_down_mm must be 10..{TOUCH_MAX_DOWN_CAP_MM:.0f}")
+        lo, hi = TOUCH_FORCE_RANGE_N
+        if not lo <= force <= hi:
+            raise Refused(f"force_n must be {lo:g}..{hi:g}")
+        return down, force
+
+    def touch_teach_start(self, q: Any) -> dict:
+        if self.physical.sim:
+            raise Refused("teaching the touch offset needs the real arm and camera (not SIM=1)")
+        match, label = self._visit_matcher(q)
+        r = self.physical.visit(lambda after: self._locate(match, after), label, hold_s=0, come_back=False)
+        if not r.get("ok"):
+            return r
+        self.touch_teach = {"tcp": self.physical.tcp_now(), "label": label, "ts": time.time()}
+        r["did"] = (f"the camera is centred over the {label}. Now use small steps (left/right/forward/back, 1-2 cm) "
+                    f"until the part of the arm that should touch is right above the {label} - don't go down onto it "
+                    "- then save the touch offset")
+        return r
+
+    def touch_teach_save(self) -> dict:
+        import numpy as np
+        t = getattr(self, "touch_teach", None)
+        if not t or time.time() - t["ts"] > 1800:
+            raise Refused("run touch_teach_start first (it centres the camera over an object)")
+        a, b = t["tcp"], self.physical.tcp_now()
+        d_base = np.array([b[0] - a[0], b[1] - a[1], 0.0])
+        if np.linalg.norm(d_base) > TOUCH_MAX_OFFSET_M:
+            raise Refused(f"the arm moved {np.linalg.norm(d_base) * 1000:.0f} mm sideways since the camera was "
+                          f"centred; more than {TOUCH_MAX_OFFSET_M * 1000:.0f} mm is not a camera offset")
+        if np.linalg.norm(d_base) < 0.005:
+            raise Refused("the arm hasn't moved since the camera was centred; jog the touching part over the "
+                          "object first")
+        d_tool = PhysicalArm.rotvec_to_mat(a[3:6]).T @ d_base
+        TOUCH_OFFSET_FILE.parent.mkdir(parents=True, exist_ok=True)
+        TOUCH_OFFSET_FILE.write_text(json.dumps({
+            "offset_tool_m": [round(float(v), 5) for v in d_tool],
+            "offset_base_mm_when_taught": [round(float(v) * 1000, 1) for v in d_base[:2]],
+            "camera_centred_tcp": a, "tip_over_tcp": b, "object": t["label"],
+            "taught_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "note": "TCP-frame XY offset from 'camera centred over the object' to 'touching part over it'"}, indent=2))
+        self.touch_teach = None
+        return {"ok": True, "did": f"saved the touch offset ({d_base[0] * 1000:+.0f}, {d_base[1] * 1000:+.0f}) mm",
+                "moved": False}
+
+    def _sim_touch(self, q: Any, come_back: bool) -> dict:
+        """SIM=1 TOUCH: no camera or force sensor needed. Over the object's taught approach pose, down to its grasp
+        pose (where the tool meets it), back up, then home - the same taught targets the controller picks with."""
+        oid = self.resolve_object(q)
+        name = oid.replace("_", " ")
+        obj = self.objects[oid]
+        steps = [("move_to_target", {"target_id": obj["approach_target"]}),
+                 ("move_to_target", {"target_id": obj["grasp_target"]}),
+                 ("move_to_target", {"target_id": obj["approach_target"]})]
+        if come_back:
+            steps.append(("perform_motion", {"motion_id": "go_home"}))
+        r = self.run_task(steps, f"touched the {name}")
+        if r.get("ok"):
+            r.update(simulation=True, did=f"touched the {name} in the RoboDK simulation (down to it and back up)"
+                                          + (", then went home" if come_back else ""))
+        return r
+
+    def touch(self, q: Any, a: dict) -> dict:
+        if self.physical.sim:
+            # RoboDK: the camera and the wrist force sensor are only needed on the real arm
+            return self._sim_touch(q, a.get("come_back", True) is not False)
+        down, force = self._contact_args(a)
+        offset = self._touch_offset()
+        match, label = self._visit_matcher(q)
+        return self.physical.touch(lambda after: self._locate(match, after), label, offset, down, force,
+                                   come_back=a.get("come_back", True) is not False)
+
+    def _physical_push(self, oid: str, push: dict, a: dict) -> dict:
+        import numpy as np
+        down, force = self._contact_args(a)
+        offset = self._touch_offset()
+        targets = self.scene.get("targets") or {}
+        try:
+            s = np.array(targets[push["start_target"]]["pose_m_rad"][:2], dtype=float)
+            e = np.array(targets[push["end_target"]]["pose_m_rad"][:2], dtype=float)
+        except (KeyError, TypeError):
+            raise Refused(f"the {oid.replace('_', ' ')} push path has no start/end target to take the direction from")
+        u = e - s
+        if np.linalg.norm(u) < 1e-6:
+            raise Refused("the push path has no direction")
+        u /= np.linalg.norm(u)
+        dims = (self.objects[oid].get("dimensions_m") or [0.05, 0.05, 0.05])
+        match = lambda v: self.match_vision(v) == oid  # noqa: E731
+        return self.physical.push(lambda after: self._locate(match, after), oid.replace("_", " "), offset,
+                                  (float(u[0]), float(u[1])), max(dims[0], dims[1]) * 1000, dims[2] * 1000,
+                                  float(push.get("distance_m", 0.05)) * 1000, down, force)
+
+    def push(self, oid: str, a: Optional[dict] = None) -> dict:
         push = (self.objects.get(oid) or {}).get("push")
         if not push:
             raise Refused(f"the {oid.replace('_', ' ')} can't be pushed (no push path taught for it)")
+        if not self.physical.sim:
+            # the controller can't move the real UR: push with the camera + force-guarded contact instead
+            return self._physical_push(oid, push, a or {})
         self.ensure_visible(oid)
         how = push.get("description") or f"{float(push.get('distance_m', 0)) * 100:g} cm"
         return self.run_task([("identify_object", {"object_id": oid}), ("push_object", {"object_id": oid})],
@@ -694,6 +1187,10 @@ class Bridge:
 
     def ensure_visible(self, oid: str) -> Optional[dict]:
         """sync_vision for a pick, but with the camera on the arm: if it's not in view, go look for it first."""
+        if self.physical.sim:
+            # SIM=1: the objects are RoboDK's station items, which the real camera can't see; the controller runs
+            # with its (labelled) mock detector in this mode, see start_stack.sh
+            return None
         try:
             return self.sync_vision(need=oid)
         except Refused as e:
@@ -708,12 +1205,17 @@ class Bridge:
     def check_placed(self, oid: str, dest: str) -> dict:
         """After a place: look at the destination with the arm camera. Inside a container the object can be hidden,
         so there it also counts if the object is gone from its own spot and the gripper is empty."""
-        if not self.vision:
+        if not self.vision and not self.physical.sim:
             raise Refused("no vision server configured, so the arm can't check")
         self.search_cancel.clear()
         name, where = oid.replace("_", " "), dest.replace("_", " ")
         look_at = "scan_delivery" if dest == "delivery_zone" and "scan_delivery" in (self._search_cfg()["scan_targets"]) \
             else self.destinations[dest]["approach_target"]
+        if self.physical.sim:
+            self._look(look_at, 0)
+            ok = not (self._get("/status").get("robot") or {}).get("holding")
+            return ({"ok": True, "simulation": True, "did": f"simulated check: the {name} was released at the {where}"}
+                    if ok else {"ok": False, "error": f"simulated check: the {name} is still in the gripper"})
         if self._look(look_at if self.eye_in_hand else None, self._search_cfg()["look_s"]).get(oid):
             return {"ok": True, "did": f"checked with the camera: the {name} is at the {where}"}
         if dest.endswith("_inside") and self.eye_in_hand:
@@ -764,6 +1266,17 @@ class Bridge:
                                "state": st["state"], "speed_percent": st.get("speed_percent")}
         if out["ok"]:
             out["did"] = did
+            # the controller can't drive the physical UR in this build (mock / RoboDK / URSim backends only):
+            # with the bridge on the real arm, never let a controller task read as a real-arm move
+            if not self.physical.sim:
+                try:
+                    h = self._get("/health")
+                except Exception:
+                    h = {}
+                if h.get("simulation", True):
+                    out["simulation"], out["physical"] = True, False
+                    out["did"] = (f"{did} - SIMULATED ONLY (controller backend {h.get('backend', '?')}); "
+                                  "the real arm did not move")
         else:
             e = st.get("error") or {}
             out["error"] = e.get("message") or st["status"].lower()
@@ -795,7 +1308,9 @@ class Bridge:
     def stop(self) -> dict:
         res: dict[str, Any] = {"ok": True}
         self.search_cancel.set()
-        res["physical_stop_sent"] = self.physical.stop()
+        res["physical_stop_sent"] = self._physical.stop()
+        if self.real_arm:
+            res["real_arm_stop_sent"] = self.real_arm.stop()
         if self.active_task:
             try:
                 self.http.post(f"{self.controller}/tasks/{self.active_task}/cancel", timeout=2.0)
@@ -809,8 +1324,12 @@ class Bridge:
         return res
 
     # ------------------------------------------------------------------ tools
-    def tool(self, name: str, a: dict) -> dict:
+    def tool(self, name: str, a: dict, target: str = "") -> dict:
         name = name.lower()
+        if target == "real" and self._physical.sim:
+            return self._real_tool(name, a)
+        if self.ursim and name != "status" and _ARM.get() is None:   # (not for a physical-arm tool)
+            self.ursim.ensure()           # SIM=1: start / power on URSim if it isn't ready (raises Refused)
         if name in ("pick", "pick_object"):
             oid = self.resolve_object(a.get("object") or a.get("target"))
             self.ensure_visible(oid)
@@ -837,7 +1356,16 @@ class Bridge:
         if name in ("overview", "look"):
             return self.overview()
         if name in ("push", "push_object"):
-            return self.push(self.resolve_object(a.get("object") or a.get("target")))
+            if self.active_task:
+                raise Refused("a controller task is running; wait for it to finish")
+            return self.push(self.resolve_object(a.get("object") or a.get("target")), a)
+        if name in ("touch", "ur_touch", "touch_teach_start", "touch_teach_save"):
+            if self.active_task:
+                raise Refused("a controller task is running; wait for it to finish")
+            if name == "touch_teach_save":
+                return self.touch_teach_save()
+            q = a.get("object") or a.get("target")
+            return self.touch_teach_start(q) if name == "touch_teach_start" else self.touch(q, a)
         if name == "check_placed":
             oid = self.resolve_object(a.get("object") or a.get("target"))
             return self.check_placed(oid, self.resolve_destination(a.get("destination")))
@@ -860,6 +1388,9 @@ class Bridge:
         if name in ("ur_visit", "visit"):
             if self.active_task:
                 raise Refused("a controller task is running; wait for it to finish")
+            if self.physical.sim:
+                return self._sim_visit(a.get("object") or a.get("target"), float(a.get("hold_s") or 2.0),
+                                       a.get("come_back", True) is not False)
             match, label = self._visit_matcher(a.get("object") or a.get("target"))
             return self.physical.visit(lambda after: self._locate(match, after), label,
                                        hold_s=float(a.get("hold_s") or 2.0),
@@ -889,6 +1420,31 @@ class Bridge:
                           "and home are.")
         raise Refused(f"unknown tool '{name}'")
 
+    def _real_tool(self, name: str, a: dict) -> dict:
+        """SIM=1 stack, "Run on real arm": the tool runs on the PHYSICAL UR5e. Only what the physical arm does on its
+        own (camera + force): locate, touch, push, small steps, joints, down-up, camera look. Pick/place/home need the
+        controller, which only drives the simulation here (and the real arm has no gripper)."""
+        if not self.real_arm:
+            raise Refused("no physical arm in this stack (REAL_ARM=0, or the simulated arm isn't the UR5e)")
+        if name in ("pick", "pick_object", "place", "place_object", "pick_and_place", "shake", "shake_object", "home",
+                    "move_above", "open_gripper", "release", "scan", "look_around", "check_placed"):
+            raise Refused(f"'{name}' runs in RoboDK only: the real arm has no gripper and the controller drives the "
+                          "simulation. On the real arm: locate, touch, push, small steps and joint moves.")
+        token = _ARM.set(self.real_arm)
+        try:
+            log.info("REAL ARM %s: tool %s %s", self.real_arm.ip, name, a)
+            if name in ("find", "find_object", "detect"):
+                # no controller look poses on the real arm: look with the camera from where the arm is now
+                oid = self.resolve_object(a.get("object") or a.get("target"))
+                self.search_cancel.clear()
+                hit = self._look(None, self._search_cfg()["look_s"]).get(oid)
+                nm = oid.replace("_", " ")
+                return ({"ok": True, "did": f"the camera sees the {nm}", "object": oid, "found": hit, "moved": False}
+                        if hit else {"ok": False, "object": oid, "error": f"the camera can't see the {nm} from here"})
+            return self.tool(name, a)
+        finally:
+            _ARM.reset(token)
+
     def _shake(self, a: dict) -> dict:
         patterns = self.scene.get("patterns") or {}
         pid = str(a.get("pattern") or next(iter(patterns), "gentle_shake"))
@@ -896,7 +1452,11 @@ class Bridge:
 
     def health(self) -> dict:
         out: dict[str, Any] = {"ok": True, "bridge": "motiq", "model": "unknown (controller unreachable)",
-                               "physical_arm": self.physical.status()}
+                               "physical_arm": self._physical.status()}
+        if self.real_arm:
+            out["real_arm"] = self.real_arm.status()
+        if self.ursim:
+            out["ursim"] = {"auto_start": True, "container": self.ursim.container, "ui": URSIM_UI}
         try:
             h = self._get("/health")
             # model/dof/simulation come from the controller (robot-chooser selection), not a hard-coded UR5e label
@@ -968,7 +1528,63 @@ def parse_twin_body(body: Any) -> dict:
     return body
 
 
-def create_app(bridge: Bridge, key: str, twin: Optional[DigitalTwinProxy] = None) -> FastAPI:
+class RobotChooserProxy:
+    """Forwards the arm catalog routes to the local robot-chooser. Holds NO reference to the controller or any
+    motion path: it can only reach these four chooser routes, which edit catalog.yaml / hardware.yaml and
+    regenerate the (simulation-only) controller config files."""
+
+    ROUTES = {("GET", "catalog"): "/robots/catalog", ("GET", "active"): "/robots/active",
+              ("POST", "select"): "/robots/select", ("POST", "add"): "/api/robots"}
+    # fields the app may set when adding an arm; limits / scene / workspace stay in the chooser UI or catalog.yaml
+    ADD_FIELDS = {"id", "brand", "model", "dof", "nominal_reach_m", "nominal_payload_kg", "library_url",
+                  "library_file", "robodk_item_name", "notes"}
+
+    def __init__(self, url: str, client: Optional[httpx.Client] = None):
+        url = (url or "").rstrip("/")
+        if url and not url.startswith(("http://127.0.0.1:", "http://localhost:")):
+            raise ValueError("--robot-chooser must be a local http://127.0.0.1:<port> URL")
+        self.url = url
+        self.http = client or httpx.Client(timeout=15.0)
+
+    @classmethod
+    def clean_body(cls, action: str, body: Any) -> dict:
+        if not isinstance(body, dict):
+            raise ValueError("body must be a JSON object")
+        if action == "select":
+            if set(body) != {"robot_id"} or not isinstance(body["robot_id"], str):
+                raise ValueError('body must be {"robot_id": "<catalog id>"}')
+        elif action == "add":
+            extra = set(body) - cls.ADD_FIELDS
+            if extra:
+                raise ValueError(f"unknown field(s) {sorted(extra)}; allowed: {sorted(cls.ADD_FIELDS)}")
+        return body
+
+    def call(self, method: str, action: str, body: Optional[dict] = None) -> tuple[int, dict]:
+        path = self.ROUTES.get((method, action))
+        if path is None:
+            return 404, {"ok": False, "error": {"code": "NOT_FOUND", "message": f"no robots action {action!r}"}}
+        if not self.url:
+            return 503, {"ok": False, "error": {"code": "NOT_CONFIGURED",
+                                                 "message": "bridge started without --robot-chooser"}}
+        try:
+            r = self.http.request(method, f"{self.url}{path}", json=body)
+            try:
+                data = r.json()
+            except ValueError:
+                data = {"ok": False, "error": {"code": "BAD_REPLY", "message": f"HTTP {r.status_code}"}}
+        except httpx.HTTPError as e:
+            return 503, {"ok": False, "error": {"code": "SERVICE_UNAVAILABLE", "message":
+                         "robot-chooser not running (cd robot-chooser && ../robot_controller/.venv/bin/python "
+                         f"-m robot_chooser serve): {e.__class__.__name__}"}}
+        if r.status_code == 200 and action in ("select", "add"):
+            # a mutation returns the chooser's full state; the app only needs the catalog + active report
+            data = {"ok": True, "robots": data.get("catalog", []), "report": data.get("report"),
+                    "selection": data.get("selection"), "restart_required": True}
+        return r.status_code, data
+
+
+def create_app(bridge: Bridge, key: str, twin: Optional[DigitalTwinProxy] = None,
+               chooser: Optional[RobotChooserProxy] = None) -> FastAPI:
     app = FastAPI(title="MOTIQ arm bridge")
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -977,6 +1593,14 @@ def create_app(bridge: Bridge, key: str, twin: Optional[DigitalTwinProxy] = None
         if key and request.method != "OPTIONS" and not secrets.compare_digest(
                 request.headers.get("x-bridge-key", ""), key):
             return JSONResponse({"ok": False, "error": "bad or missing X-Bridge-Key"}, status_code=401)
+        # the app sends X-Require-Sim when it thinks this bridge is SIM=1 (it then skips the real-robot approval):
+        # if the bridge is actually on the physical arm, refuse every motion request instead of moving it
+        if (request.headers.get("x-require-sim") == "1" and not bridge.physical.sim and request.method == "POST"
+                and request.url.path.startswith("/tools/") and request.url.path != "/tools/stop"):
+            return JSONResponse({"ok": False, "refused": True,
+                                 "error": "this bridge drives the PHYSICAL arm, not the simulation; nothing was "
+                                          "sent. Restart the PC stack with SIM=1 for the RoboDK demo."},
+                                status_code=409)
         return await call_next(request)
 
     @app.get("/health")
@@ -1033,7 +1657,7 @@ def create_app(bridge: Bridge, key: str, twin: Optional[DigitalTwinProxy] = None
         args = args if isinstance(args, dict) else {}
         from starlette.concurrency import run_in_threadpool
         try:
-            res = await run_in_threadpool(bridge.tool, name, args)
+            res = await run_in_threadpool(bridge.tool, name, args, request.headers.get("x-arm-target", ""))
         except Refused as e:
             return JSONResponse({"ok": False, "refused": True, "error": str(e)}, status_code=400)
         except (ValueError, TypeError) as e:
@@ -1064,6 +1688,27 @@ def create_app(bridge: Bridge, key: str, twin: Optional[DigitalTwinProxy] = None
         log.info("digital-twin %s %s -> %s", action, body, {k: res.get(k) for k in ("ok", "status", "state")})
         return JSONResponse(res, status_code=code)
 
+    # ---- arm catalog (robot-chooser): config files only, never the controller or a motion path
+    chooser = chooser or RobotChooserProxy("")
+
+    @app.get("/robots/{action}")
+    def robots_get(action: str):
+        code, res = chooser.call("GET", action)
+        return JSONResponse(res, status_code=code)
+
+    @app.post("/robots/{action}")
+    async def robots_post(action: str, request: Request):
+        raw = await request.body()
+        try:
+            body = chooser.clean_body(action, json.loads(raw) if raw.strip() else {})
+        except ValueError as e:
+            return JSONResponse({"ok": False, "error": {"code": "VALIDATION_ERROR", "message": str(e)}},
+                                status_code=400)
+        from starlette.concurrency import run_in_threadpool
+        code, res = await run_in_threadpool(chooser.call, "POST", action, body)
+        log.info("robots %s %s -> %s", action, body.get("robot_id") or body.get("id"), code)
+        return JSONResponse(res, status_code=code)
+
     return app
 
 
@@ -1081,6 +1726,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--min-conf", type=float, default=0.6, help="match the controller's min_detection_confidence")
     ap.add_argument("--digital-twin", default=os.environ.get("DIGITAL_TWIN_URL", "http://127.0.0.1:8770"),
                     help="local read-only digital twin service ('' = disabled)")
+    ap.add_argument("--robot-chooser", default=os.environ.get("ROBOT_CHOOSER_URL", "http://127.0.0.1:8771"),
+                    help="local robot-chooser (arm catalog) service ('' = disabled)")
+    ap.add_argument("--sim", action="store_true", default=os.environ.get("SIM", "0") == "1",
+                    help="simulation only: step/joint/down-up moves go to URSim (127.0.0.1, mirrored into RoboDK) "
+                         "instead of the physical UR (env SIM=1)")
+    ap.add_argument("--sim-arm", default=os.environ.get("SIM_ARM", "UR5e"),
+                    help="with --sim: model of the simulated arm (robot-chooser selection). Only UR5e runs on URSim; "
+                         "any other arm gets named moves only (set by start_stack.sh)")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -1089,10 +1742,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.host not in ("127.0.0.1", "localhost", "::1") and len(key) < 8:
         ap.error("set BRIDGE_KEY (8+ chars) before exposing the bridge on the network; "
                  "the app sends it as EXPO_PUBLIC_BRIDGE_KEY")
-    bridge = Bridge(args.controller, args.vision, args.scene, args.vision_file, args.task_timeout, args.min_conf)
-    log.info("controller=%s vision=%s vision_file=%s", bridge.controller, bridge.vision or "-", bridge.vision_file)
+    bridge = Bridge(args.controller, args.vision, args.scene, args.vision_file, args.task_timeout, args.min_conf,
+                    sim=args.sim, sim_arm=args.sim_arm)
+    log.info("controller=%s vision=%s vision_file=%s arm=%s", bridge.controller, bridge.vision or "-",
+             bridge.vision_file, (("SIMULATION (URSim -> RoboDK)" if args.sim_arm == "UR5e" else f"SIMULATION ({args.sim_arm} in RoboDK)")
+                                     if args.sim else f"physical {bridge.physical.ip}"))
     twin = DigitalTwinProxy(args.digital_twin, key)
-    uvicorn.run(create_app(bridge, key, twin), host=args.host, port=args.port, log_level="warning")
+    chooser = RobotChooserProxy(args.robot_chooser)
+    uvicorn.run(create_app(bridge, key, twin, chooser), host=args.host, port=args.port, log_level="warning")
     return 0
 
 

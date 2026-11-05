@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { devices, DeviceId, getArmSpeed, setArmSpeed, stopDevice } from '../devices';
 import { useDevices } from '../hooks/useDevices';
@@ -7,6 +7,7 @@ import type { Line } from '../voice/types';
 import { Button, IconButton, IconChip, Pill } from '../components/ui';
 import { Colors, fonts, radius, type, useStyles, useTheme } from '../theme';
 import { ago } from '../lib/time';
+import { ARM_ID_RE, CatalogArm, NewArm, robotCatalog, robotCatalogReady, suggestArmId } from '../lib/robotCatalog';
 
 type ToolLine = Extract<Line, { kind: 'tool' }>;
 
@@ -24,7 +25,224 @@ export default function Robots({ lines }: { lines: Line[] }) {
           <Card key={id} id={id} lines={lines} />
         ))}
       </View>
+      <ArmCatalog />
     </ScrollView>
+  );
+}
+
+// ---- arm catalog (robot-chooser via the bridge): add any arm, pick the active one. Config only, no motion.
+
+const EMPTY_FORM = { brand: '', model: '', id: '', dof: '6', reach: '', payload: '', url: '', file: '' };
+
+function ArmCatalog() {
+  const { c } = useTheme();
+  const s = useStyles(makeStyles);
+  const [arms, setArms] = useState<CatalogArm[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ text: string; bad?: boolean } | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [f, setF] = useState(EMPTY_FORM);
+  const [idTouched, setIdTouched] = useState(false);
+
+  const load = async () => {
+    const r = await robotCatalog.list();
+    if (r.ok) {
+      setArms(r.robots);
+      setError(null);
+    } else setError(r.message);
+  };
+
+  useEffect(() => {
+    if (robotCatalogReady()) load();
+  }, []);
+
+  if (!robotCatalogReady()) return null;
+
+  const set = (k: keyof typeof EMPTY_FORM) => (v: string) =>
+    setF((o) => {
+      const n = { ...o, [k]: v };
+      if (!idTouched && (k === 'brand' || k === 'model')) n.id = suggestArmId(n.brand, n.model);
+      return n;
+    });
+
+  const num = (v: string) => Number(v.replace(',', '.'));
+  const problem = (() => {
+    if (!f.brand.trim() || !f.model.trim()) return 'brand and model are required';
+    if (!ARM_ID_RE.test(f.id)) return 'id: lowercase letters, digits and _ only';
+    if (arms?.some((a) => a.id === f.id)) return `${f.id} is already in the catalog`;
+    const dof = num(f.dof);
+    if (!Number.isInteger(dof) || dof < 1 || dof > 12) return 'axes: a whole number 1-12';
+    if (!(num(f.reach) > 0)) return 'reach must be > 0 (m)';
+    if (!(num(f.payload) > 0)) return 'payload must be > 0 (kg)';
+    if (!/^https:\/\//.test(f.url.trim())) return 'link must be an https:// page (RoboDK library or datasheet)';
+    if (f.file.trim() && !/^[^/\\]+\.robot$/.test(f.file.trim())) return 'RoboDK file: a plain <name>.robot file name';
+    return null;
+  })();
+
+  const add = async () => {
+    if (problem) return;
+    Haptics.selectionAsync();
+    setBusy('add');
+    const arm: NewArm = {
+      id: f.id,
+      brand: f.brand.trim(),
+      model: f.model.trim(),
+      dof: num(f.dof),
+      nominal_reach_m: num(f.reach),
+      nominal_payload_kg: num(f.payload),
+      library_url: f.url.trim(),
+      library_file: f.file.trim() || null,
+    };
+    const r = await robotCatalog.add(arm);
+    setBusy(null);
+    if (r.ok) {
+      setArms(r.robots);
+      setF(EMPTY_FORM);
+      setIdTouched(false);
+      setAdding(false);
+      setMsg({ text: `${arm.id} added. Fill in its limits, scene and workspace in robot-chooser before selecting it.` });
+    } else setMsg({ text: r.message, bad: true });
+  };
+
+  const select = async (a: CatalogArm) => {
+    Haptics.selectionAsync();
+    setBusy(a.id);
+    const r = await robotCatalog.select(a.id);
+    setBusy(null);
+    if (r.ok) {
+      setArms(r.robots);
+      const blocked = r.report?.status !== 'READY';
+      setMsg({
+        text: blocked
+          ? `${a.id} selected but BLOCKED: ${r.report.blockers.map((b) => b.message).join('; ')}`
+          : `${a.id} selected. Restart the stack (run_all.sh) to use it.`,
+        bad: blocked,
+      });
+    } else setMsg({ text: r.message, bad: true });
+  };
+
+  return (
+    <View style={[s.card, { marginTop: 16 }]}>
+      <View style={s.cardHead}>
+        <IconChip icon="git-branch-outline" />
+        <Text style={s.name}>Arm catalog</Text>
+        <View style={{ flex: 1 }} />
+        <Button label="Refresh" icon="refresh" size="sm" variant="ghost" onPress={load} />
+        <Button
+          label={adding ? 'Cancel' : 'Add arm'}
+          icon={adding ? 'close' : 'add'}
+          size="sm"
+          variant={adding ? 'secondary' : 'primary'}
+          onPress={() => setAdding((x) => !x)}
+        />
+      </View>
+      <Text style={s.speedHint}>
+        One active arm per controller. Changes rewrite the config files (simulation only) and apply after a restart.
+      </Text>
+
+      {error && <Text style={[s.speedHint, { color: c.bad }]}>{error}</Text>}
+      {msg && <Text style={[s.speedHint, { color: msg.bad ? c.bad : c.ok }]}>{msg.text}</Text>}
+
+      {adding && (
+        <View style={s.speedBox}>
+          <View style={s.formRow}>
+            <Field label="brand" value={f.brand} onChange={set('brand')} placeholder="KUKA" />
+            <Field label="model" value={f.model} onChange={set('model')} placeholder="KR 3 R540" />
+          </View>
+          <View style={s.formRow}>
+            <Field
+              label="id"
+              value={f.id}
+              onChange={(v) => {
+                setIdTouched(true);
+                set('id')(v);
+              }}
+              placeholder="kuka_kr_3_r540"
+            />
+            <Field label="axes" value={f.dof} onChange={set('dof')} placeholder="6" numeric small />
+          </View>
+          <View style={s.formRow}>
+            <Field label="reach (m)" value={f.reach} onChange={set('reach')} placeholder="0.541" numeric />
+            <Field label="payload (kg)" value={f.payload} onChange={set('payload')} placeholder="3" numeric />
+          </View>
+          <Field
+            label="RoboDK / datasheet link"
+            value={f.url}
+            onChange={set('url')}
+            placeholder="https://robodk.com/robot/KUKA/KR-3-R540"
+          />
+          <Field
+            label="RoboDK file in robot_controller/stations/ (optional)"
+            value={f.file}
+            onChange={set('file')}
+            placeholder="KR 3 R540.robot"
+          />
+          <Text style={[s.speedHint, problem && { color: c.warn }]}>
+            {problem ?? 'Joint limits are never guessed: the arm stays blocked until they are verified in robot-chooser.'}
+          </Text>
+          <Button label="Add to catalog" icon="checkmark" variant="primary" disabled={!!problem} loading={busy === 'add'} onPress={add} />
+        </View>
+      )}
+
+      {arms === null && !error && <Text style={s.empty}>Loading...</Text>}
+      {arms?.map((a) => (
+        <View key={a.id} style={s.kv}>
+          <View style={{ flexShrink: 1, gap: 2 }}>
+            <Text style={s.v} numberOfLines={1}>
+              {a.brand} {a.model}
+              <Text style={{ color: c.faint }}>  {a.id}</Text>
+            </Text>
+            <Text style={s.k} numberOfLines={1}>
+              {a.dof} axes · {a.nominal_reach_m} m · {a.nominal_payload_kg} kg
+              {a.library_file && !a.model_file_available ? ' · .robot file missing' : ''}
+            </Text>
+          </View>
+          <View style={s.armRight}>
+            <Pill label={a.status} tone={a.status === 'Ready' ? 'ok' : 'accent'} style={{ height: 22 }} />
+            {a.active ? (
+              <Pill label="active" tone="ok" dot style={{ height: 22 }} />
+            ) : (
+              <Button label="Select" size="sm" disabled={!!busy} loading={busy === a.id} onPress={() => select(a)} />
+            )}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  numeric,
+  small,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  numeric?: boolean;
+  small?: boolean;
+}) {
+  const { c } = useTheme();
+  const s = useStyles(makeStyles);
+  return (
+    <View style={[{ gap: 4 }, small ? { width: 80 } : { flex: 1 }]}>
+      <Text style={s.k}>{label}</Text>
+      <TextInput
+        value={value}
+        onChangeText={onChange}
+        placeholder={placeholder}
+        placeholderTextColor={c.faint}
+        autoCapitalize="none"
+        autoCorrect={false}
+        keyboardType={numeric ? 'decimal-pad' : 'default'}
+        style={s.input}
+      />
+    </View>
   );
 }
 
@@ -285,4 +503,16 @@ const makeStyles = (c: Colors) =>
     action: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 2 },
     actionName: { flex: 1, ...type.mono, fontSize: 12, color: c.text },
     actionMeta: { ...type.mono, fontSize: 10, color: c.faint },
+    formRow: { flexDirection: 'row', gap: 8 },
+    armRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    input: {
+      backgroundColor: c.panel,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: c.lineStrong,
+      paddingHorizontal: 12,
+      height: 40,
+      ...type.body,
+      color: c.text,
+    },
   });

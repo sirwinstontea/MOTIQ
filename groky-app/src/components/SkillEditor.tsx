@@ -520,7 +520,7 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
 
                     {device === 'arm' && objectIds.length > 0 && (
                       <View style={s.arg}>
-                        <Text style={s.argKey}>target{['DETECT', 'VISIT', 'PUSH'].includes(st.action) ? '' : ' (optional)'}</Text>
+                        <Text style={s.argKey}>target{['DETECT', 'VISIT', 'TOUCH', 'PUSH'].includes(st.action) ? '' : ' (optional)'}</Text>
                         <View style={s.chips}>
                           {objectIds.map((id) => (
                             <Chip
@@ -555,6 +555,13 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
                         Arm connected: one checked controller task in RoboDK / URSim (closed gripper, down beside the
                         object, push 5 cm, lift) on its taught push path. Pushable: {PUSHABLE_OBJECTS.join(', ')}. The
                         moves below are what the app simulator shows.
+                      </Text>
+                    )}
+                    {st.action === 'TOUCH' && (
+                      <Text style={s.hint}>
+                        Real arm: the camera guides the arm over the target, it comes down at 10 mm/s until the wrist
+                        force sensor feels contact, lifts and goes back. Needs the touch offset taught once. The moves
+                        below are what the simulator runs.
                       </Text>
                     )}
                     {st.action === 'VISIT' && (

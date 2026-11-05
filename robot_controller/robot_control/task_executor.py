@@ -367,6 +367,7 @@ class TaskExecutor:
                     raise RobotControlError(ErrorCode.PRECONDITION_FAILED, f"{a.action_id}: already holding '{holding}'")
                 if o.mass_kg is not None and o.mass_kg + self.robot_cfg.tool_mass_kg > self.robot_cfg.limits.max_payload_kg:
                     raise RobotControlError(ErrorCode.SAFETY_VETO, f"{a.action_id}: payload exceeds model limit")
+                self.c.retarget_pick(p["object_id"])     # simulation: targets over the object's real pose
                 targets += [o.approach_target, o.grasp_target, o.lift_target]
                 holding, gripper = p["object_id"], "closed"
             elif n == ActionName.MOVE_OBJECT:
@@ -526,6 +527,8 @@ class TaskExecutor:
         if g.state != "open":
             self._step("gripper")
             self.c.open_gripper()            # make sure fingers are open before approaching
+        # simulation: no camera, so go to the object's exact pose in the station (None = taught targets)
+        at = self.c.retarget_pick(oid)
         self._segments([(obj.approach_target, "joint"), (obj.grasp_target, "linear")], dl,
                        on_move={obj.grasp_target: lambda: self._go(S.AT_PICK)})
         self._go(S.GRIPPING)
@@ -539,7 +542,10 @@ class TaskExecutor:
         self._go(S.LIFTING)
         self._segment(obj.lift_target, "linear", dl)
         self.scene.clear_detection(oid)      # object moved; old detection no longer valid
-        return {"object_id": oid, "object_state": "held", "grip_confirmed": True, "grip_source": g.source.value}
+        res = {"object_id": oid, "object_state": "held", "grip_confirmed": True, "grip_source": g.source.value}
+        if at is not None:
+            res["picked_at_m"] = at          # exact simulated object position used for the grasp
+        return res
 
     def _require_held(self, oid: Optional[str] = None):
         g = self._grip()

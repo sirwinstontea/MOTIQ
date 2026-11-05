@@ -20,7 +20,7 @@ type Events = {
 const pretty = (name: string) => name.replace(/_/g, ' ');
 
 // tools that move the REAL arm: locked until the user approves Motion's plan (lib/armApproval.ts)
-const ARM_NO_MOTION = new Set(['arm_verify', 'arm_wait', 'arm_stop']);
+const ARM_NO_MOTION = new Set(['arm_verify', 'arm_wait', 'arm_stop', 'arm_touch_teach_save']);
 const movesRealArm = (name: string) =>
   !!devices.arm.url && ((name.startsWith('arm_') && !ARM_NO_MOTION.has(name)) || name === 'run_skill');
 

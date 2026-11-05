@@ -1,0 +1,17 @@
+# SIM=1 demo safety config: robot-chooser's generated UR5e safety.yaml + ursim_sync (URSim on loopback only).
+allowed_backends: [mock, robodk_sim, ursim_sync]
+speed_percent_of_model_max: 10.0
+workspace:
+  frame_id: base
+  x_m: [-0.7, -0.2]
+  y_m: [-0.4, 0.4]
+  z_m: [0.015, 0.55]
+max_state_age_ms: 500
+segment_timeout_s: 30
+action_timeout_s: 120
+min_detection_confidence: 0.6
+max_detection_age_s: 60
+max_shake_cycles: 3
+require_path_check: true
+require_collision_geometry: true
+allow_mock_detector: true

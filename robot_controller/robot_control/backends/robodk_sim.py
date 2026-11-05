@@ -296,6 +296,31 @@ class RoboDKSimController(RobotController):
         self._require()
         return self._target_item(target_id) is not None
 
+    def retarget_pick(self, object_id):
+        """No camera in simulation: read the station object's exact pose and put its approach / grasp / lift targets
+        over it. Each target keeps its taught orientation and its taught height above the object's bottom (taught
+        with the object standing on the table, z = 0), so only where the object is changes. Skipped (None) when the
+        object is held or has no station item. The moved targets still go through the normal IK + safety checks."""
+        self._require()
+        obj = self.scene.objects.get(object_id)
+        if obj is None or not obj.station_item:
+            return None
+        item = self.RDK.Item(obj.station_item, self.rl.ITEM_TYPE_OBJECT)
+        if not item.Valid() or item.Parent() == self.tool:
+            return None
+        base_abs = self.base.PoseAbs()
+        ox, oy, oz = [v / 1000.0 for v in (base_abs.inv() * item.PoseAbs()).Pos()]
+        for tid in (obj.approach_target, obj.grasp_target, obj.lift_target):
+            cfg = self.scene.targets.get(tid)
+            tgt = self._target_item(tid)
+            if cfg is None or cfg.pose_m_rad is None or tgt is None:
+                continue
+            p = [ox, oy, cfg.pose_m_rad[2] + oz, *cfg.pose_m_rad[3:]]
+            pose_base = self.rm.UR_2_Pose([p[0] * 1000, p[1] * 1000, p[2] * 1000, p[3], p[4], p[5]])
+            tgt.setAsCartesianTarget()
+            tgt.setPoseAbs(base_abs * pose_base)
+        return [round(ox, 4), round(oy, 4), round(oz, 4)]
+
     def plan_segment(self, target_id, motion: MotionType, start_joints=None):
         self._require()
         t = self._target_item(target_id)
