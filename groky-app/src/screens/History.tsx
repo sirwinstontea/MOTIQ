@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { Ask } from '../hooks/useHistory';
 import { Button, IconButton, IconChip } from '../components/ui';
@@ -14,7 +14,7 @@ type Props = {
   onClear: () => void;
 };
 
-export default function History({ items, onRun, onPin, onRemove, onClear }: Props) {
+export default function History({ items, onRun, onPin, onRemove }: Props) {
   const { c } = useTheme();
   const s = useStyles(makeStyles);
   const [q, setQ] = useState('');
@@ -27,11 +27,6 @@ export default function History({ items, onRun, onPin, onRemove, onClear }: Prop
     return [...hits.filter((i) => i.pinned), ...hits.filter((i) => !i.pinned)];
   }, [items, q]);
 
-  const confirmClear = () =>
-    Alert.alert('Clear history?', 'Pinned requests are kept.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Clear', style: 'destructive', onPress: onClear },
-    ]);
 
   return (
     <View style={[s.page, mobile && { paddingHorizontal: 16 }]}>
@@ -40,7 +35,6 @@ export default function History({ items, onRun, onPin, onRemove, onClear }: Prop
           <Text style={s.title}>History</Text>
           <Text style={s.sub}>Everything you asked. Tap one to send it again.</Text>
         </View>
-        {items.length > 0 && <Button label="Clear" variant="ghost" size="sm" onPress={confirmClear} />}
       </View>
 
       <View style={[s.search, focused && { borderColor: c.accent }]}>
