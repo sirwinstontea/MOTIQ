@@ -123,6 +123,17 @@ def test_builtin_pick_and_place_is_valid(lib: SkillLibrary):
     assert rep.ok, rep.errors
 
 
+def test_fork_pick_drop_is_valid_and_never_closes_gripper(lib: SkillLibrary):
+    prims = _prims(lib, SkillCall(skill="fork_pick_drop", args={"target": "a", "dest": "b"}))
+    names = [p.primitive for p in prims]
+    assert "CLOSE_GRIPPER" not in names
+    assert names.index("MOVE_DOWN") < names.index("MOVE_UP") < names.index("ROTATE_ROLL") < names.index("HOME")
+    assert prims[names.index("ROTATE_ROLL")].args["angle_deg"] == 90
+    rep = validate_sequence(prims, initial_tcp_m=[0.3, 0, 0.4], home_tcp_m=[0.3, 0, 0.4])
+    assert rep.ok, rep.errors
+    assert lib.get("fork_pick_drop").status == "needs_validation"  # non provata sul robot
+
+
 def test_validator_rejects_closed_gripper_descent(lib: SkillLibrary):
     prims = [ConcretePrimitive(primitive="CLOSE_GRIPPER", args={"force_pct": 70}),
              ConcretePrimitive(primitive="OPEN_GRIPPER"),
