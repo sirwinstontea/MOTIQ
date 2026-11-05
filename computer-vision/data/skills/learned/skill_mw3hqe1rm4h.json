@@ -1,0 +1,541 @@
+{
+  "schema_version": "1.1.0",
+  "skill": {
+    "id": "skill_mw3hqe1rm4h",
+    "name": "reproduce demo",
+    "version": "1.0.0",
+    "status": "draft",
+    "description": "Reproduce the unknown demo task by handling all objects",
+    "created_at": "2026-11-05T11:57:17Z",
+    "updated_at": "2026-11-05T11:57:17Z",
+    "source": {
+      "type": "video",
+      "video": "tablet recording",
+      "summary": "A person recorded a 6 s demonstration video of a task for the robot arm.\nObjects in the scene: none recognised.\nActions, in order:\n- 0.0-6.5s: described the task [unknown]  (said \"Maybe we can make a video of like you doing this, essentially, with like a phone. That can be used.\")\nWhat they said: \"Maybe we can make a video of like you doing this, essentially, with like a phone. That can be used.\"\nWrite a skill that makes the robot arm reproduce this task: detect each object first, pick, place at the same destination, verify, then go home. Keep the same order. The arm's camera is on its head and it knows four objects: orange screw, blue bucket, green ring, white bucket lid; map what the person handled to the closest of these. Putting something in a cup/bucket/container means into the blue bucket; putting it to one side or on a pad means the delivery zone.",
+      "tokens": 1,
+      "transcript": "Maybe we can make a video of like you doing this, essentially, with like a phone. That can be used."
+    }
+  },
+  "intent": {
+    "goal": "Detect all objects, pick and place each one in the delivery zone following the demonstration order",
+    "natural_language_instruction": "A person recorded a 6 s demonstration video of a task for the robot arm.\nObjects in the scene: none recognised.\nActions, in order:\n- 0.0-6.5s: described the task [unknown]  (said \"Maybe we can make a video of like you doing this, essentially, with like a phone. That can be used.\")\nWhat they said: \"Maybe we can make a video of like you doing this, essentially, with like a phone. That can be used.\"\nWrite a skill that makes the robot arm reproduce this task: detect each object first, pick, place at the same destination, verify, then go home. Keep the same order. The arm's camera is on its head and it knows four objects: orange screw, blue bucket, green ring, white bucket lid; map what the person handled to the closest of these. Putting something in a cup/bucket/container means into the blue bucket; putting it to one side or on a pad means the delivery zone.",
+    "success_conditions": [
+      "All objects have been moved to the delivery zone"
+    ]
+  },
+  "robot": {
+    "device": "arm",
+    "model": "Universal Robots UR5e"
+  },
+  "environment": {
+    "coordinate_system": "world",
+    "units": "meters",
+    "workspace": {
+      "type": "tabletop",
+      "surface": "table"
+    },
+    "objects": [
+      {
+        "id": "blue_bucket_01",
+        "name": "blue bucket",
+        "category": "bucket",
+        "attributes": {
+          "color": "blue",
+          "shape": "bucket",
+          "size_m": 0.139,
+          "grip_width_m": 0.017
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.62,
+            "y": 0.24,
+            "z": 0.0575
+          },
+          "orientation": {
+            "type": "upright"
+          }
+        },
+        "detection": {
+          "required": true,
+          "class": "secchio_blu",
+          "reidentify_before_pick": true
+        }
+      },
+      {
+        "id": "green_ring_02",
+        "name": "green ring",
+        "category": "ring",
+        "attributes": {
+          "color": "green",
+          "shape": "ring",
+          "size_m": 0.139,
+          "grip_width_m": 0.0305
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.62,
+            "y": 0.07,
+            "z": 0.015
+          },
+          "orientation": {
+            "type": "upright"
+          }
+        },
+        "detection": {
+          "required": true,
+          "class": "anello_verde",
+          "reidentify_before_pick": true
+        }
+      },
+      {
+        "id": "orange_screw_03",
+        "name": "orange screw",
+        "category": "screw",
+        "attributes": {
+          "color": "orange",
+          "shape": "screw",
+          "size_m": 0.03,
+          "grip_width_m": 0.03
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.62,
+            "y": -0.08,
+            "z": 0.045
+          },
+          "orientation": {
+            "type": "upright"
+          }
+        },
+        "detection": {
+          "required": true,
+          "class": "vite_arancione",
+          "reidentify_before_pick": true
+        }
+      },
+      {
+        "id": "white_bucket_lid_04",
+        "name": "white bucket lid",
+        "category": "lid",
+        "attributes": {
+          "color": "white",
+          "shape": "lid",
+          "size_m": 0.139,
+          "grip_width_m": 0.025
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.62,
+            "y": -0.24,
+            "z": 0.0265
+          },
+          "orientation": {
+            "type": "upright"
+          }
+        },
+        "detection": {
+          "required": true,
+          "class": "tappo_bianco",
+          "reidentify_before_pick": true
+        }
+      },
+      {
+        "id": "delivery_zone",
+        "name": "delivery zone",
+        "category": "container",
+        "attributes": {
+          "color": "green",
+          "shape": "container",
+          "size_m": 0.12
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.45,
+            "y": -0.2,
+            "z": 0
+          }
+        },
+        "detection": {
+          "required": false,
+          "class": "delivery_pad",
+          "reidentify_before_place": false
+        }
+      }
+    ]
+  },
+  "constraints": {
+    "object_constraints": [],
+    "execution_constraints": {
+      "collision_avoidance": true,
+      "require_object_reidentification": true,
+      "require_workspace_validation": true,
+      "require_grasp_validation": true,
+      "allow_adaptive_replanning": false,
+      "open_gripper_before_descending": true,
+      "lift_before_horizontal_travel": true,
+      "respect_operational_limits": true
+    }
+  },
+  "steps": [
+    {
+      "id": "step_001",
+      "action": "OVERVIEW",
+      "description": "Scan the table to see all objects",
+      "failure_policy": "STOP_AND_REOBSERVE"
+    },
+    {
+      "id": "step_002",
+      "action": "DETECT",
+      "target": "orange_screw_03",
+      "description": "Find the orange screw",
+      "failure_policy": "STOP_AND_REOBSERVE"
+    },
+    {
+      "id": "step_003",
+      "action": "PICK",
+      "target": "orange_screw_03",
+      "description": "Pick up the orange screw",
+      "primitive_sequence": [
+        {
+          "primitive": "OPEN_GRIPPER"
+        },
+        {
+          "primitive": "MOVE_ABOVE",
+          "parameters": {
+            "target": "orange_screw_03",
+            "height_m": 0.15
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.13,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "CLOSE_GRIPPER",
+          "parameters": {
+            "force_pct": 70
+          }
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.13
+          }
+        }
+      ],
+      "failure_policy": "RETRY_WITH_REOBSERVATION"
+    },
+    {
+      "id": "step_004",
+      "action": "PLACE",
+      "target": "delivery_zone",
+      "description": "Place the orange screw in the delivery zone",
+      "primitive_sequence": [
+        {
+          "primitive": "MOVE_ABOVE",
+          "parameters": {
+            "target": "delivery_zone",
+            "height_m": 0.15
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.08,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "OPEN_GRIPPER"
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.08
+          }
+        }
+      ],
+      "failure_policy": "STOP_AND_REPLAN"
+    },
+    {
+      "id": "step_005",
+      "action": "DETECT",
+      "target": "blue_bucket_01",
+      "description": "Find the blue bucket",
+      "failure_policy": "STOP_AND_REOBSERVE"
+    },
+    {
+      "id": "step_006",
+      "action": "PICK",
+      "target": "blue_bucket_01",
+      "description": "Pick up the blue bucket",
+      "primitive_sequence": [
+        {
+          "primitive": "OPEN_GRIPPER"
+        },
+        {
+          "primitive": "MOVE_ABOVE",
+          "parameters": {
+            "target": "blue_bucket_01",
+            "height_m": 0.15
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.13,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "CLOSE_GRIPPER",
+          "parameters": {
+            "force_pct": 70
+          }
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.13
+          }
+        }
+      ],
+      "failure_policy": "RETRY_WITH_REOBSERVATION"
+    },
+    {
+      "id": "step_007",
+      "action": "PLACE",
+      "target": "delivery_zone",
+      "description": "Place the blue bucket in the delivery zone",
+      "primitive_sequence": [
+        {
+          "primitive": "MOVE_ABOVE",
+          "parameters": {
+            "target": "delivery_zone",
+            "height_m": 0.15
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.08,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "OPEN_GRIPPER"
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.08
+          }
+        }
+      ],
+      "failure_policy": "STOP_AND_REPLAN"
+    },
+    {
+      "id": "step_008",
+      "action": "DETECT",
+      "target": "green_ring_02",
+      "description": "Find the green ring",
+      "failure_policy": "STOP_AND_REOBSERVE"
+    },
+    {
+      "id": "step_009",
+      "action": "PICK",
+      "target": "green_ring_02",
+      "description": "Pick up the green ring",
+      "primitive_sequence": [
+        {
+          "primitive": "OPEN_GRIPPER"
+        },
+        {
+          "primitive": "MOVE_ABOVE",
+          "parameters": {
+            "target": "green_ring_02",
+            "height_m": 0.15
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.13,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "CLOSE_GRIPPER",
+          "parameters": {
+            "force_pct": 70
+          }
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.13
+          }
+        }
+      ],
+      "failure_policy": "RETRY_WITH_REOBSERVATION"
+    },
+    {
+      "id": "step_010",
+      "action": "PLACE",
+      "target": "delivery_zone",
+      "description": "Place the green ring in the delivery zone",
+      "primitive_sequence": [
+        {
+          "primitive": "MOVE_ABOVE",
+          "parameters": {
+            "target": "delivery_zone",
+            "height_m": 0.15
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.08,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "OPEN_GRIPPER"
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.08
+          }
+        }
+      ],
+      "failure_policy": "STOP_AND_REPLAN"
+    },
+    {
+      "id": "step_011",
+      "action": "DETECT",
+      "target": "white_bucket_lid_04",
+      "description": "Find the white bucket lid",
+      "failure_policy": "STOP_AND_REOBSERVE"
+    },
+    {
+      "id": "step_012",
+      "action": "PICK",
+      "target": "white_bucket_lid_04",
+      "description": "Pick up the white bucket lid",
+      "primitive_sequence": [
+        {
+          "primitive": "OPEN_GRIPPER"
+        },
+        {
+          "primitive": "MOVE_ABOVE",
+          "parameters": {
+            "target": "white_bucket_lid_04",
+            "height_m": 0.15
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.13,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "CLOSE_GRIPPER",
+          "parameters": {
+            "force_pct": 70
+          }
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.13
+          }
+        }
+      ],
+      "failure_policy": "RETRY_WITH_REOBSERVATION"
+    },
+    {
+      "id": "step_013",
+      "action": "PLACE",
+      "target": "delivery_zone",
+      "description": "Place the white bucket lid in the delivery zone",
+      "primitive_sequence": [
+        {
+          "primitive": "MOVE_ABOVE",
+          "parameters": {
+            "target": "delivery_zone",
+            "height_m": 0.15
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.08,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "OPEN_GRIPPER"
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.08
+          }
+        }
+      ],
+      "failure_policy": "STOP_AND_REPLAN"
+    },
+    {
+      "id": "step_014",
+      "action": "VERIFY",
+      "target": "delivery_zone",
+      "description": "Confirm all objects are in place",
+      "failure_policy": "REPORT_FAILURE"
+    },
+    {
+      "id": "step_015",
+      "action": "SEQUENCE",
+      "description": "Return to home position",
+      "primitive_sequence": [
+        {
+          "primitive": "HOME"
+        }
+      ],
+      "failure_policy": "REPORT_FAILURE"
+    }
+  ],
+  "safety": {
+    "physical_execution_allowed": false,
+    "requires_feasibility_check": true,
+    "requires_operator_approval": true,
+    "requires_robot_controller_limits": true,
+    "unknown_parameters_policy": "NEEDS_VALIDATION",
+    "stop_primitive_always_available": true,
+    "reject_moves_outside_operational_limits": true
+  },
+  "review": {
+    "revision": 2,
+    "approved": false,
+    "approved_by": null,
+    "approval_timestamp": null
+  },
+  "app": {
+    "icon": "film-outline",
+    "builtin": false
+  },
+  "interpretation": {
+    "model": "grok-4.20-0309-non-reasoning",
+    "status": "draft",
+    "confidence": 0.4,
+    "human_review_required": true,
+    "uncertainties": [
+      "The demonstration video contains no recognised objects or actions, only speech about recording a video of the robot. The task has been interpreted as picking and placing every known object into the delivery zone in a plausible order (screw, bucket, ring, lid) since the specific task is unknown. Mapping all handled items to the four known objects as instructed. No specific destinations or order were observable so standard delivery_zone used for all places."
+    ]
+  }
+}

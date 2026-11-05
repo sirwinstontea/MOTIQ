@@ -1,0 +1,193 @@
+{
+  "schema_version": "1.1.0",
+  "skill": {
+    "id": "skill_mw3iirs5sfu",
+    "name": "detect objects",
+    "version": "1.0.0",
+    "status": "draft",
+    "description": "Detect the blue bucket, pen, and bottle in order",
+    "created_at": "2026-11-05T12:19:15Z",
+    "updated_at": "2026-11-05T12:19:15Z",
+    "source": {
+      "type": "video",
+      "video": "tablet recording",
+      "summary": "The task (Grok's reading of the YOLO report):\nNo clear task was demonstrated. From 0.0 to 5.0 seconds the action is unknown: the person only began to say \"I can...\" and did not pick up or move anything. A blue bucket, a pen, and a bottle were present but were not handled.\n\nYOLO report:\nA person recorded a 5 s demonstration video of a task for the robot arm.\nObjects in the scene: blue bucket, pen, bottle.\nActions, in order:\n- 0.0-5.0s: described the task [unknown] blue bucket (other), pen (other), bottle (other) (said \"‫אני יכול...\")\nWhat they said: \"‫אני יכול...\"\nWrite a skill that makes the robot arm reproduce this task: detect each object first, pick, place at the same destination, verify, then go home. Keep the same order. The arm's camera is on its head and it knows four objects: orange screw, blue bucket, green ring, white bucket lid; map what the person handled to the closest of these. Putting something in a cup/bucket/container means into the blue bucket; putting it to one side or on a pad means the delivery zone.",
+      "tokens": 1,
+      "transcript": "‫אני יכול..."
+    }
+  },
+  "intent": {
+    "goal": "Detect each mentioned object without moving them",
+    "natural_language_instruction": "The task (Grok's reading of the YOLO report):\nNo clear task was demonstrated. From 0.0 to 5.0 seconds the action is unknown: the person only began to say \"I can...\" and did not pick up or move anything. A blue bucket, a pen, and a bottle were present but were not handled.\n\nYOLO report:\nA person recorded a 5 s demonstration video of a task for the robot arm.\nObjects in the scene: blue bucket, pen, bottle.\nActions, in order:\n- 0.0-5.0s: described the task [unknown] blue bucket (other), pen (other), bottle (other) (said \"‫אני יכול...\")\nWhat they said: \"‫אני יכול...\"\nWrite a skill that makes the robot arm reproduce this task: detect each object first, pick, place at the same destination, verify, then go home. Keep the same order. The arm's camera is on its head and it knows four objects: orange screw, blue bucket, green ring, white bucket lid; map what the person handled to the closest of these. Putting something in a cup/bucket/container means into the blue bucket; putting it to one side or on a pad means the delivery zone.",
+    "success_conditions": [
+      "All objects detected in the order mentioned"
+    ]
+  },
+  "robot": {
+    "device": "arm",
+    "model": "Universal Robots UR5e"
+  },
+  "environment": {
+    "coordinate_system": "world",
+    "units": "meters",
+    "workspace": {
+      "type": "tabletop",
+      "surface": "table"
+    },
+    "objects": [
+      {
+        "id": "blue_bucket_01",
+        "name": "blue bucket",
+        "category": "bucket",
+        "attributes": {
+          "color": "blue",
+          "shape": "bucket",
+          "size_m": 0.139,
+          "grip_width_m": 0.017
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.62,
+            "y": 0.24,
+            "z": 0.0575
+          },
+          "orientation": {
+            "type": "upright"
+          }
+        },
+        "detection": {
+          "required": true,
+          "class": "secchio_blu",
+          "reidentify_before_pick": true
+        }
+      },
+      {
+        "id": "orange_screw_03",
+        "name": "pen",
+        "category": "screw",
+        "attributes": {
+          "color": "orange",
+          "shape": "screw",
+          "size_m": 0.03,
+          "grip_width_m": 0.03
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.62,
+            "y": -0.08,
+            "z": 0.045
+          },
+          "orientation": {
+            "type": "upright"
+          }
+        },
+        "detection": {
+          "required": true,
+          "class": "vite_arancione",
+          "reidentify_before_pick": true
+        }
+      },
+      {
+        "id": "white_bucket_lid_04",
+        "name": "bottle",
+        "category": "lid",
+        "attributes": {
+          "color": "white",
+          "shape": "lid",
+          "size_m": 0.139,
+          "grip_width_m": 0.025
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.62,
+            "y": -0.24,
+            "z": 0.0265
+          },
+          "orientation": {
+            "type": "upright"
+          }
+        },
+        "detection": {
+          "required": true,
+          "class": "tappo_bianco",
+          "reidentify_before_pick": true
+        }
+      }
+    ]
+  },
+  "constraints": {
+    "object_constraints": [],
+    "execution_constraints": {
+      "collision_avoidance": true,
+      "require_object_reidentification": true,
+      "require_workspace_validation": true,
+      "require_grasp_validation": true,
+      "allow_adaptive_replanning": false,
+      "open_gripper_before_descending": true,
+      "lift_before_horizontal_travel": true,
+      "respect_operational_limits": true
+    }
+  },
+  "steps": [
+    {
+      "id": "step_001",
+      "action": "DETECT",
+      "target": "blue_bucket_01",
+      "description": "Detect blue bucket",
+      "failure_policy": "STOP_AND_REOBSERVE"
+    },
+    {
+      "id": "step_002",
+      "action": "DETECT",
+      "target": "orange_screw_03",
+      "description": "Detect pen (mapped to orange screw)",
+      "failure_policy": "STOP_AND_REOBSERVE"
+    },
+    {
+      "id": "step_003",
+      "action": "DETECT",
+      "target": "white_bucket_lid_04",
+      "description": "Detect bottle (mapped to white lid)",
+      "failure_policy": "STOP_AND_REOBSERVE"
+    },
+    {
+      "id": "step_004",
+      "action": "SEQUENCE",
+      "description": "Return home",
+      "primitive_sequence": [
+        {
+          "primitive": "HOME"
+        }
+      ],
+      "failure_policy": "REPORT_FAILURE"
+    }
+  ],
+  "safety": {
+    "physical_execution_allowed": false,
+    "requires_feasibility_check": true,
+    "requires_operator_approval": true,
+    "requires_robot_controller_limits": true,
+    "unknown_parameters_policy": "NEEDS_VALIDATION",
+    "stop_primitive_always_available": true,
+    "reject_moves_outside_operational_limits": true
+  },
+  "review": {
+    "revision": 2,
+    "approved": false,
+    "approved_by": null,
+    "approval_timestamp": null
+  },
+  "app": {
+    "icon": "film-outline",
+    "builtin": false
+  },
+  "interpretation": {
+    "model": "grok-4.20-0309-non-reasoning",
+    "status": "draft",
+    "confidence": 0.6,
+    "human_review_required": true,
+    "uncertainties": [
+      "No actual pick/place action occurred in the video; created a detection-only skill as the closest reproduction. Pen mapped to orange_screw_03 (closest elongated object). Bottle mapped to white_bucket_lid_04 (closest container-like object)."
+    ]
+  }
+}

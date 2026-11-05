@@ -1,5 +1,6 @@
-"""Teach server: the app sends a demonstration video, the planner (computer-vision/vision/planner) turns it into
-action tokens (keyframes + Grok vision + Grok speech-to-text), and the app writes a MOTIQ skill from them.
+"""Teach server: the app sends a demonstration video, YOLO-World (cv_teach.py, computer-vision/yolov8s-worldv2.pt)
+turns it into action tokens (what moved where, + Grok speech-to-text of the commentary), Grok rewrites that YOLO
+report into a clear task (text only, it never sees the video), and the app writes a MOTIQ skill from it.
 
     POST /teach?goal=<optional text>   body = the video file (any format ffmpeg reads)
          -> {"ok": true, "summary": "...", "tokens": VideoTokens}
@@ -57,7 +58,10 @@ from vision.planner.grok_client import GrokClient  # noqa: E402
 from vision.planner.schemas import VideoTokens  # noqa: E402
 from vision.planner.tokenizer import TokenizerConfig, VideoTokenizer  # noqa: E402
 
+import cv_teach  # noqa: E402  (computer-vision-to-app/cv_teach.py)
+
 GROK = GrokClient.from_env()  # MockGrok when there is no key (GROK_MOCK=1 forces it)
+cv_teach.warm_up(lambda k, m: print(f"[{k}] {m}", flush=True))
 LOCK = threading.Lock()  # one video at a time: tokenizing is heavy and calls Grok
 
 
@@ -164,11 +168,14 @@ class Handler(BaseHTTPRequestHandler):
         if not LOCK.acquire(blocking=False):
             return self._send(429, {"ok": False, "error": "already learning another video, try again shortly"})
         try:
-            cfg = TokenizerConfig(cache_dir=Path(tmp) / "cache")
-            tok = VideoTokenizer(GROK, cfg, log=lambda k, m: print(f"[{k}] {m}", flush=True))
-            vt = tok.tokenize(path, goal_hint=goal)
+            # YOLO-World reads the video; Grok only transcribes the speech and rewrites the YOLO report
+            log = lambda k, m: print(f"[{k}] {m}", flush=True)  # noqa: E731
+            vt = cv_teach.analyze(path, GROK, goal, log=log)
             vt.video = None  # temp path, meaningless to the app
-            self._send(200, {"ok": True, "mock": GROK.is_mock, "summary": summarize(vt),
+            report = summarize(vt)
+            task = cv_teach.rewrite(GROK, report, log=log)
+            summary = f"The task (Grok's reading of the YOLO report):\n{task}\n\nYOLO report:\n{report}" if task else report
+            self._send(200, {"ok": True, "mock": GROK.is_mock, "summary": summary,
                              "tokens": json.loads(vt.model_dump_json())})
         except Exception as e:  # report, don't crash the server
             traceback.print_exc()
