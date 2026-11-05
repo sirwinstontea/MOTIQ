@@ -7,6 +7,7 @@ The app (EXPO_PUBLIC_ARM_URL) speaks the "bridge" protocol:
     GET  /speed           -> current arm speed (% of the UR5e maximums)
     POST /speed           -> {"percent": 25}: change it (refused while a task runs)
     POST /tools/{name}    -> run one tool, wait for it, return {ok, did, error, ...}
+    POST /tools/ur_down_up -> {"mm": 50}: the one PHYSICAL UR motion (down + up, <= 50 mm). /tools/stop stops it too.
 
 The controller only accepts allowlisted high-level tasks (AI_ACTION_CONTRACT.md) and only on
 127.0.0.1, so this bridge runs on the same PC, translates tool calls into task JSON and is the
@@ -45,14 +46,14 @@ DEFAULT_VISION_FILE = HERE.parent / "robot_controller" / "runs" / "vision_bridge
 
 TERMINAL = {"SUCCEEDED", "FAILED", "REJECTED", "CANCELLED"}
 
-# Italian colour names the vision server reports -> English, so "red cube" matches "cube" + "rosso"
+# Italian colour names the vision server reports -> English, so "orange screw" matches "vite" + "arancione"
 COLORS_IT_EN = {"rosso": "red", "blu": "blue", "verde": "green", "giallo": "yellow", "nero": "black",
                 "bianco": "white", "arancione": "orange", "viola": "purple", "grigio": "gray", "rosa": "pink",
                 "marrone": "brown", "azzurro": "light blue"}
 
-# ids used in the app's skill template (environment.objects) -> controller scene ids
-APP_ALIASES = {"object_cube": "red_cube", "object_box": "delivery_zone", "blue box": "delivery_zone",
-               "box": "delivery_zone", "the box": "delivery_zone", "delivery": "delivery_zone"}
+# The app uses the controller's scene ids directly (blue_bucket_01, ..., delivery_zone); these are spoken names.
+APP_ALIASES = {"delivery": "delivery_zone", "delivery pad": "delivery_zone", "pad": "delivery_zone",
+               "drop zone": "delivery_zone", "box": "delivery_zone"}
 
 # app primitives with no safe equivalent in the controller (it only moves between taught targets)
 REFUSED_PRIMITIVES = {
@@ -63,6 +64,82 @@ REFUSED_PRIMITIVES = {
 
 class Refused(Exception):
     """A request the bridge won't forward. Nothing was sent to the robot."""
+
+
+# ---------------------------------------------------------------------- physical UR arm (one fixed motion)
+# The ONLY thing the bridge does on real hardware: TCP straight down N mm (<= 50) and back up, then stop.
+# Uses ../../ur_manual/ur_jog.py (URScript on the robot's port 30002). No homing, no other motion.
+PHYSICAL_MAX_MM = 50.0
+PHYSICAL_STEP_TIMEOUT_S = 15.0
+_STOP_SCRIPT = b"def stop_jog():\n  stopl(1.0)\nend\nstop_jog()\n"
+
+
+class PhysicalArm:
+    def __init__(self):
+        import sys
+        import threading
+        sys.path.insert(0, str(HERE.parent.parent / "ur_manual"))
+        import ur_jog  # noqa: E402  (robot IP lives in ur_jog.ROBOT_IP)
+        self.jog, self.ip = ur_jog, ur_jog.ROBOT_IP
+        self.lock = threading.Lock()
+        self.cancel = threading.Event()
+
+    def stop(self) -> bool:
+        """Best effort, quick: stopl on the physical arm. Never raises."""
+        self.cancel.set()
+        import socket
+        try:
+            with socket.create_connection((self.ip, 30002), timeout=0.5) as s:
+                s.sendall(_STOP_SCRIPT)
+            return True
+        except OSError:
+            return False
+
+    def down_up(self, mm: Any) -> dict:
+        try:
+            mm = float(mm if mm is not None else PHYSICAL_MAX_MM)
+        except (TypeError, ValueError):
+            raise Refused("mm must be a number")
+        if not 1 <= mm <= PHYSICAL_MAX_MM:
+            raise Refused(f"down/up distance must be 1..{PHYSICAL_MAX_MM:.0f} mm")
+        if not self.lock.acquire(blocking=False):
+            raise Refused("the physical arm is already moving")
+        try:
+            self.cancel.clear()
+            try:
+                mode = self.jog.dashboard("robotmode", self.ip)
+                safety = self.jog.dashboard("safetystatus", self.ip)
+                start, _ = self.jog.read_state(self.ip)
+            except OSError as e:
+                raise Refused(f"physical arm not reachable at {self.ip} ({e.__class__.__name__}); check the ethernet cable")
+            if "RUNNING" not in mode:
+                raise Refused(f"physical arm not ready ({mode}): power on + brake release on the pendant")
+            if "NORMAL" not in safety:
+                raise Refused(f"physical arm safety is not NORMAL ({safety})")
+            log.info("physical down_up %.0f mm, start z=%.1f mm", mm, start[2] * 1000)
+            for dz in (-mm, +mm):
+                if self.cancel.is_set():
+                    return {"ok": False, "error": "stopped"}
+                target = self.jog.move_rel(0, 0, dz)
+                t0 = time.monotonic()
+                while True:
+                    if self.cancel.is_set():
+                        return {"ok": False, "error": "stopped"}
+                    tcp, _ = self.jog.read_state(self.ip)
+                    if all(abs(tcp[i] - target[i]) < 0.0005 for i in range(3)):
+                        break
+                    if time.monotonic() - t0 > PHYSICAL_STEP_TIMEOUT_S:
+                        return {"ok": False, "error": "did not reach the target; arm stopped. Check the pendant ("
+                                + self.jog.dashboard("safetystatus", self.ip) + ")"}
+                    time.sleep(0.1)
+            end, _ = self.jog.read_state(self.ip)
+            return {"ok": True, "did": f"moved {mm / 10:g} cm down and back up on the physical arm, then stopped",
+                    "start_z_mm": round(start[2] * 1000, 1), "end_z_mm": round(end[2] * 1000, 1)}
+        except OSError as e:
+            return {"ok": False, "error": f"lost connection to the physical arm ({e.__class__.__name__}); arm stopped"}
+        finally:
+            self.stop()
+            self.lock.release()
 
 
 class Bridge:
@@ -76,6 +153,7 @@ class Bridge:
         self.scene = yaml.safe_load(scene_path.read_text(encoding="utf-8"))
         self.http = httpx.Client(timeout=10.0)
         self.active_task: Optional[str] = None
+        self.physical = PhysicalArm()
 
     # ------------------------------------------------------------------ scene helpers
     @property
@@ -91,10 +169,10 @@ class Bridge:
             str(s).lower() for s in self.objects[oid].get("class_labels") or []}
 
     def resolve_object(self, q: Any) -> str:
-        """Registered object id from an id, a spoken name ("red cube") or a vision track number."""
+        """Registered object id from an id, a spoken name ("orange screw") or a vision track number."""
         s = str(q or "").strip().lower()
         if not s:
-            raise Refused("which object? say e.g. 'the red cube'")
+            raise Refused("which object? say e.g. 'the orange screw'")
         s = s.removeprefix("the ").strip()
         s = APP_ALIASES.get(s, s)
         if s in self.objects:
@@ -104,9 +182,10 @@ class Bridge:
         for oid in self.objects:
             if s in self._labels(oid):
                 return oid
-        for oid in self.objects:                          # loose: "the red cube please"
-            if any(lbl in s for lbl in self._labels(oid) if len(lbl) > 3):
-                return oid
+        # loose: "the orange screw please". Longest label wins, so "white bucket lid" -> the lid, not the bucket
+        hits = [(len(lbl), oid) for oid in self.objects for lbl in self._labels(oid) if len(lbl) > 2 and lbl in s]
+        if hits:
+            return max(hits)[1]
         raise Refused(f"'{q}' isn't an object the arm knows. Known: {', '.join(self.objects)}")
 
     def resolve_destination(self, q: Any) -> str:
@@ -274,6 +353,7 @@ class Bridge:
 
     def stop(self) -> dict:
         res: dict[str, Any] = {"ok": True}
+        res["physical_stop_sent"] = self.physical.stop()
         if self.active_task:
             try:
                 self.http.post(f"{self.controller}/tasks/{self.active_task}/cancel", timeout=2.0)
@@ -320,6 +400,10 @@ class Bridge:
                 t = self.resolve_destination(tgt)
             return self.run_task([("move_to_target", {"target_id": self.approach_target(t)})],
                                  f"moved above the {t.replace('_', ' ')}")
+        if name == "ur_down_up":
+            if self.active_task:
+                raise Refused("a controller task is running; wait for it to finish")
+            return self.physical.down_up(a.get("mm"))
         if name == "status":
             return {"ok": True, **self._get("/status")}
         if name in REFUSED_PRIMITIVES:

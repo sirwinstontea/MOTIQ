@@ -65,6 +65,13 @@ export function armSend() {
   return url ? (tool: string, body: Record<string, unknown>) => post(`${url}/tools/${tool}`, body) : null;
 }
 
+// the fixed physical-arm tool (bridge `ur_down_up`); not offered to Grok, only run from its built-in skill
+export async function armPhysical(tool: 'ur_down_up', body: Record<string, unknown>): Promise<ToolResult> {
+  const url = devices.arm.url;
+  if (!url) return { ok: false, error: 'no arm bridge configured (EXPO_PUBLIC_ARM_URL)' };
+  return post(`${url}/tools/${tool}`, body, 60000);
+}
+
 // arm: every primitive is checked against the UR5e model first, so nothing outside the limits reaches the bridge
 async function runArmTool(name: string, args: Record<string, unknown>, url: string): Promise<ToolResult> {
   if (name === 'detect') {

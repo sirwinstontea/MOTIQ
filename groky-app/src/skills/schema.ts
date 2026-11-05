@@ -85,7 +85,7 @@ export type EnvObject = {
   id: string;
   name: string;
   category: string;
-  attributes?: Record<string, unknown> & { size_m?: number };
+  attributes?: Record<string, unknown> & { size_m?: number; grip_width_m?: number };
   initial_state?: { location?: Xyz; orientation?: { type: string } };
   detection?: {
     required?: boolean;
@@ -113,6 +113,8 @@ export type SkillStep = {
   postconditions?: string[];
   success_conditions?: string[];
   failure_policy?: FailurePolicy;
+  // run this step as one fixed bridge tool on the PHYSICAL arm instead of its primitives (sim runs the primitives)
+  physical_tool?: 'ur_down_up';
 };
 
 export type SkillDoc = {

@@ -35,6 +35,9 @@ from .robodk_sim import RoboDKSimController
 SYNC_TOL_DEG = 0.5            # RoboDK vs URSim joints before a move
 ARRIVE_TOL_DEG = 0.5          # URSim actual vs planned joints after a move
 MIRROR_PERIOD_S = 0.02        # 50 Hz joint streaming into RoboDK
+IDLE_MIRROR_PERIOD_S = 0.05   # 20 Hz between tasks (jogging in PolyScope)
+IDLE_MIRROR_DEADBAND_DEG = 0.01
+SCRIPT_START_TIMEOUT_S = 5.0  # wait for a re-uploaded RTDE control script to report running
 UR_ROBOT_MODE_RUNNING = 7
 UR_SAFETY_MODE_NORMAL = 1
 STOP_DECEL_RAD_S2 = 2.0
@@ -73,6 +76,96 @@ class URSimSyncController(RoboDKSimController):
         # were observed to make URSim silently drop async move commands.
         self._rtde_lock = threading.RLock()
         self._si = None               # (tcp_v m/s, tcp_a m/s2, joint_v rad/s, joint_a rad/s2)
+        # Idle mirror: RoboDK follows URSim between tasks too (e.g. jogging in PolyScope).
+        self._mirror_stop = threading.Event()
+        self._mirror_pause = threading.Event()   # set while collision tests move the RoboDK model
+        self._mirror_thread: threading.Thread | None = None
+        self._executing = threading.Event()      # set while _execute drives URSim
+
+    # ------------------------------------------------------------ idle mirror
+    def _start_idle_mirror(self):
+        self._mirror_stop.clear()
+        self._mirror_thread = threading.Thread(target=self._idle_mirror_loop, name="ursim-idle-mirror", daemon=True)
+        self._mirror_thread.start()
+
+    def _stop_idle_mirror(self):
+        self._mirror_stop.set()
+        t, self._mirror_thread = self._mirror_thread, None
+        if t is not None and t is not threading.current_thread():
+            t.join(timeout=2.0)
+
+    def _idle_mirror_loop(self):
+        """Copy URSim joints into RoboDK whenever URSim moves.
+
+        Uses its own RTDE receive and RoboDK API connections (neither library is thread-safe),
+        so it never shares a socket with the motion path. Writes only when URSim's joints change,
+        so it does not fight the controller's snapshot/restore collision tests.
+        """
+        import rtde_receive
+        rec = rdk = robot = None
+        last = None
+        while not self._mirror_stop.is_set():
+            try:
+                if rec is None:
+                    rec = rtde_receive.RTDEReceiveInterface(self.ursim_host)
+                if robot is None:
+                    rdk = self.rl.Robolink(port=self.port)
+                    if rdk.RunMode() != self.rl.RUNMODE_SIMULATE:
+                        raise RuntimeError("RoboDK is not in simulate mode")
+                    robot = rdk.Item(self.robot_cfg.robot_item_name, self.rl.ITEM_TYPE_ROBOT)
+                    if not robot.Valid():
+                        raise RuntimeError(f"robot '{self.robot_cfg.robot_item_name}' not found in RoboDK")
+                    last = None
+                q = [math.degrees(v) for v in rec.getActualQ()]
+                changed = last is None or max(abs(a - b) for a, b in zip(q, last)) > IDLE_MIRROR_DEADBAND_DEG
+                if changed and not self._mirror_pause.is_set():
+                    robot.setJoints(q)
+                    if last is not None and not self._executing.is_set():
+                        self._at_target = None   # moved by hand: no longer at a taught target
+                    last = q
+            except Exception as e:     # URSim/RoboDK restarted: drop connections and retry
+                log.debug("idle mirror: %s; reconnecting", e)
+                for iface in (rec,):
+                    try:
+                        iface and iface.disconnect()
+                    except Exception:
+                        pass
+                rec = rdk = robot = None
+                self._mirror_stop.wait(1.0)
+                continue
+            self._mirror_stop.wait(IDLE_MIRROR_PERIOD_S)
+        try:
+            rec and rec.disconnect()
+        except Exception:
+            pass
+
+    def test_segment(self, seg):
+        # Collision tests move the RoboDK model and restore it; keep the mirror off it meanwhile.
+        self._mirror_pause.set()
+        try:
+            return super().test_segment(seg)
+        finally:
+            self._mirror_pause.clear()
+
+    def _ensure_control_script(self):
+        """Stopping the program in PolyScope (needed to jog) kills the RTDE control script; re-upload it."""
+        with self._rtde_lock:
+            c = self.rtde_c
+            if c is None:
+                return
+            try:
+                if not c.isConnected():
+                    c.reconnect()
+                if not c.isProgramRunning():
+                    log.info("URSim control script not running (stopped in PolyScope?); re-uploading")
+                    c.reuploadScript()
+                    # isProgramRunning() lags the upload by a few hundred ms (measured).
+                    deadline = time.monotonic() + SCRIPT_START_TIMEOUT_S
+                    while not c.isProgramRunning() and time.monotonic() < deadline:
+                        time.sleep(0.1)
+                    c.setTcp(list(self.robot_cfg.tcp_offset_m_rad))
+            except Exception as e:
+                log.warning("could not restart the URSim control script: %s", e)
 
     # ------------------------------------------------------------ lifecycle
     def connect(self):
@@ -103,6 +196,7 @@ class URSimSyncController(RoboDKSimController):
         with self._rtde_lock:
             self.rtde_c.setTcp(list(self.robot_cfg.tcp_offset_m_rad))
         self._mirror()                # initial sync: URSim is the source of truth for the pose
+        self._start_idle_mirror()
 
     def _close_rtde(self):
         with self._rtde_lock:
@@ -121,6 +215,7 @@ class URSimSyncController(RoboDKSimController):
         self.rtde_c = self.rtde_r = None
 
     def disconnect(self):
+        self._stop_idle_mirror()
         self._close_rtde()
         super().disconnect()
 
@@ -170,6 +265,9 @@ class URSimSyncController(RoboDKSimController):
         problems = super().check_ready()
         if not self.connected:
             return problems
+        # Only task preflight/execution call this (not status polling), so taking URSim back
+        # from PolyScope here happens only when a task is actually requested.
+        self._ensure_control_script()
         try:
             problems += self._ursim_problems()
             if not problems:
@@ -191,6 +289,13 @@ class URSimSyncController(RoboDKSimController):
     def _execute(self, end_deg, motion: MotionType, ctx: MotionContext, label: str):
         self._require()
         self._enforce_simulate()
+        self._executing.set()
+        try:
+            self._execute_locked(end_deg, motion, ctx, label)
+        finally:
+            self._executing.clear()
+
+    def _execute_locked(self, end_deg, motion: MotionType, ctx: MotionContext, label: str):
         problems = self.check_ready()
         if problems:
             raise RobotControlError(ErrorCode.MODE_VIOLATION, "; ".join(problems))

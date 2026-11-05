@@ -61,7 +61,7 @@ def test_vision_labels_map_to_new_objects(tmp_path, scene_cfg):
         f.write_text(json.dumps({"ts": 0, "target": {"label": label, "confidence": 0.9}}))
         det = VisionEyesFileDetector(str(f)).identify(oid, reg)
         assert det.object_id == oid
-    assert "vite_arancione" not in scene_cfg.objects["red_cube"].class_labels
+    assert "red_cube" not in scene_cfg.objects
 
 
 def test_object_shake_refused_without_mass(make_executor):

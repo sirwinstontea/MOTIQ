@@ -1,4 +1,5 @@
-# Allowlisted scene for the UR5e demo cell. Units: m, rad (rotation vector).
+# Allowlisted scene for the UR5e demo cell: the 4 real demo objects (no red cube).
+# Units: m, rad (rotation vector).
 # Frame: robot base. This UR5e model faces -X at its home pose, so the work
 # area is at negative X. Tool-down orientation = rotation vector [pi, 0, 0].
 # Targets here are "taught" into the RoboDK demo station by `setup-station`;
@@ -10,9 +11,6 @@ targets:
     joints_rad: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
     pose_m_rad: [-0.49195, -0.1333, 0.3379, 2.2214, 2.2214, 0.0]   # expected TCP (FK), used by mock
     description: safe home posture
-  pick_approach:   {pose_m_rad: [-0.45, -0.20, 0.150, 3.14159, 0, 0]}
-  pick_grasp:      {pose_m_rad: [-0.45, -0.20, 0.025, 3.14159, 0, 0]}
-  pick_lift:       {pose_m_rad: [-0.45, -0.20, 0.250, 3.14159, 0, 0]}
   shake_center:    {pose_m_rad: [-0.45,  0.00, 0.300, 3.14159, 0, 0]}
   shake_left:      {pose_m_rad: [-0.45,  0.04, 0.300, 3.14159, 0, 0]}
   shake_right:     {pose_m_rad: [-0.45, -0.04, 0.300, 3.14159, 0, 0]}
@@ -38,14 +36,6 @@ targets:
   white_bucket_lid_04_lift:     {pose_m_rad: [-0.62, +0.24, 0.300, 3.14159, 0, 0]}
 
 objects:
-  red_cube:
-    dimensions_m: [0.05, 0.05, 0.05]
-    mass_kg: 0.1
-    approach_target: pick_approach
-    grasp_target: pick_grasp
-    lift_target: pick_lift
-    class_labels: [red_cube, cube, red cube, cubo rosso]
-    station_item: red_cube
   blue_bucket_01:   # 139x139x115 mm cup; grasp height = mid-height
     dimensions_m: [0.139, 0.139, 0.115]
     # mass_kg: unknown -> shake is refused until a measured mass is added
@@ -76,7 +66,7 @@ objects:
     approach_target: white_bucket_lid_04_approach
     grasp_target: white_bucket_lid_04_grasp
     lift_target: white_bucket_lid_04_lift
-    class_labels: [tappo_bianco, tappo, white lid, lid, White_Bucket_Lid_04]   # vision model classes first
+    class_labels: [tappo_bianco, tappo, white lid, white bucket lid, bucket lid, lid, White_Bucket_Lid_04]   # vision model classes first
     station_item: White_Bucket_Lid_04
 
 destinations:
@@ -127,8 +117,3 @@ station_geometry:
     pose_m_rad: [-0.45, 0.20, 0.0, 0, 0, 0]
     color: [0.20, 0.70, 0.30, 1.0]
     no_collision_with: [table]
-  red_cube:
-    size_m: [0.05, 0.05, 0.05]
-    pose_m_rad: [-0.45, -0.20, 0.0, 0, 0, 0]
-    color: [0.90, 0.15, 0.15, 1.0]
-    no_collision_with: [table, delivery_pad]

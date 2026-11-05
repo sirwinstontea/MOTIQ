@@ -210,7 +210,7 @@ return [...grokTools(), lookTool, ...this.visionTools, ...(list.length ? [skillT
 
 - `select_object` restituisce l'`id` ma **non muove il braccio**: oggi la scelta arriva al braccio
   (`logs/selection.json`) solo dalla demo sul PC. Da decidere con il gruppo robotica chi la manda.
-  Il vostro `arm_pick_place` passa il nome dell'oggetto ("red cube"), noi diamo un `id`: da allineare.
+  Il vostro `arm_pick_place` passa il nome dell'oggetto ("orange screw"), noi diamo un `id`: da allineare.
 - Il tasto G della demo (Grok trova oggetti che YOLO non conosce) non è esposto dal server.
 - `coords_mm` resta `null` finché non si calibra il braccio con i marker ArUco. Con la camera sul braccio
   (`hand_eye.json` presente) l'omografia fissa non si usa più: le coordinate per il robot sono `xyz_base_m` (§7).

@@ -12,6 +12,7 @@ Units: RoboDK uses mm and degrees; this module converts to/from m and rad.
 """
 from __future__ import annotations
 
+import logging
 import math
 import os
 import socket
@@ -25,6 +26,8 @@ from ..config import RobotConfig, SceneConfig
 from ..controller import (Capabilities, GripStatus, MotionContext, MotionType, PathCheckResult,
                           PlannedSegment, RobotController, RobotState)
 from ..models import ErrorCode, FeedbackSource, Joints, Pose, RobotControlError, utc_now
+
+log = logging.getLogger(__name__)
 
 JOINT_TOL_DEG = 0.5
 
@@ -121,7 +124,22 @@ class RoboDKSimController(RobotController):
 
         self._enforce_simulate()
         self._select_robot()
+        self._hide_markers()
         self.connected = True
+
+    def _hide_markers(self):
+        """Hide target arrows and frame/tool XYZ axes. Targets stay usable; objects stay visible."""
+        rl = self.rl
+        self.RDK.Render(False)
+        try:
+            for tgt in self.RDK.ItemList(rl.ITEM_TYPE_TARGET):
+                tgt.setVisible(False)
+            for it in self.RDK.ItemList(rl.ITEM_TYPE_FRAME) + self.RDK.ItemList(rl.ITEM_TYPE_TOOL):
+                it.setVisible(True, False)          # keep the item (and children), hide its axes
+        except Exception as e:                      # cosmetic only: never block a connect over it
+            log.warning("could not hide RoboDK markers: %s", e)
+        finally:
+            self.RDK.Render(True)
 
     def _enforce_simulate(self):
         rl = self.rl

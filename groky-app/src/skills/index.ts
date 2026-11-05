@@ -90,6 +90,7 @@ export function realArmProblems(doc: SkillDoc): string[] {
   doc.steps.forEach((s, i) => {
     if (isLookStep(s)) return;
     if ((s.action === 'PICK' || s.action === 'PLACE') && s.target) return;
+    if (s.physical_tool === 'ur_down_up') return; // one fixed bridge tool, see runner.ts
     const bad = [
       ...new Set((s.primitive_sequence ?? []).map((c) => c.primitive).filter((p) => !REAL_ARM_PRIMITIVES.includes(p))),
     ];
@@ -421,16 +422,16 @@ const simSeq = (stepId: string) => clone(templateSteps.find((s) => s.id === step
 
 const controllerSkills: SkillDoc[] = [
   makeSkill({
-    id: 'arm_visit_cube',
-    name: 'Visit the cube',
-    description: 'Move above the red cube, pause, and go back home. No camera needed: a safe first test.',
+    id: 'arm_visit_screw',
+    name: 'Visit the orange screw',
+    description: 'Move above the orange screw, pause, and go back home. No camera needed: a safe first test.',
     device: 'arm',
     icon: 'search-outline',
     builtin: true,
     objects: armObjects,
     steps: [
-      seq('step_001', 'Go above the cube and pause.', [
-        { primitive: 'MOVE_ABOVE', parameters: { target: 'object_cube' } },
+      seq('step_001', 'Go above the orange screw and pause.', [
+        { primitive: 'MOVE_ABOVE', parameters: { target: 'orange_screw_03' } },
         { primitive: 'WAIT', parameters: { seconds: 1 } },
       ]),
       seq('step_002', 'Back home.', [{ primitive: 'HOME' }]),
@@ -450,15 +451,15 @@ const controllerSkills: SkillDoc[] = [
       {
         id: 'step_001',
         action: 'PICK',
-        target: 'object_cube',
-        description: 'Find it with the camera and pick it up (grip verified).',
+        target: 'orange_screw_03',
+        description: 'Find the orange screw with the camera and pick it up (grip verified).',
         primitive_sequence: simSeq('step_002'),
         failure_policy: 'REPORT_FAILURE',
       },
       {
         id: 'step_002',
         action: 'PLACE',
-        target: 'object_box',
+        target: 'delivery_zone',
         description: 'Place it in the delivery zone and release.',
         primitive_sequence: simSeq('step_003'),
         failure_policy: 'REPORT_FAILURE',
@@ -468,7 +469,31 @@ const controllerSkills: SkillDoc[] = [
   }),
 ];
 
+// Physical UR arm: one fixed motion through the bridge tool `ur_down_up` (no homing). The primitives are what the
+// simulator shows; on the real arm the bridge runs the same down + up with its own checks and STOP.
+const physicalDownUp = makeSkill({
+  id: 'arm_physical_down_up',
+  name: 'Down 5 cm & up (physical arm)',
+  description:
+    'Moves the physical UR arm 5 cm straight down, 5 cm back up, then stops. Slow (5 cm/s), no homing. STOP halts it.',
+  device: 'arm',
+  icon: 'flash-outline',
+  builtin: true,
+  success: ['The arm is back at its starting height and stopped.'],
+  steps: [
+    {
+      ...seq('step_001', 'Straight down 5 cm, back up 5 cm, stop.', [
+        { primitive: 'MOVE_DOWN', parameters: { distance_m: 0.05, speed_mps: 0.05 } },
+        { primitive: 'MOVE_UP', parameters: { distance_m: 0.05, speed_mps: 0.05 } },
+      ]),
+      parameters: { mm: 50 },
+      physical_tool: 'ur_down_up',
+    },
+  ],
+});
+
 export const builtinSkills: SkillDoc[] = [
+  physicalDownUp,
   ...controllerSkills,
   pickPlace,
   makeSkill({

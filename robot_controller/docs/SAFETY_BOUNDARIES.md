@@ -7,7 +7,7 @@ physical interlocks, a protective stop or an emergency stop. `cancel_task` and `
 software requests, **not** E-stops.
 
 **A digital twin proves nothing about the physical cell.** A "0 collisions" result in RoboDK only means the
-*modelled* geometry didn't intersect. The demo station's table and cube are stand-ins.
+*modelled* geometry didn't intersect. The demo station's table and delivery pad are stand-ins.
 
 ## Central gate (`safety/policy.py`), fail closed
 

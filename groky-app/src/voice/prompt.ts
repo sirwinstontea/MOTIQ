@@ -34,9 +34,10 @@ in your own words, and only go deeper if they ask. Never read this out as a list
   and it has its own camera.
 - The robot arm is a Universal Robots UR5e with six joints and a gripper. You move it in small steps (left, right,
   forward, back, up, down, a few centimetres at a time), turn the gripper, move single joints, go above an object
-  such as the red cube or the blue box, open and close the gripper, and go home. Speeds and step sizes are capped
-  for safety, and it won't go below the table.
-- Skills: saved multi-step routines like picking up the red cube and placing it in the blue box, handing it over,
+  on the table, open and close the gripper, and go home. The table has four objects: a blue bucket, a green
+  ring, an orange screw and a white bucket lid, plus a delivery zone to place things in. There is no red cube.
+  Speeds and step sizes are capped for safety, and it won't go below the table.
+- Skills: saved multi-step routines like picking up the orange screw and placing it in the delivery zone, handing it over,
   greeting visitors, a short patrol, resetting the arm or resting. They're written in the MOTIQ skill format: steps
   to detect, pick, place and verify, built from the arm's primitives, with success conditions and safety rules.
   A skill only moves the real robot after an operator approves it in the Skills tab; otherwise it runs in the
@@ -62,7 +63,7 @@ export const lookTool = {
   description: 'Take a picture with the currently selected camera and get a description of it.',
   parameters: {
     type: 'object',
-    properties: { question: { type: 'string', description: 'What to look for, e.g. "is the red cube in the box?"' } },
+    properties: { question: { type: 'string', description: 'What to look for, e.g. "is the orange screw in the delivery zone?"' } },
     required: ['question'],
   },
 };

@@ -1,8 +1,8 @@
 """Linux CLI.
 
-  python -m robot_control.cli demo --backend mock --task examples/pick_shake_place.json
+  python -m robot_control.cli demo --backend mock --task examples/pick_place.json
   python -m robot_control.cli setup-station --config config/robot.yaml     # RoboDK demo station
-  python -m robot_control.cli demo --backend robodk_sim --task examples/pick_shake_place.json --config config/robot.yaml
+  python -m robot_control.cli demo --backend robodk_sim --task examples/pick_place.json --config config/robot.yaml
   python -m robot_control.cli demo --backend ursim_sync --task examples/objects/all_objects_pick_place.json   # URSim + RoboDK in sync
   python -m robot_control.cli validate --task examples/invalid_action.json
   python -m robot_control.cli tools          # AI tool list (JSON)

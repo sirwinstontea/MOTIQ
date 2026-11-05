@@ -17,9 +17,9 @@
      * tool `Gripper TCP` (+150 mm Z)
      * base frame `UR5e Base`
      * named targets from `config/scene.example.yaml`
-     * boxes for the table, delivery pad and `red_cube`
+     * boxes for the table and delivery pad, plus the 4 demo object meshes
 
-     It's saved to `stations/UR5e_demo.rdk`. Run it again to reset the cube.
+     It's saved to `stations/UR5e_demo.rdk`. Run it again to reset the objects.
    * *Your own station:* set these in `config/robot.yaml`:
      * `station_name` / `station_path`
      * `robot_item_name` (must be unique)

@@ -33,6 +33,8 @@ export type WorldObject = {
   upright: boolean;
   inside: string | null; // container id
   measured: boolean; // true = position came from a calibrated detection, not the skill file
+  labels?: string[]; // vision model classes for it (e.g. "vite_arancione")
+  grip?: number; // width the fingers close on (m), e.g. a bucket's wall; defaults to size
 };
 export type World = Record<string, WorldObject>;
 
@@ -97,6 +99,8 @@ export function worldFromEnv(objects: EnvObject[]): World {
       upright: o.initial_state?.orientation?.type !== 'tilted',
       inside: null,
       measured: false,
+      labels: o.detection?.class ? [o.detection.class] : undefined,
+      grip: Number(o.attributes?.grip_width_m) || undefined,
     };
   }
   return w;
@@ -370,10 +374,10 @@ export function applyArm(
           Math.hypot(o.location.x - tcp.x, o.location.y - tcp.y) <= 0.02 &&
           tcp.z - o.location.z >= -0.01 &&
           tcp.z - o.location.z <= 0.03 &&
-          o.size <= STROKE,
+          (o.grip ?? o.size) <= STROKE,
       );
       state.gripper = {
-        width: target ? target.size : 0,
+        width: target ? (target.grip ?? target.size) : 0,
         closed: true,
         holding: target?.id ?? null,
         holdDz: target ? tcp.z - target.location.z : 0,

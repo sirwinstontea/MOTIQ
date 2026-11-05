@@ -1,6 +1,6 @@
 // Executes a skill step by step: DETECT / VERIFY look through the camera (or the simulator), everything else runs
 // its primitive_sequence. Failure policies and the safety gates from the skill file are applied here.
-import { armSend, devices, runTool, stopDevice } from '../devices';
+import { armPhysical, armSend, devices, runTool, stopDevice } from '../devices';
 import { armState, armWorld, detect, runArm, setWorld, verify } from '../robot/runtime';
 import { worldFromEnv } from '../robot/arm';
 import { verifyCheck } from './dryrun';
@@ -95,6 +95,16 @@ export async function runSkill(
         step.action === 'PICK'
           ? await runTool('arm_pick', { object: step.target })
           : await runTool('arm_place', { destination: step.target });
+      return {
+        ok: r.ok,
+        note: typeof r.did === 'string' ? r.did : undefined,
+        error: r.ok ? undefined : String(r.error ?? r.status ?? 'failed'),
+        refused: !!r.refused,
+      };
+    }
+    // Physical arm, one fixed bridge tool (down + up, no homing). STOP -> stopDevice -> bridge stops it too.
+    if (device === 'arm' && real && step.physical_tool === 'ur_down_up') {
+      const r = await armPhysical('ur_down_up', { mm: Number(step.parameters?.mm ?? 50) });
       return {
         ok: r.ok,
         note: typeof r.did === 'string' ? r.did : undefined,

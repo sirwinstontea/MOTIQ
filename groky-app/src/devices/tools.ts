@@ -38,7 +38,7 @@ function schemaFor(p: Primitive, device: DeviceId) {
     else if (spec.type === 'array')
       props[key] = { type: 'array', items: { type: 'number' }, minItems: spec.length, maxItems: spec.length };
     else if (spec.type === 'object_id')
-      props[key] = { type: 'string', description: 'object id or name from the scene, e.g. object_cube or "red cube"' };
+      props[key] = { type: 'string', description: 'object id or name from the scene: blue_bucket_01 ("blue bucket"), green_ring_02 ("green ring"), orange_screw_03 ("orange screw"), white_bucket_lid_04 ("white bucket lid"), delivery_zone' };
     else props[key] = { type: 'string' };
     if (isRequired(spec)) required.push(key);
   }
@@ -67,9 +67,9 @@ const dogTools: Tool[] = fromPrimitives(DOG_PRIMITIVES, 'dog');
 export const ARM_TASK_TOOLS = new Set(['pick_and_place', 'pick', 'place', 'shake']);
 const objectParam = {
   type: 'string',
-  description: 'object name ("red cube") or the number the vision server shows on it',
+  description: 'object name ("orange screw", "blue bucket", "green ring", "white bucket lid") or the number the vision server shows on it',
 };
-const destParam = { type: 'string', description: 'where to put it, e.g. "delivery zone" or "blue box"' };
+const destParam = { type: 'string', description: 'where to put it, e.g. "delivery zone", or the spot an object came from like "orange_screw_03_slot"' };
 
 const armTools: Tool[] = [
   {
@@ -104,12 +104,12 @@ const armTools: Tool[] = [
   {
     name: 'detect',
     description: 'Look for an object in the arm workspace before moving to it.',
-    parameters: params({ target: { type: 'string', description: 'object id or name, e.g. "red cube"' } }, ['target']),
+    parameters: params({ target: { type: 'string', description: 'object id or name, e.g. "orange screw"' } }, ['target']),
   },
   {
     name: 'verify',
     description: 'Check with the camera that something is true, e.g. after placing an object.',
-    parameters: params({ expect: { type: 'string', description: 'e.g. "the red cube is inside the blue box"' } }, [
+    parameters: params({ expect: { type: 'string', description: 'e.g. "the orange screw is in the delivery zone"' } }, [
       'expect',
     ]),
   },

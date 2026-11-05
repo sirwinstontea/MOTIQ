@@ -79,7 +79,7 @@ If the STLs don't exist, it reports `STL validated: NOT RUN`.
 
 **Display layout.** `Objects_Frame` is placed at `[-620, 0, 0, 0, 0, 90]` (mm, deg) relative to the robot base.
 The objects sit at x = −240 / −70 / 80 / 240 in that frame, so in base coordinates they form a row at
-X = −620, Y = −240…240, beside the demo cube and pad. This layout is for display only and does not prove there
+X = −620, Y = −240…240, beside the delivery pad. This layout is for display only and does not prove there
 is free space in the real cell. To change it, edit `object_specifications.json` and re-run with
 `--reset-frame-pose` (frame) or `--replace` (objects).
 

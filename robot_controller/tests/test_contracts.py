@@ -20,7 +20,7 @@ def test_valid_example_task_parses():
 
 def test_example_files(tmp_path):
     from tests.conftest import ROOT
-    assert validate_task((ROOT / "examples/pick_shake_place.json").read_text()).task_id == "demo_001"
+    assert validate_task((ROOT / "examples/pick_place.json").read_text()).task_id == "demo_001"
     assert validate_task((ROOT / "examples/move_to_target.json").read_text()).task_id == "move_001"
     assert _code((ROOT / "examples/invalid_action.json").read_text()) == ErrorCode.UNKNOWN_ACTION
 
