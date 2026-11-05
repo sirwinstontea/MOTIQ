@@ -113,6 +113,21 @@ VISIT_MIN_CONF = 0.4           # hovering touches nothing, so a lower bar than p
 _STOP_SCRIPT = b"def stop_jog():\n  stopl(1.0)\nend\nstop_jog()\n"
 
 
+class NullPhysicalArm:
+    """Stand-in when ur_manual/ur_jog.py isn't on this machine (sim / cloud). Controller tools still work."""
+
+    def status(self) -> dict:
+        return {"reachable": False, "ready": False, "note": "no physical UR driver (ur_jog) on this host"}
+
+    def stop(self) -> bool:
+        return False
+
+    def _refuse(self, *_a, **_k):
+        raise Refused("physical UR motion isn't available here (simulation / no ur_jog); use controller tools")
+
+    down_up = visit = step = joint = joints_now_deg = _refuse
+
+
 class PhysicalArm:
     def __init__(self):
         import sys
@@ -122,6 +137,14 @@ class PhysicalArm:
         self.jog, self.ip = ur_jog, ur_jog.ROBOT_IP
         self.lock = threading.Lock()
         self.cancel = threading.Event()
+
+    @classmethod
+    def open(cls) -> "PhysicalArm | NullPhysicalArm":
+        try:
+            return cls()
+        except Exception as e:  # ImportError / missing robot IP module
+            log.warning("physical arm disabled (%s); bridge will use the controller only", e)
+            return NullPhysicalArm()
 
     def status(self) -> dict:
         """Quick probe for /health: is the UR reachable (ethernet plugged in) and ready? Never raises."""
@@ -377,7 +400,7 @@ class Bridge:
         self.scene = yaml.safe_load(scene_path.read_text(encoding="utf-8"))
         self.http = httpx.Client(timeout=10.0)
         self.active_task: Optional[str] = None
-        self.physical = PhysicalArm()
+        self.physical = PhysicalArm.open()
         self.directions = load_direction_mapping()
         import threading
         self.search_cancel = threading.Event()   # set by stop: ends an arm-camera search between poses
