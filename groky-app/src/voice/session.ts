@@ -7,6 +7,7 @@ import { Player } from './player';
 import { editSkillTool, FULL_ACCESS_NOTE, fullAccessTool, lookTool, PROMPT, proposePlanTool, skillTool } from './prompt';
 import { fullAccess, setFullAccess } from '../lib/fullAccess';
 import { getToken } from './token';
+import { inputTranscription } from './transcription';
 import { isRobotTool } from '../skills/fromVoice';
 import type { VoiceCommand } from '../skills/fromVoice';
 import type { Line, Looker, SkillRunner, Status, Trace } from './types';
@@ -195,14 +196,25 @@ export class VoiceSession {
           voice: env.voice,
           turn_detection: { type: 'server_vad' },
           audio: {
-            input: { format: { type: 'audio/pcm', rate: SAMPLE_RATE } },
+            // grok-transcribe is required for hearing captions + spoken yes/no approval; no language_hint
+            // keeps auto-detect across all Grok Voice languages (override via EXPO_PUBLIC_GROK_LANGUAGE_HINT).
+            input: {
+              format: { type: 'audio/pcm', rate: SAMPLE_RATE },
+              transcription: inputTranscription(env.languageHint),
+            },
             output: { format: { type: 'audio/pcm', rate: SAMPLE_RATE } },
           },
           tools: this.tools(),
         },
       });
       this.set('listening');
-      this.trace({ kind: 'think', title: 'Connected to Grok Voice', detail: env.voiceModel });
+      this.trace({
+        kind: 'think',
+        title: 'Connected to Grok Voice',
+        detail: env.languageHint
+          ? `${env.voiceModel} · hear ${env.languageHint}`
+          : `${env.voiceModel} · hear auto (all languages)`,
+      });
       const q = this.queue;
       this.queue = [];
       q.forEach((m) => this.sendText(m.text, m.record));
@@ -310,11 +322,13 @@ export class VoiceSession {
 
       case 'conversation.item.input_audio_transcription.updated':
       case 'conversation.item.input_audio_transcription.completed': {
-        const text = ev.transcript ?? ev.delta;
-        if (!text) break;
+        // `updated` (grok-transcribe) carries the cumulative transcript, not a delta. Prefer `transcript`.
+        const text = typeof ev.transcript === 'string' ? ev.transcript : typeof ev.delta === 'string' ? ev.delta : '';
+        if (!text.trim()) break;
         this.userLineId ??= uid();
         this.line({ id: this.userLineId, kind: 'user', text });
         this.heard = text;
+        // Streaming updates only refresh the caption; approval waits for the final transcript.
         if (ev.type.endsWith('completed')) this.flushHeard();
         break;
       }
