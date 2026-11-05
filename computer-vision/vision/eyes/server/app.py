@@ -6,13 +6,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
@@ -20,7 +22,10 @@ from pydantic import BaseModel
 from vision.grok.voice_tools import TOOLS as VOICE_TOOLS
 from vision.grok.voice_tools import dispatch as voice_dispatch
 
-from ..calibration.hand_eye import DEFAULT_MAX_SPREAD_M, aggregate
+from ..calibration.hand_eye import (
+    DEFAULT_MAX_SPREAD_M, FIXED_POSE, FixedTcp, HandEye, aggregate, board_pose, is_stationary, look_pose_and_save,
+    solve_and_save,
+)
 from ..pipeline import EyePipeline
 from ..verification.verifier import verify_action_local
 
@@ -166,6 +171,120 @@ def create_app(pipeline: EyePipeline | None = None) -> FastAPI:
             destination_id=last.get("destination_id"),
         )
         return {"ok": True} | res.model_dump()
+
+    # --- calibrazione dall'app (skill "Calibra camera braccio") ------------------------------------------------
+    # Il foglio ArUco resta fermo sul tavolo. La skill muove il braccio a piccoli passi (bridge) e dopo ogni posa
+    # chiama /sample; poi /solve (hand-eye -> markers_mm.json, niente da toccare); poi, dalla posa di osservazione,
+    # /look_pose (-> fixed_pose.json, caricata subito). La visione non muove mai il robot.
+    calib: dict[str, list[tuple[list[float], Any]]] = {}
+
+    async def _fresh_frame(node, after: float, timeout_s: float = 3.0):
+        """Colore (+ profondità) di un frame preso dopo `after`: il braccio si è appena fermato."""
+        deadline = time.monotonic() + timeout_s
+        while True:
+            if not pipeline._running:
+                node.reader.read_once()
+            if hasattr(node.reader, "get_frames"):
+                ok, color, depth, _fid, ts = node.reader.get_frames()
+            else:
+                (ok, color, _fid, ts), depth = node.reader.get_latest(), None
+            if ok and ts >= after:
+                return color, depth
+            if time.monotonic() > deadline:
+                return None, None
+            await asyncio.sleep(0.05)
+
+    @app.post("/calibration/{source}/reset")
+    def calibration_reset(source: str) -> dict:
+        calib[source] = []
+        return {"ok": True, "n": 0}
+
+    @app.get("/calibration/{source}")
+    def calibration_status(source: str) -> dict:
+        node = pipeline.nodes.get(source)
+        return {"ok": node is not None, "n": len(calib.get(source, [])),
+                "robot_pose_source": getattr(getattr(node, "robot_pose_fn", None), "__class__", type(None)).__name__,
+                "calibration_id": getattr(node, "calibration_id", None)}
+
+    @app.post("/calibration/{source}/sample")
+    async def calibration_sample(source: str, request: Request) -> dict:
+        """Un campione: posa del foglio vista ora + posa del braccio ora. Corpo opzionale `{"tcp_pose": [x, y, z, rx,
+        ry, rz]}` (m, rad, frame Base); senza, la posa si legge dalla fonte del server (`run --robot-ip`)."""
+        node = pipeline.nodes.get(source)
+        if node is None:
+            return {"ok": False, "reason": f"sorgente '{source}' non registrata"}
+        intr = getattr(node.reader, "intrinsics", None)
+        if intr is None:
+            return {"ok": False, "reason": "serve la camera con intrinseci (RealSense o RoboDK)"}
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001 - corpo vuoto
+            body = {}
+        if isinstance(body, dict) and body.get("tcp_pose") is not None:
+            pose = [float(v) for v in body["tcp_pose"]]
+            if len(pose) != 6:
+                return {"ok": False, "reason": "tcp_pose: servono 6 numeri [x, y, z, rx, ry, rz] in m e rad"}
+        else:
+            fn = getattr(node, "robot_pose_fn", None)
+            reading = fn() if fn is not None else None
+            if reading is None:
+                return {"ok": False, "reason": "posa del braccio non disponibile: avviate il server con --robot-ip "
+                        "<IP dell'UR> oppure mandate tcp_pose" + (f" ({fn.last_error})" if getattr(fn, "last_error", None) else "")}
+            if reading.moving:
+                return {"ok": False, "reason": "il braccio si sta muovendo: aspettate che sia fermo"}
+            pose = list(reading.pose)
+        color, _depth = await _fresh_frame(node, time.time())
+        if color is None:
+            return {"ok": False, "reason": "nessun frame dalla camera"}
+        found = board_pose(color, intr)
+        if found is None:
+            return {"ok": False, "reason": "foglio non visto: servono almeno 2 marker interi nell'inquadratura",
+                    "n": len(calib.get(source, []))}
+        samples = calib.setdefault(source, [])
+        if samples and is_stationary(samples[-1][0], pose, tol_m=0.005, tol_deg=2.0):
+            return {"ok": False, "reason": "posa uguale alla precedente: il braccio non si è mosso?", "n": len(samples)}
+        samples.append((pose, found[0]))
+        return {"ok": True, "n": len(samples), "markers_seen": found[1], "reproj_px": round(found[2], 2),
+                "advice": "bastano 12-15 pose, ruotate attorno ad assi diversi" if len(samples) < 12 else "abbastanza pose: /solve"}
+
+    @app.post("/calibration/{source}/solve")
+    def calibration_solve(source: str, hand_eye_file: str = Query(default="data/calibration/hand_eye.json"),
+                          markers_file: str = Query(default="data/calibration/markers_mm.json")) -> dict:
+        """Hand-eye dai campioni -> hand_eye.json + centri dei marker nel base in markers_mm.json (senza toccarli)."""
+        node = pipeline.nodes.get(source)
+        samples = calib.get(source, [])
+        if len(samples) < 3:
+            return {"ok": False, "reason": f"servono almeno 3 campioni (meglio 12-15), ce ne sono {len(samples)}"}
+        src = type(getattr(node, "robot_pose_fn", None)).__name__ if getattr(node, "robot_pose_fn", None) else "app"
+        res = solve_and_save([p for p, _ in samples], [b for _, b in samples],
+                             getattr(node.reader, "intrinsics", None), src, hand_eye_file, markers_file)
+        if not res["reliable"]:
+            res.update(ok=False, reason=f"dispersione {res['spread_mm']} mm (> 5): più pose e rotazioni più ampie")
+        return res
+
+    @app.post("/calibration/{source}/look_pose")
+    async def calibration_look_pose(source: str, table_z_mm: float | None = Query(default=None),
+                                    markers_file: str = Query(default="data/calibration/markers_mm.json"),
+                                    out: str = Query(default="data/calibration/fixed_pose.json")) -> dict:
+        """Dalla posa di osservazione, con il foglio ancora sul tavolo: posa fissa -> fixed_pose.json, usata subito."""
+        node = pipeline.nodes.get(source)
+        intr = getattr(getattr(node, "reader", None), "intrinsics", None)
+        if node is None or intr is None:
+            return {"ok": False, "reason": "serve la camera con intrinseci (RealSense o RoboDK)"}
+        raw = json.loads(Path(markers_file).read_text(encoding="utf-8"))
+        markers = {int(k): (float(v[0]), float(v[1])) for k, v in raw.items() if str(k).isdigit()}
+        z = table_z_mm if table_z_mm is not None else float(raw.get("_table_z_mm") or 0.0)
+        frames = []
+        for _ in range(8):
+            color, depth = await _fresh_frame(node, time.time())
+            if color is not None:
+                frames.append((color, depth))
+        res = look_pose_and_save(frames, intr, markers, z / 1000.0, out)
+        if Path(out).exists() and res.get("file"):
+            node.hand_eye, node.tcp_fn = HandEye.load(out), FixedTcp(FIXED_POSE)  # attiva subito, senza riavvio
+            node.calibrator, node.calibration_id = None, Path(out).stem + time.strftime("_%Y%m%d-%H%M")
+            node.tcp_readings.clear()
+        return res
 
     @app.post("/empty_table/{source}")
     async def record_empty_table(source: str, timeout_s: float = Query(default=5.0, gt=0, le=30)) -> dict:

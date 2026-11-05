@@ -1,5 +1,6 @@
 {
-  "_nota": "Centro di ogni marker ArUco (DICT_4X4_50, ID 0-3) in mm nel sistema del braccio. Questi valori sono le posizioni sul foglio A4 stampato al 100% (calibrate-arm --generate-board), misurate dall'angolo in alto a sinistra del foglio: aggiungete a x e y dove si trova quell'angolo rispetto al braccio (e invertite gli assi se il braccio li ha al contrario).",
+  "_nota": "DA CALCOLARE. Centri dei marker ArUco 0-3 nel frame Base del robot (mm). Non si misurano a mano: li scrive calibra_senza_toccare.bat (calibrate-hand-eye), che guarda il foglio da 12-15 pose del braccio. I valori qui sotto sono ancora le posizioni SUL FOGLIO stampato: calibrate-look-pose si rifiuta di usarli finché non vengono sostituiti.",
+  "_table_z_mm": null,
   "0": [38.1, 38.1],
   "1": [258.9, 38.1],
   "2": [258.9, 171.8],

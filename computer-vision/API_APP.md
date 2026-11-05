@@ -34,6 +34,7 @@ run_server.bat
 | `POST` | `/dog/target` | `{target_id?, target_label?}` → il cane insegue quell'oggetto |
 | `POST` | `/action/{source}/start` | `{action, target_id, destination_id?}`: segna lo stato "prima" dell'azione del robot |
 | `POST` | `/action/{source}/verify_local` | Confronta prima/dopo: l'oggetto è sparito / arrivato? |
+| `POST` | `/calibration/{source}/reset`, `/sample`, `/solve`, `/look_pose` | Calibrazione della camera sul braccio dall'app (skill, vedi `calibration_skill/README.md`): non muovono mai il robot |
 | `POST` | `/empty_table/{source}` | Registra il tavolo vuoto dalla posa di osservazione (niente sul tavolo!) |
 | `GET` | `/locate/{source}?label=...&n=10` | Posizione di un oggetto nel frame **base del robot** (camera sul braccio, vedi §7) |
 | `GET` | `/voice/tools` | Strumenti da passare a Grok Voice (`session.tools`) |
