@@ -65,8 +65,22 @@ export default function SkillPreview({ skill, autoPlay = true }: Props) {
         </View>
       </View>
 
-      <View style={s.track}>
-        <View style={[s.fill, { width: `${(100 * f.t) / tl.duration}%` }]} />
+      <View style={s.trackWrap}>
+        <View style={s.track}>
+          <View style={[s.fill, { width: `${(100 * f.t) / tl.duration}%` }]} />
+        </View>
+        <View
+          pointerEvents="none"
+          style={[
+            s.scrubThumb,
+            {
+              left: `${Math.max(0, Math.min(100, (100 * f.t) / tl.duration))}%`,
+              marginLeft: -7,
+              borderColor: c.accent,
+              backgroundColor: c.text,
+            },
+          ]}
+        />
       </View>
 
       <View style={s.controls}>
@@ -492,8 +506,17 @@ const makeStyles = (c: Colors) =>
       backgroundColor: c.accentSoft,
     },
     badgeText: { ...type.overline, fontSize: 9, color: c.accent },
-    track: { height: 4, borderRadius: 2, backgroundColor: c.hover, overflow: 'hidden' },
-    fill: { height: 4, borderRadius: 2, backgroundColor: c.accent },
+    trackWrap: { height: 20, justifyContent: 'center' },
+    track: { height: 6, borderRadius: 3, backgroundColor: c.hover, overflow: 'hidden' },
+    fill: { height: 6, borderRadius: 3, backgroundColor: c.accent },
+    scrubThumb: {
+      position: 'absolute',
+      top: 3,
+      width: 14,
+      height: 14,
+      borderRadius: 7,
+      borderWidth: 2,
+    },
     controls: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     capTitle: { ...type.label, color: c.text },
     capNote: { ...type.caption, fontSize: 12, color: c.dim, marginTop: 2 },
