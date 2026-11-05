@@ -2,7 +2,9 @@
 
 **Tell a robot what to do — or show it once — and it does it, checks its own work, and remembers the task as a reusable skill.**
 
-MOTIQ is an end-to-end stack for natural-language and demonstration-driven robot control. A tablet app (Expo) talks to a Grok voice agent (**Motion**). Motion calls robot tools over HTTP. A small **bridge** turns those tools into typed, safety-gated controller tasks. A **computer-vision** server detects and tracks objects. A **teach** path turns a short demonstration video into a `skill.json`. Everything is designed so you can run it in simulation first, then point the same contracts at different arms, cameras, and LLM backends.
+MOTIQ is an end-to-end stack for natural-language and demonstration-driven robot control. The **client is a React Native app** you open with **Expo Go on a physical tablet or phone** (museum demo form factor). It talks to a Grok voice agent (**Motion**). Motion calls robot tools over HTTP. A small **bridge** on the robot PC turns those tools into typed, safety-gated controller tasks. A **computer-vision** server detects and tracks objects. A **teach** path turns a short demonstration video into a `skill.json`.
+
+**How you are supposed to run it:** install Expo Go → start Metro on a laptop → scan the QR code → use the tablet. Backend services (vision, teach, bridge, controller) run on a robot PC / LAN machine. The phone must reach them by **LAN IP**, never `localhost` / `127.0.0.1` (those only exist on the PC itself). Browser / `expo start --web` is not the product path.
 
 Built for the **SpaceX AI (xAI) Grok Hackathon**, Ctrl+Alt Museum, Pavia, 4–5 November 2026.
 
@@ -16,7 +18,7 @@ Built for the **SpaceX AI (xAI) Grok Hackathon**, Ctrl+Alt Museum, Pavia, 4–5 
 4. [End-to-end workflows](#4-end-to-end-workflows)
 5. [Modularity and scalability](#5-modularity-and-scalability-any-model-any-cell)
 6. [Prerequisites](#6-prerequisites)
-7. [Quick start (app only)](#7-quick-start-app-only)
+7. [Quick start (Expo Go on a tablet)](#7-quick-start-expo-go-on-a-tablet)
 8. [Full stack runbook](#8-full-stack-runbook)
 9. [Ports, URLs, and environment](#9-ports-urls-and-environment)
 10. [Skills format and safety](#10-skills-format-and-safety)
@@ -46,7 +48,7 @@ Built for the **SpaceX AI (xAI) Grok Hackathon**, Ctrl+Alt Museum, Pavia, 4–5 
 
 ```
 MOTIQ/
-├── groky-app/                  # Expo / React Native app (tablet, phone, web)
+├── groky-app/                  # React Native app — run with Expo Go on tablet/phone
 ├── bridge/                     # App tool protocol → robot_controller tasks
 ├── robot_controller/           # Typed, safety-gated controller + backends
 ├── computer-vision/            # Detection, tracking, Grok vision tools, video planner
@@ -57,7 +59,7 @@ MOTIQ/
 
 | Folder | Role | Default ports |
 |---|---|---|
-| [`groky-app/`](groky-app) | UI + Grok Voice session + skills runner + cameras | Expo Metro (e.g. 8081), web preview |
+| [`groky-app/`](groky-app) | React Native UI (Expo Go): voice, cameras, skills, history | Metro bundler on the laptop; UI on the device |
 | [`bridge/`](bridge) | `POST /tools/*` → controller; vision state → pick targets; proxies arm camera | **8080** |
 | [`robot_controller/`](robot_controller) | Task FSM, safety, mock / RoboDK / URSim backends | **8765** (loopback API) |
 | [`computer-vision/`](computer-vision) | `vision/eyes` server, `vision/grok` tools, `vision/planner` (video → tokens/skills) | **8000** |
@@ -74,27 +76,22 @@ Each folder has its own README with deeper detail. This document is the **operat
 
 ```
  ┌──────────────────────────────────────────────────────────────────────────┐
- │  Human (tablet / browser)                                                │
- │    voice / typed chat / Show Motion / Skills UI                          │
- └───────────────────────────────┬──────────────────────────────────────────┘
-                                 │
-                                 ▼
- ┌──────────────────────────────────────────────────────────────────────────┐
- │  groky-app (Expo)                                                        │
- │    Motion = Grok realtime voice                                          │
- │    tools: arm_*, dog_*, camera_look, run_skill, propose_plan, …        │
- │    skills: validate → dry-run → run (DETECT / PICK / PLACE / VERIFY)     │
+ │  Tablet / phone — Expo Go                                                │
+ │    groky-app (React Native): voice, typed chat, Show Motion, Skills      │
+ │    Motion = Grok realtime · tools · skill runner                         │
  └───────────────┬───────────────────────────────┬──────────────────────────┘
-                 │ EXPO_PUBLIC_ARM_URL             │ EXPO_PUBLIC_VISION_SERVER
-                 │ EXPO_PUBLIC_BRIDGE_KEY           │ EXPO_PUBLIC_TEACH_SERVER
-                 ▼                                 ▼
+                 │ same Wi‑Fi / LAN                 │
+                 │ EXPO_PUBLIC_ARM_URL               │ EXPO_PUBLIC_VISION_SERVER
+                 │ EXPO_PUBLIC_BRIDGE_KEY             │ EXPO_PUBLIC_TEACH_SERVER
+                 │   (must be http://<LAN-IP>:…)      │   (never 127.0.0.1 from phone)
+                 ▼                                   ▼
  ┌───────────────────────────┐     ┌────────────────────────────────────────┐
- │  bridge :8080             │     │  computer-vision :8000                 │
+ │  Robot PC — bridge :8080  │     │  Robot PC — computer-vision :8000      │
  │  motiq_bridge.py          │◄────│  /state/arm  /frame/arm.jpg            │
  │  app tools → controller   │     │  YOLO + track + Grok voice tools       │
  │  writes vision_bridge.json│     └─────────────────┬──────────────────────┘
  └─────────────┬─────────────┘                       │
-               │ localhost:8765                        │ tokenize / teach
+               │ PC-local :8765                        │ tokenize / teach
                ▼                                       ▼
  ┌───────────────────────────┐     ┌────────────────────────────────────────┐
  │  robot_controller :8765   │     │  teach_server :8001                    │
@@ -104,6 +101,9 @@ Each folder has its own README with deeper detail. This document is the **operat
  └─────────────┬─────────────┘     └────────────────────────────────────────┘
                ▼
       mock  ·  RoboDK UR5e twin  ·  URSim (Docker, loopback)
+
+ Laptop (dev): only runs `npx expo start` (Metro) so Expo Go can load the JS bundle.
+ Robot PC: vision, teach, bridge, controller (and optional RoboDK).
 ```
 
 ### 3.2 Contracts (why the pieces stay swappable)
@@ -229,33 +229,54 @@ A third-party arm or mobile base integrates by implementing the small HTTP bridg
 
 | Piece | Need |
 |---|---|
-| App | Node **20+**, npm, Expo Go (device) or a browser for web |
-| Vision / teach / controller | Python **3.10–3.12**, `venv`, ffmpeg (system or imageio-ffmpeg) |
-| Optional RoboDK stack | RoboDK installed; for URSim sync: Docker URSim + `ur_rtde` |
-| Network | Tablet/phone on same LAN as the robot PC (or USB reverse tunnels) |
+| **Client (required)** | A **phone or tablet** with **[Expo Go](https://expo.dev/go)** (iOS/Android). This is how MOTIQ is meant to be used. |
+| Dev laptop | Node **20+**, npm — only to run Metro (`npx expo start`) and edit `.env` |
+| Vision / teach / controller | On the **robot PC**: Python **3.10–3.12**, `venv`, ffmpeg |
+| Optional RoboDK stack | RoboDK on the robot PC; for URSim sync: Docker URSim + `ur_rtde` |
+| Network | Tablet and robot PC on the **same Wi‑Fi**. Allow Python through the PC firewall on ports 8000 / 8001 / 8080. Venue Wi‑Fi that blocks device-to-device: use `npx expo start --tunnel` for Metro, and a reachable LAN/VPN for the backends (or USB reverse tunnels). |
 | Keys | xAI (or OpenRouter) API key for live voice/vision/teach; without keys, mock modes only exercise plumbing |
 
 ---
 
-## 7. Quick start (app only)
+## 7. Quick start (Expo Go on a tablet)
 
-Enough to talk to Motion with **simulated** robots (no bridge, no camera server):
+This is the normal path. You do **not** open the app in a desktop browser.
+
+### 7.1 On the tablet
+
+1. Install **Expo Go** from the App Store / Play Store.
+2. Join the same Wi‑Fi as the laptop that will run Metro (and, for the full stack, the robot PC).
+
+### 7.2 On the laptop (Metro only)
 
 ```bash
 cd groky-app
 npm install
 cp .env.example .env
 # set EXPO_PUBLIC_XAI_API_KEY=...   (or EXPO_PUBLIC_TOKEN_URL)
-npx expo start --web          # or: npx expo start  → Expo Go QR
+npx expo start
 ```
 
-Leave `EXPO_PUBLIC_ARM_URL` / `EXPO_PUBLIC_DOG_URL` empty. Motion still plans; arm tools run in the app simulator. After `.env` changes: `npx expo start -c`.
+- Scan the **QR code** with Expo Go (Camera app on iOS; Expo Go’s scanner on Android).
+- Leave `EXPO_PUBLIC_ARM_URL` / `EXPO_PUBLIC_DOG_URL` empty for a first try: Motion still talks; arm tools use the **in-app simulator**.
+- After any `.env` change: stop Metro and run `npx expo start -c` so the new values are baked into the bundle Expo Go loads.
+- Flaky venue Wi‑Fi: `npx expo start --tunnel`.
+
+Do **not** use `npx expo start --web` for the demo. Web is not how Show Motion, the device camera, or the museum tablet flow are meant to run.
+
+### 7.3 What runs where
+
+| Machine | Runs |
+|---|---|
+| Tablet (Expo Go) | The React Native UI, mic, device camera, Grok Voice session |
+| Your laptop | Metro bundler only (`expo start`) |
+| Robot PC (optional for sim-only) | Vision `:8000`, teach `:8001`, bridge `:8080`, controller `:8765` |
 
 ---
 
 ## 8. Full stack runbook
 
-Run these on the **robot PC** (or a single powerful laptop). Then point the app `.env` at that machine’s LAN IP.
+Run backends on the **robot PC**. Configure `groky-app/.env` with that PC’s **LAN IP**, then open the app in **Expo Go** (section 7). The tablet cannot use `http://127.0.0.1:…` — that address is the phone itself, not the robot PC.
 
 ### 8.A One-shot stack (vision + teach + controller + bridge)
 
@@ -288,7 +309,7 @@ python computer-vision-to-app/run.py all
 # teach alone:   python computer-vision-to-app/run.py teach
 ```
 
-This writes `EXPO_PUBLIC_VISION_SERVER` and `EXPO_PUBLIC_TEACH_SERVER` into `groky-app/.env`.
+This writes `EXPO_PUBLIC_VISION_SERVER` and `EXPO_PUBLIC_TEACH_SERVER` into `groky-app/.env` using the PC’s **network address** (what Expo Go on the tablet needs). Confirm those URLs are `http://192.168.…` (or your LAN subnet), not `127.0.0.1`, then restart Metro with `-c` and reopen in Expo Go.
 
 ### 8.C Controller alone
 
@@ -312,22 +333,23 @@ python -m robot_chooser apply
 # then restart controller + bridge
 ```
 
-### 8.E App `.env` for the full stack
+### 8.E App `.env` for Expo Go + full stack
 
 ```bash
-# groky-app/.env  (restart Expo with -c after edits)
+# groky-app/.env  — values are bundled into the JS Expo Go downloads
+# Use the robot PC's LAN IP (ipconfig / hostname -I). Never 127.0.0.1 here.
 EXPO_PUBLIC_XAI_API_KEY=xai-...
-EXPO_PUBLIC_ARM_URL=http://<robot-pc-ip>:8080
+EXPO_PUBLIC_ARM_URL=http://192.168.x.x:8080
 EXPO_PUBLIC_BRIDGE_KEY=pick-a-long-secret
-EXPO_PUBLIC_VISION_SERVER=http://<robot-pc-ip>:8000
-EXPO_PUBLIC_TEACH_SERVER=http://<robot-pc-ip>:8001
+EXPO_PUBLIC_VISION_SERVER=http://192.168.x.x:8000
+EXPO_PUBLIC_TEACH_SERVER=http://192.168.x.x:8001
 # optional:
-# EXPO_PUBLIC_DOG_URL=http://<dog-pc>:...
-# EXPO_PUBLIC_CAMERAS=Overhead=http://<phone>:8080/shot.jpg
+# EXPO_PUBLIC_DOG_URL=http://192.168.x.x:...
+# EXPO_PUBLIC_CAMERAS=Overhead=http://<other-phone>:8080/shot.jpg
 # EXPO_PUBLIC_VISION_SOURCES=arm,dog
 ```
 
-Same machine browser demo: use `http://127.0.0.1:...` for those URLs.
+Then on the laptop: `cd groky-app && npx expo start -c` → scan QR with **Expo Go**. From the tablet, open a browser once to `http://192.168.x.x:8000/health` if Cameras fail — that checks firewall / Wi‑Fi client isolation.
 
 ### 8.F After emergency stop / fault
 
@@ -454,8 +476,9 @@ Opt-in integration: `RUN_ROBODK_TESTS=1`, `RUN_URSIM_TESTS=1` (see controller RE
 
 | Symptom | What to try |
 |---|---|
-| App “No signal” on Arm vision | `run.py check`; confirm LAN IP + firewall; restart Expo after `.env` |
-| Show Motion / teach “video unreadable” | Teach remux needs ffmpeg; ensure teach server log shows MP4 normalisation; recording must be non-empty |
+| App “No signal” on Arm vision | From the **tablet** browser open `http://<pc-ip>:8000/health`; fix Wi‑Fi/firewall; `.env` must use LAN IP; `npx expo start -c` and reopen Expo Go |
+| Show Motion / teach fails from phone | `EXPO_PUBLIC_TEACH_SERVER` must be LAN IP (not localhost); teach remux needs ffmpeg; recording must be non-empty |
+| Expo Go can’t load the project | Same Wi‑Fi as Metro, or `npx expo start --tunnel`; do not use `--web` for the demo |
 | Bridge refuses pick | Object not in view / not mapped; check vision `/state/arm` and scene `class_labels` |
 | Tasks refused after Stop | `POST localhost:8765/operator/reset` on the robot PC |
 | Controller won’t start after chooser | `robot_chooser status` — fix BLOCKED requirements; or pass explicit `--config` |
@@ -494,4 +517,4 @@ Interactive vision docs when the server is up: `http://<pc>:8000/docs`.
 
 ---
 
-**MOTIQ** — voice in, skills out, robots (simulated or bridged) in between, with contracts you can extend to **any arm model, any cell device, and any OpenAI-compatible brain**.
+**MOTIQ** — React Native on **Expo Go**, voice in, skills out, robots (simulated or bridged) on the LAN, with contracts you can extend to **any arm model, any cell device, and any OpenAI-compatible brain**.
