@@ -35,7 +35,9 @@ export default function Activity({ traces, status }: { traces: Trace[]; status: 
 
   const last = traces[traces.length - 1];
   const busy = status === 'thinking' || status === 'acting' || status === 'speaking';
-  const stage = !last || status === 'off' ? -1 : status === 'listening' && !busy ? 0 : kinds[last.kind].stage;
+  const stage = last?.active
+    ? kinds[last.kind].stage
+    : !last || status === 'off' ? -1 : status === 'listening' && !busy ? 0 : kinds[last.kind].stage;
 
   // stages already passed in this turn (since the last time we heard the user)
   const turnStart = traces.findLastIndex((t) => t.kind === 'hear');

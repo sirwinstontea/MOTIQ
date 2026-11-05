@@ -16,6 +16,7 @@ export type Trace = {
   ms?: number;
   speed?: number; // arm speed the task ran at, % of model max
   image?: string; // small jpeg, base64
+  active?: boolean; // still going (Show Motion recording / learning): lights its stage even while Motion is idle
 };
 
 export type Looker = (question: string) => Promise<{ ok: boolean; source: string; answer: string; image?: string }>;

@@ -60,6 +60,31 @@ export class VoiceSession {
     this.onCommand = fn;
   }
 
+  // a robot action or skill that Grok ran failed: the app shows it as an error notification
+  private onToolError: ((what: string, error: string) => void) | null = null;
+  setToolErrorHandler(fn: ((what: string, error: string) => void) | null) {
+    this.onToolError = fn;
+  }
+
+  // steps that happen outside the conversation (Show Motion recording, learning) shown in "What Motion is doing"
+  progress(t: Omit<Trace, 'id' | 'at'> & { id?: string }) {
+    this.trace(t);
+  }
+
+  // Show Motion: the user demonstrated a task on camera and commented it. Motion answers out loud with what it
+  // understood, then runs the skill that was learned from it (run_skill), so its traces and errors follow as usual.
+  teach(d: { summary: string; skillId: string; skillName: string; transcript?: string }) {
+    const said = d.transcript?.trim() ? `\nWhat they said while showing it: "${d.transcript.trim()}"` : '';
+    this.sendText(
+      `[I just showed you a task through the camera, a short video where I explained it out loud.${said}\n` +
+        `The video planner understood:\n${d.summary.split('\nWrite a skill')[0]}\n` +
+        `It is saved as the skill "${d.skillName}" (id ${d.skillId}). Answer me out loud in one or two short ` +
+        `sentences with what you understood I want. Then run it with run_skill (skill "${d.skillId}"). ` +
+        `If it can't run, tell me why.]`,
+      false,
+    );
+  }
+
   // skills changed while connected: let Grok know about the new list
   refreshTools() {
     this.send({ type: 'session.update', session: { tools: this.tools() } });
@@ -408,6 +433,8 @@ export class VoiceSession {
     }
 
     this.line({ id, kind: 'tool', name, args: raw, ok: res.ok, ms: Date.now() - t0, at: t0, speed: speedOf(res) });
+    // skill runs report their own failures (useSkills.start); robot actions Grok ran directly are reported here
+    if (!res.ok && isRobotTool(name)) this.onToolError?.(pretty(name), String(res.error ?? res.status ?? 'failed'));
     return { call_id, output: JSON.stringify(res) };
   }
 
