@@ -1,13 +1,13 @@
 {
   "schema_version": "1.1.0",
   "skill": {
-    "id": "skill_star_tilt_drop_blue_bucket",
+    "id": "skill_star_tilt_drop_blue_bucket_v3",
     "name": "★ Tilt-drop into the blue bucket (tested on real arm)",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "status": "validated",
-    "description": "The operator puts the box on the gripper. Start with the arm at about x 0.42 m, y -0.09 m, z 0.50 m (bucket mid-image). The arm camera centres over the blue bucket, the arm goes 15 cm forward and 25 cm down, tilts the wrist 60° to drop the box into the bucket (stepping to stay over it), levels again and goes back up.",
+    "description": "The operator puts the box on the gripper. The arm first goes to its saved start pose 'tilt_drop_start' (camera over the blue bucket), centres the camera on the bucket, goes 15 cm forward and 25 cm down, tilts the wrist 60° to drop the box in (stepping to stay over it), levels, goes back up and returns to the saved start pose.",
     "created_at": "2026-11-05T13:30:16Z",
-    "updated_at": "2026-11-05T15:00:46Z",
+    "updated_at": "2026-11-05T15:11:44Z",
     "source": {
       "type": "manual",
       "note": "No gripper needed: the box rests on the tool and falls when the wrist tilts. Real arm: VISIT = bridge ur_visit (camera centred over the bucket, stays there), then small steps and wrist-1 joint moves. 20 cm down chosen by the operator (table height relative to the base is not calibrated). Tuned on the real arm 2026-11-05: 15 cm forward, 25 cm down, wrist 1 -60° with forward steps 5.5 / 7.2 cm."
@@ -710,6 +710,24 @@
   },
   "steps": [
     {
+      "id": "step_000",
+      "action": "SEQUENCE",
+      "physical_tool": "ur_go_to_pose",
+      "parameters": {
+        "name": "tilt_drop_start"
+      },
+      "description": "Go to the saved start pose 'tilt_drop_start' (camera over the bucket, 49 cm high), whatever ran before. One joint at a time.",
+      "primitive_sequence": [
+        {
+          "primitive": "WAIT",
+          "parameters": {
+            "seconds": 0.5
+          }
+        }
+      ],
+      "failure_policy": "STOP_AND_REPLAN"
+    },
+    {
       "id": "step_001",
       "action": "VISIT",
       "target": "blue_bucket_01",
@@ -912,6 +930,24 @@
         }
       ],
       "failure_policy": "REPORT_FAILURE"
+    },
+    {
+      "id": "step_005",
+      "action": "SEQUENCE",
+      "physical_tool": "ur_go_to_pose",
+      "parameters": {
+        "name": "tilt_drop_start"
+      },
+      "description": "Go back to the saved start pose 'tilt_drop_start', so the arm always ends where it starts.",
+      "primitive_sequence": [
+        {
+          "primitive": "WAIT",
+          "parameters": {
+            "seconds": 0.5
+          }
+        }
+      ],
+      "failure_policy": "STOP_AND_REPLAN"
     }
   ],
   "success_criteria": {

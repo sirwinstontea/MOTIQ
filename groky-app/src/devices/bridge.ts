@@ -112,7 +112,7 @@ function queuedArm(name: string, args: Record<string, unknown>, url: string, rea
 }
 
 // the fixed physical-arm tool (bridge `ur_down_up`); not offered to Grok, only run from its built-in skill
-export async function armPhysical(tool: 'ur_down_up' | 'ur_visit', body: Record<string, unknown>): Promise<ToolResult> {
+export async function armPhysical(tool: 'ur_down_up' | 'ur_visit' | 'go_to_pose', body: Record<string, unknown>): Promise<ToolResult> {
   const url = devices.arm.url;
   if (!url) return { ok: false, error: 'no arm bridge configured (EXPO_PUBLIC_ARM_URL)' };
   return post(`${url}/tools/${tool}`, body, tool === 'ur_visit' ? 180000 : 60000);

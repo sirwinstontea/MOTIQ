@@ -26,6 +26,11 @@ The app (EXPO_PUBLIC_ARM_URL) speaks the "bridge" protocol:
                              back to the start pose. /tools/stop stops it.
     POST /tools/touch_teach_start {"object"} -> centre the camera over the object and stay there
     POST /tools/touch_teach_save      -> save the touching point's offset (operator jogged it over the object)
+    POST /tools/save_pose {"name"}    -> remember the arm's joint angles under a name (no motion;
+                                         computer-vision/data/calibration/saved_poses.json)
+    POST /tools/go_to_pose {"name"}   -> back to a saved pose, one joint at a time (<= 30 deg steps, wrists first);
+                                         refuses below 30 cm, stops below 25 cm; a pose saved on the other arm (real /
+                                         sim) is skipped, never used. /tools/stop stops it.
     GET  /digital-twin/status, POST /digital-twin/check|snapshot|start|stop {"objects": bool}
                           -> READ-ONLY digital twin (real UR5e + RealSense -> RoboDK simulation), proxied to the local
                              twin service (robot_control.digital_twin, 127.0.0.1:8770). MIRROR ONLY: these routes never
@@ -140,6 +145,11 @@ PUSH_STANDOFF_MM = 25.0        # start this far from the object's side
 PUSH_HEIGHT_MM = 20.0          # push this high above the table (at most half the object's height)
 PUSH_SPEED_MPS = 0.03
 TOUCH_OFFSET_FILE = HERE.parent / "computer-vision" / "data" / "calibration" / "touch_offset.json"
+# named arm poses (joint angles) an operator saved with save_pose; go_to_pose brings the arm back, one joint at a time
+SAVED_POSES_FILE = HERE.parent / "computer-vision" / "data" / "calibration" / "saved_poses.json"
+POSE_START_MIN_Z = 0.30        # go_to_pose refuses to start with the tool lower than this (raise it first)
+POSE_MIN_Z = 0.25              # ... and stops if a joint move brings the tool below this
+POSE_JOINT_ORDER = (5, 4, 3, 0, 1, 2)   # wrists first, then base, shoulder, elbow (tested path on the demo cell)
 _STOP_SCRIPT = b"def stop_jog():\n  stopl(1.0)\nend\nstop_jog()\n"
 
 
@@ -1126,6 +1136,76 @@ class Bridge:
         return {"ok": True, "did": f"saved the touch offset ({d_base[0] * 1000:+.0f}, {d_base[1] * 1000:+.0f}) mm",
                 "moved": False}
 
+    # ------------------------------------------------------------------ saved poses (start pose of a skill)
+    @staticmethod
+    def _pose_name(name: Any) -> str:
+        import re
+        n = str(name or "").strip().lower().replace(" ", "_")
+        if not re.fullmatch(r"[a-z0-9_]{1,40}", n):
+            raise Refused("pose name: 1-40 letters, digits or _")
+        return n
+
+    @staticmethod
+    def _saved_poses() -> dict:
+        try:
+            return json.loads(SAVED_POSES_FILE.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def save_pose(self, name: Any) -> dict:
+        """Remember where the arm is now (joint angles) under a name. Never moves the arm."""
+        n = self._pose_name(name)
+        arm = self.physical
+        tcp, q = arm.jog.read_state(arm.ip)
+        poses = self._saved_poses()
+        poses[n] = {"arm": "sim" if arm.sim else "real", "joints_deg": [round(math.degrees(v), 2) for v in q],
+                    "tcp_m": [round(v, 4) for v in tcp], "saved_at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        SAVED_POSES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        SAVED_POSES_FILE.write_text(json.dumps(poses, indent=2), encoding="utf-8")
+        return {"ok": True, "did": f"saved this pose as '{n}'", "moved": False, "pose": poses[n]}
+
+    def go_to_pose(self, name: Any) -> dict:
+        """Back to a saved pose: one joint at a time (ordinary joint steps, <= MAX_JOINT_DEG each, same checks as
+        move_joint), wrists first. Refuses to start below POSE_START_MIN_Z, stops below POSE_MIN_Z. STOP ends it."""
+        n = self._pose_name(name)
+        pose = self._saved_poses().get(n)
+        if not pose:
+            raise Refused(f"no saved pose '{n}' (save one with save_pose)")
+        arm = self.physical
+        if pose.get("arm") != ("sim" if arm.sim else "real"):
+            # a real-arm pose means nothing to the simulated arm (and the other way round): don't move, say so
+            return {"ok": True, "moved": False,
+                    "did": f"skipped: '{n}' was saved on the {pose.get('arm')} arm, this is {arm.name}"}
+        if self.active_task:
+            raise Refused("a controller task is running; wait for it to finish")
+        tcp, q = arm.jog.read_state(arm.ip)
+        if tcp[2] < POSE_START_MIN_Z:
+            raise Refused(f"the tool is {tcp[2] * 100:.0f} cm high; raise it above {POSE_START_MIN_Z * 100:.0f} cm "
+                          "before going to a saved pose")
+        self.search_cancel.clear()
+        target = pose["joints_deg"]
+        cap = float(arm.jog.MAX_JOINT_DEG)
+        moved = False
+        for i in POSE_JOINT_ORDER:
+            while True:
+                if self.search_cancel.is_set():
+                    return {"ok": False, "error": "stopped"}
+                _, q = arm.jog.read_state(arm.ip)
+                delta = target[i] - math.degrees(q[i])
+                if abs(delta) < 0.5:
+                    break
+                r = arm.joint(i, UR_JOINTS[i].replace("_", " "), round(max(-cap, min(cap, delta)), 2))
+                if not r.get("ok"):
+                    return r
+                moved = True
+                z = arm.jog.read_state(arm.ip)[0][2]
+                if z < POSE_MIN_Z:
+                    return {"ok": False, "error": f"stopped: the tool went down to {z * 100:.0f} cm on the way to "
+                                                  f"'{n}'; move it up and try again"}
+        res = arm._result(f"went to the saved pose '{n}'" if moved else f"already at the saved pose '{n}'")
+        res["moved"] = moved
+        return res
+
     def _sim_touch(self, q: Any, come_back: bool) -> dict:
         """SIM=1 TOUCH: no camera or force sensor needed. Over the object's taught approach pose, down to its grasp
         pose (where the tool meets it), back up, then home - the same taught targets the controller picks with."""
@@ -1396,6 +1476,10 @@ class Bridge:
             return self.physical.visit(lambda after: self._locate(match, after), label,
                                        hold_s=float(a.get("hold_s") or 2.0),
                                        come_back=a.get("come_back", True) is not False)
+        if name == "save_pose":
+            return self.save_pose(a.get("name"))
+        if name in ("go_to_pose", "goto_pose"):
+            return self.go_to_pose(a.get("name"))
         if name in STEP_MOVES or name in ("move_joint", "rotate_yaw"):
             if self.active_task:
                 raise Refused("a controller task is running; wait for it to finish")

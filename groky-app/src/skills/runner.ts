@@ -194,6 +194,18 @@ async function runSkillOn(
         refused: !!r.refused,
       };
     }
+    // Back to a pose saved on the bridge (save_pose): the bridge turns one joint at a time, with its own height checks.
+    // The app's own simulator runs the step's primitive_sequence instead.
+    if (device === 'arm' && real && step.physical_tool === 'ur_go_to_pose') {
+      const r = await armPhysical('go_to_pose', { name: String(step.parameters?.name ?? '') });
+      if (r.ok) syncArmFromBridge(r);
+      return {
+        ok: r.ok,
+        note: typeof r.did === 'string' ? r.did : undefined,
+        error: r.ok ? undefined : String(r.error ?? r.status ?? 'failed'),
+        refused: !!r.refused,
+      };
+    }
     // Physical arm, one fixed bridge tool (down + up, no homing). STOP -> stopDevice -> bridge stops it too.
     if (device === 'arm' && real && step.physical_tool === 'ur_down_up') {
       const r = await armPhysical('ur_down_up', { mm: Number(step.parameters?.mm ?? 50) });

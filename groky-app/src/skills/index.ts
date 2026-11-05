@@ -136,7 +136,7 @@ export function realArmProblems(doc: SkillDoc): string[] {
       return void (s.target && PUSHABLE_OBJECTS.includes(s.target)
         ? undefined
         : out.push(`Step ${i + 1}: the arm can push ${PUSHABLE_OBJECTS.join(', ')} (not "${s.target ?? 'nothing'}").`));
-    if (s.physical_tool === 'ur_down_up') return; // one fixed bridge tool, see runner.ts
+    if (s.physical_tool === 'ur_down_up' || s.physical_tool === 'ur_go_to_pose') return; // one bridge tool, see runner.ts
     if (s.action === 'TOUCH') return; // bridge touch: camera-guided + force-guarded contact, see runner.ts
     if (s.action === 'VISIT') return; // bridge ur_visit: the arm camera guides the arm over it, see runner.ts
     const bad = [
@@ -166,7 +166,8 @@ export function physicalArmProblems(doc: SkillDoc): string[] {
         out.push(`Step ${i + 1}: checking a place needs pick and place, which run in RoboDK only.`);
       return;
     }
-    if (['VISIT', 'TOUCH', 'PUSH'].includes(s.action) || s.physical_tool === 'ur_down_up') return;
+    if (['VISIT', 'TOUCH', 'PUSH'].includes(s.action) || s.physical_tool === 'ur_down_up' || s.physical_tool === 'ur_go_to_pose')
+      return;
     if (['PICK', 'PLACE', 'SHAKE'].includes(s.action))
       return void out.push(
         `Step ${i + 1}: ${s.action.toLowerCase()} runs in RoboDK only (the real arm has no gripper). ` +

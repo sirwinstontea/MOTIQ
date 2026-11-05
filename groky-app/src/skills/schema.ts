@@ -124,7 +124,7 @@ export type SkillStep = {
   success_conditions?: string[];
   failure_policy?: FailurePolicy;
   // run this step as one fixed bridge tool on the PHYSICAL arm instead of its primitives (sim runs the primitives)
-  physical_tool?: 'ur_down_up' | 'ur_visit';
+  physical_tool?: 'ur_down_up' | 'ur_visit' | 'ur_go_to_pose';
 };
 
 export type SkillDoc = {
