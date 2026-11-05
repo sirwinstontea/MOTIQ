@@ -272,9 +272,13 @@ async function teach(path: string, init: RequestInit, note: string, source: Reco
   }
   if (status >= 400 || !j.ok) throw new Error(j.error ?? `teach server ${status}`);
   const tokens = (j.tokens?.tokens ?? []) as unknown[];
-  if (!tokens.length) throw new Error('No actions recognised in the video. Try a clearer, slower demonstration.');
-  const summary: string = j.summary;
-  if (!summary?.trim()) throw new Error('Teach server returned no summary for the demonstration.');
+  const summary: string = j.summary || '';
+  // Static / unclear demos sometimes yield zero tokens or only "wait". Still learn when we have a
+  // summary (and optional note), so Show Motion / Upload video can become a skill.json.
+  if (!tokens.length && !summary.trim() && !note.trim()) {
+    throw new Error('No actions recognised in the video. Try a clearer, slower demonstration.');
+  }
+  if (!summary.trim()) throw new Error('Teach server returned no summary for the demonstration.');
   const prompt = note.trim() ? `${summary}\nThe person also said: "${note.trim()}"` : summary;
   const out = await generateSkill(prompt);
   const doc = out.doc;
