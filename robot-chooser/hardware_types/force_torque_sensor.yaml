@@ -1,0 +1,14 @@
+type: force_torque_sensor
+label: Force/torque sensor
+description: Wrist F/T sensor between flange and tool, or a built-in one documented here.
+attach_to: [arm, tool_changer]
+roles: [sensor]
+payload_field: mass_kg
+fields:
+  model: {type: string}
+  mass_kg: {type: number, min: 0, max: 20, unit: kg, required: true}
+  length_m: {type: number, min: 0, unit: m, description: "adds to the tool length (TCP is still set on the gripper)"}
+  force_range_n: {type: number, min: 0, unit: N}
+  torque_range_nm: {type: number, min: 0, unit: Nm}
+  force_accuracy_n: {type: number, min: 0, unit: N}
+drivers: []
