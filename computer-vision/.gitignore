@@ -4,4 +4,4 @@ __pycache__/
 .pytest_cache/
 logs/
 *.pt
-.DS_Store
+.DS_Storedata/skills/learned/
