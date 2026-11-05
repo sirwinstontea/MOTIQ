@@ -118,6 +118,41 @@ def builtin_skills() -> list[SkillDef]:
             **common,
         ),
         SkillDef(
+            id="fork_pick_drop", name="Fork pick and drop",
+            description="Presa con le pale (senza pinza): infila UNA pala nel foro della vite cava, la solleva, "
+                        "va sopra il contenitore e inclina l'utensile per farla scivolare dentro; poi torna in home. "
+                        "La pinza resta aperta per tutto il tempo.",
+            aliases=["infilare", "infilza", "pala", "fork", "fork pick", "prendi con la pala"],
+            params={
+                "target": ParamSpec(type="object_ref", description="vite cava da infilare (in piedi, foro verso l'alto)"),
+                "dest": ParamSpec(type="object_ref", description="contenitore dove farla cadere (secchio)"),
+                "prong_offset_m": ParamSpec(default=0.02, min=0.0, max=0.1,
+                                            description="metà distanza tra le pale: sposta il TCP a destra "
+                                                        "per centrare UNA pala sul foro (da misurare)"),
+                "insert_depth_m": ParamSpec(default=0.06, min=0.01, max=0.2,
+                                            description="quanto scendere per infilare la pala (profondità foro, da misurare)"),
+                "approach_height_m": ParamSpec(default=0.15, min=0.05, max=0.3),
+                "tilt_deg": ParamSpec(default=90, min=45, max=90, description="inclinazione per scaricare"),
+            },
+            body=[
+                P(primitive="OPEN_GRIPPER"),
+                P(primitive="MOVE_ABOVE", args={"target": "$target", "height_m": "$approach_height_m"}),
+                P(primitive="MOVE_RIGHT", args={"distance_m": "$prong_offset_m", "speed_mps": 0.05}),
+                P(primitive="MOVE_DOWN", args={"distance_m": "$insert_depth_m", "speed_mps": 0.02}),
+                P(primitive="MOVE_UP", args={"distance_m": "$insert_depth_m", "speed_mps": 0.05}),
+                P(primitive="MOVE_ABOVE", args={"target": "$dest", "height_m": "$approach_height_m"}),
+                P(primitive="ROTATE_ROLL", args={"angle_deg": "$tilt_deg"}),
+                P(primitive="WAIT", args={"seconds": 1.0}),
+                P(primitive="HOME"),  # HOME raddrizza l'utensile (tool verso il basso)
+            ],
+            preconditions=["target rilevato", "destinazione rilevata", "vite in piedi con foro verso l'alto"],
+            postconditions=["vite nel contenitore", "utensile in home"],
+            origin="builtin", status="needs_validation",
+            uncertainties=["prong_offset_m e insert_depth_m sono stime: misurare sulle pale vere",
+                           "verso dell'inclinazione e lato della pala da verificare sul robot",
+                           "calibrazione camera-braccio non ancora fatta"],
+        ),
+        SkillDef(
             id="pick_and_place", name="Pick and place",
             description="Prende un oggetto e lo deposita nella destinazione, poi torna in home.",
             aliases=["spostare", "trasferire", "pick and place"],
