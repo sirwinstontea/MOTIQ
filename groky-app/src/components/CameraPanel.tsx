@@ -1,16 +1,24 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { ActivityIndicator, Image, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
+import { AudioModule, RecordingPresets, useAudioRecorder } from 'expo-audio';
 import { Ionicons } from '@expo/vector-icons';
 import { Camera, cameras, frameUrl, headersFor, snapshot } from '../lib/cameras';
+import { blobToBase64, FRAME_FPS, grabFrames, Recording, recordWeb, wait } from '../lib/recorder';
 import { Colors, radius, type, useStyles, useTheme } from '../theme';
 import { Button, IconButton, Pill, Segmented } from './ui';
 
-export type CameraHandle = { capture: () => Promise<{ source: string; b64: string }> };
+export type CameraHandle = {
+  capture: () => Promise<{ source: string; b64: string }>;
+  // record the selected camera (video + audio) for `seconds`, see lib/recorder.ts
+  record: (seconds: number, signal?: AbortSignal) => Promise<{ source: string; rec: Recording }>;
+};
 
 type Props = {
   onShow: () => void;
   busy: boolean;
+  busyLabel?: string;
+  recording?: boolean; // Show Motion is recording: the button stops it
   enabled: boolean;
   onToggle: (on: boolean) => void;
   watching: boolean;
@@ -19,7 +27,7 @@ type Props = {
 };
 
 const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
-  { onShow, busy, enabled, onToggle, watching, onWatch, height = 240 },
+  { onShow, busy, busyLabel, recording, enabled, onToggle, watching, onWatch, height = 240 },
   ref,
 ) {
   const { c } = useTheme();
@@ -27,9 +35,62 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
   const [cam, setCam] = useState<Camera>(cameras[0]);
   const [facing, setFacing] = useState<'back' | 'front'>('back');
   const [perm, requestPerm] = useCameraPermissions();
+  const [, requestMic] = useMicrophonePermissions();
+  const [mode, setMode] = useState<'picture' | 'video'>('picture');
   const view = useRef<CameraView>(null);
+  const mic = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+
+  // microphone alongside a url camera: browser MediaRecorder, or expo-audio on a phone / tablet
+  const recordMic = async (seconds: number, signal?: AbortSignal) => {
+    if (Platform.OS === 'web') {
+      const { blob, mime } = await recordWeb(false, seconds, signal);
+      return { audio: await blobToBase64(blob), audioMime: mime };
+    }
+    const p = await AudioModule.requestRecordingPermissionsAsync();
+    if (!p.granted) return {};
+    await mic.prepareToRecordAsync();
+    mic.record();
+    await Promise.race([wait(seconds * 1000), new Promise((r) => signal?.addEventListener('abort', r))]);
+    await mic.stop();
+    if (!mic.uri) return {};
+    return { audio: await blobToBase64(await (await fetch(mic.uri)).blob()), audioMime: 'audio/mp4' };
+  };
 
   useImperativeHandle(ref, () => ({
+    record: async (seconds, signal) => {
+      if (!enabled) throw new Error('the camera is turned off');
+      if (cam.url) {
+        const url = cam.url;
+        const t0 = Date.now();
+        const [frames, sound] = await Promise.all([
+          grabFrames(() => snapshot(url, cam.open), seconds, FRAME_FPS, signal),
+          recordMic(seconds, signal).catch(() => ({})),
+        ]);
+        if (frames.length < 2) throw new Error(`no frames from ${cam.label}`);
+        // real rate, so the video lasts as long as the recording did
+        const fps = frames.length / Math.max(1, (Date.now() - t0) / 1000);
+        return { source: cam.label.toLowerCase(), rec: { kind: 'frames', frames, fps, ...sound } };
+      }
+      if (Platform.OS === 'web') {
+        const { blob, mime } = await recordWeb(true, seconds, signal);
+        return { source: 'tablet', rec: { kind: 'video', blob, mime } };
+      }
+      if (!view.current) throw new Error('tablet camera is not open');
+      const m = await requestMic();
+      if (!m.granted) throw new Error('microphone access is needed to record the demonstration');
+      setMode('video');
+      await wait(400); // let the camera switch to video mode
+      try {
+        const stopper = () => view.current?.stopRecording();
+        signal?.addEventListener('abort', stopper);
+        const out = await view.current?.recordAsync({ maxDuration: seconds });
+        signal?.removeEventListener('abort', stopper);
+        if (!out?.uri) throw new Error('could not record video');
+        return { source: 'tablet', rec: { kind: 'video', uri: out.uri, mime: Platform.OS === 'ios' ? 'video/quicktime' : 'video/mp4' } };
+      } finally {
+        setMode('picture');
+      }
+    },
     capture: async () => {
       if (!enabled) throw new Error('the camera is turned off');
       if (!cam.url) {
@@ -79,7 +140,7 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
                 <Text style={s.muted}>Allow camera access</Text>
               </Pressable>
             ) : (
-              <CameraView ref={view} style={StyleSheet.absoluteFill} facing={facing} animateShutter={false} />
+              <CameraView ref={view} style={StyleSheet.absoluteFill} facing={facing} mode={mode} animateShutter={false} />
             )}
 
             <Pill label={watching ? `${cam.label} · Motion is watching` : cam.label} tone="bad" dot style={s.live} />
@@ -98,9 +159,10 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
           <View style={s.actions}>
             <View style={{ flex: 1 }}>
               <Button
-                label={busy ? 'Motion is looking...' : 'Show Motion'}
-                icon="eye-outline"
-                loading={busy}
+                label={busy ? busyLabel || 'Motion is looking...' : 'Show Motion'}
+                icon={recording ? 'stop-circle-outline' : 'videocam-outline'}
+                loading={busy && !recording}
+                variant={recording ? 'danger' : undefined}
                 onPress={onShow}
                 block
               />

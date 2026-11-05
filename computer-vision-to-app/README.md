@@ -48,6 +48,26 @@ up (grouped by name + colour, so a hand hiding an object doesn't split it), show
 skill from it (`groky-app/src/skills/fromVision.ts`). The draft opens in the skill editor, marked as a draft needing
 review, with `skill.source.type = "vision"`. Nothing is saved or run until you save and approve it.
 
+## Show Motion: a 15 s recording becomes a skill
+
+Press **Show Motion** under the camera and do the task while explaining it out loud. The app records **video + audio
+for 15 seconds**, and the recording goes through the planner in `computer-vision/vision/planner` (motion keyframes,
+Grok vision, Grok speech-to-text, then action tokens). Grok then writes the MOTIQ `skill.json`. The skill is saved
+to the Skills tab as a draft, and you approve it before it can run.
+
+```
+Show Motion ─▶ 15 s video + audio ─▶ teach server :8001 ─▶ vision/planner tokens ─▶ Grok ─▶ skill.json ─▶ Skills tab
+```
+
+- **Tablet / browser camera:** a real video file with sound is recorded (expo-camera on a device, MediaRecorder in a
+  browser).
+- **Vision-server or robot camera** (a jpeg url): the app grabs its frames at about 5 fps and records the tablet
+  microphone. The teach server joins them into one video with ffmpeg (`POST /teach_frames`).
+- `run.py all` starts the teach server next to the vision server and writes `EXPO_PUBLIC_TEACH_SERVER` to the app's
+  `.env`. On its own: `run.py teach`. It reuses the app's `EXPO_PUBLIC_XAI_API_KEY` if `computer-vision/.env` has no
+  `XAI_API_KEY`. With no key at all it runs Grok in mock mode, which is only useful for testing.
+- **Skills → Learn from camera** also has **Upload video** for a demonstration recorded earlier (`POST /teach`).
+
 ## Using a phone / tablet / another computer
 
 Use the network address (what `run.py env` writes by default, e.g. `http://192.168.1.50:8000`), on the same Wi-Fi.

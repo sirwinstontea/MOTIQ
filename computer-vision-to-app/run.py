@@ -7,8 +7,9 @@ for you. Run from anywhere:
     python computer-vision-to-app/run.py setup     # one time: create computer-vision/.venv and install packages
     python computer-vision-to-app/run.py serve     # start the vision server (camera picked automatically)
     python computer-vision-to-app/run.py env       # point groky-app/.env at the server
+    python computer-vision-to-app/run.py teach     # start the teach server (demonstration video -> skill)
     python computer-vision-to-app/run.py check     # is the server up, and is it producing frames?
-    python computer-vision-to-app/run.py all       # setup if needed + env + serve
+    python computer-vision-to-app/run.py all       # setup if needed + env + teach server + vision server
 
 See README.md in this folder.
 """
@@ -29,10 +30,16 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 CV = ROOT / "computer-vision"
 APP = ROOT / "groky-app"
-REQS = [CV / "vision" / "grok" / "requirements.txt", CV / "vision" / "eyes" / "requirements.txt"]
+REQS = [
+    CV / "vision" / "grok" / "requirements.txt",
+    CV / "vision" / "eyes" / "requirements.txt",
+    CV / "vision" / "planner" / "requirements.txt",  # video -> skill (teach server)
+]
 VENV = CV / ".venv"
 ENV_KEY = "EXPO_PUBLIC_VISION_SERVER"
 ENV_SOURCES = "EXPO_PUBLIC_VISION_SOURCES"
+ENV_TEACH = "EXPO_PUBLIC_TEACH_SERVER"
+TEACH_PORT = 8001
 
 
 def venv_python() -> Path:
@@ -61,7 +68,7 @@ def ready() -> bool:
     py = venv_python()
     if not py.exists():
         return False
-    return subprocess.call([str(py), "-c", "import cv2, fastapi, uvicorn, numpy, pydantic, openai"],
+    return subprocess.call([str(py), "-c", "import cv2, fastapi, uvicorn, numpy, pydantic, openai, httpx, imageio_ffmpeg"],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
 
 
@@ -128,10 +135,12 @@ def cmd_env(a: argparse.Namespace) -> int:
         print(f"Can't find {APP}. Add this line to your app's .env yourself:\n  {ENV_KEY}={url}")
         return 1
     lines = set_key(read_env(path), ENV_KEY, url)
+    teach = url.rsplit(":", 1)[0] + f":{getattr(a, 'teach_port', TEACH_PORT)}"
+    lines = set_key(lines, ENV_TEACH, teach)
     if a.sources:
         lines = set_key(lines, ENV_SOURCES, a.sources)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"Wrote {ENV_KEY}={url} to {path}")
+    print(f"Wrote {ENV_KEY}={url} and {ENV_TEACH}={teach} to {path}")
     print("Restart the app's dev server afterwards (Expo reads .env only at start).")
     return 0
 
@@ -197,11 +206,32 @@ def cmd_serve(a: argparse.Namespace) -> int:
         return 0
 
 
+def teach_args(port: int) -> list:
+    return [venv_python(), HERE / "teach_server.py", "--port", str(port)]
+
+
+def cmd_teach(a: argparse.Namespace) -> int:
+    if not ready() and cmd_setup(a) != 0:
+        return 1
+    print(f"\nTeach server: the app's Skills > Learn from camera > Upload video sends videos here.\n"
+          f"  app setting: {ENV_TEACH}=http://{lan_ip()}:{a.teach_port}\n", flush=True)
+    try:
+        return subprocess.call([str(x) for x in teach_args(a.teach_port)], cwd=CV)
+    except KeyboardInterrupt:
+        return 0
+
+
 def cmd_all(a: argparse.Namespace) -> int:
     if not ready() and cmd_setup(a) != 0:
         return 1
-    cmd_env(argparse.Namespace(url=None, port=a.port, sources=None))
-    return cmd_serve(a)
+    cmd_env(argparse.Namespace(url=None, port=a.port, sources=None, teach_port=a.teach_port))
+    # the teach server runs next to the vision server and stops with it
+    teach = subprocess.Popen([str(x) for x in teach_args(a.teach_port)], cwd=CV)
+    print(f"Teach server started on port {a.teach_port} (video -> skill).")
+    try:
+        return cmd_serve(a)
+    finally:
+        teach.terminate()
 
 
 def main() -> int:
@@ -211,9 +241,10 @@ def main() -> int:
     def serve_opts(sp: argparse.ArgumentParser) -> None:
         sp.add_argument("--port", type=int, default=8000)
         sp.add_argument("--host", default="0.0.0.0")
-        sp.add_argument("--mode", default="auto", choices=["auto", "realsense", "webcam", "synthetic", "replay", "stream"])
+        sp.add_argument("--mode", default="auto", choices=["auto", "realsense", "robodk", "webcam", "synthetic", "replay", "stream"])
         sp.add_argument("--device", default=None, help="webcam index (default 0)")
         sp.add_argument("--dog-target", default=None, help="second camera (index or stream URL) to also publish as 'dog'")
+        sp.add_argument("--teach-port", type=int, default=TEACH_PORT, help="teach server port (used by 'all')")
         sp.add_argument("extra", nargs="*", help="anything else is passed to the vision server")
 
     sub.add_parser("setup", help="create computer-vision/.venv and install packages").set_defaults(func=cmd_setup)
@@ -223,9 +254,13 @@ def main() -> int:
     al = sub.add_parser("all", help="setup if needed, update groky-app/.env, start the server")
     serve_opts(al)
     al.set_defaults(func=cmd_all)
-    e = sub.add_parser("env", help=f"write {ENV_KEY} into groky-app/.env")
+    t = sub.add_parser("teach", help="start the teach server (demonstration video -> skill)")
+    t.add_argument("--teach-port", type=int, default=TEACH_PORT)
+    t.set_defaults(func=cmd_teach)
+    e = sub.add_parser("env", help=f"write {ENV_KEY} and {ENV_TEACH} into groky-app/.env")
     e.add_argument("--url", help="server address (default: this computer's network address)")
     e.add_argument("--port", type=int, default=8000)
+    e.add_argument("--teach-port", type=int, default=TEACH_PORT)
     e.add_argument("--sources", help="cameras to list in the app, e.g. arm,dog (default: arm)")
     e.set_defaults(func=cmd_env)
     c = sub.add_parser("check", help="test a running server")

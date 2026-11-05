@@ -13,6 +13,8 @@ const env = {
   visionServer: (process.env.EXPO_PUBLIC_VISION_SERVER ?? '').replace(/\/$/, ''),
   // which vision sources to list as cameras (the server publishes 'arm', and 'dog' if started with a dog camera)
   visionSources: (process.env.EXPO_PUBLIC_VISION_SOURCES || 'arm') as string,
+  // teach server (../computer-vision-to-app/teach_server.py): demonstration video -> action tokens via vision/planner
+  teachServer: (process.env.EXPO_PUBLIC_TEACH_SERVER ?? '').replace(/\/$/, ''),
   // "Name=url,Name=url" - any url that returns a jpeg (bridge /camera.jpg, IP Webcam /shot.jpg, ...)
   cameras: process.env.EXPO_PUBLIC_CAMERAS ?? '',
 };
