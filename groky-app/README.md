@@ -8,7 +8,7 @@ Built at the Grok Hackathon, Ctrl+Alt Museum, Pavia (4-5 Nov 2026).
 ## The idea
 
 Controlling a robot usually means a laptop, a terminal and someone who knows the API. We wanted anyone walking into
-the museum to pick up a tablet and say _"put the red cube in the box"_ or _"dog, come here and sit"_, and have it
+the museum to pick up a tablet and say _"put the orange screw in the delivery zone"_ or _"dog, come here and sit"_, and have it
 just work.
 
 Three things make that possible:
@@ -24,7 +24,7 @@ Three things make that possible:
 ## Demo
 
 1. "What do you see?" - Grok looks through the tablet camera and describes the table.
-2. "Put the red cube in the box." - arm picks it up, places it, then Grok checks the camera and confirms.
+2. "Put the orange screw in the delivery zone." - arm picks it up, places it, then Grok checks the camera and confirms.
 3. "Dog, walk forward a meter and wave." - two tool calls in a row, dog card shows it running.
 4. "Stop!" - everything halts, Grok talks after.
 5. Open History, tap an earlier command to run it again.
@@ -36,7 +36,7 @@ Three things make that possible:
     ▲                    │      ▲                                 │
     │                    │      └──────── result ◀────────────────┘
     │                    ▼
-    │              camera_look ──frame──▶ Grok vision ──▶ "the cube is in the box"
+    │              camera_look ──frame──▶ Grok vision ──▶ "the screw is in the zone"
     │                    │
     └────── speech ◀─────┘
 ```
@@ -82,7 +82,7 @@ extensions: `robot.device` (`arm` | `dog`) and an `app` block (icon, builtin).
 - **Not modelled:** collisions with anything but the table, gripper fingers, payload. The UR safety configuration
   stays the hard limit on the real cell.
 
-MOVE_ABOVE lifts straight up and then travels in joint space: from HOME, a straight line to the cube passes about
+MOVE_ABOVE lifts straight up and then travels in joint space: from HOME, a straight line to an object passes about
 1 cm from the base axis, which would trip a protective stop on the real arm.
 
 ## Skill preview

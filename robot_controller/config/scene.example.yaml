@@ -1,4 +1,5 @@
-# Allowlisted scene for the UR5e demo cell. Units: m, rad (rotation vector).
+# Allowlisted scene for the UR5e demo cell: the 4 real demo objects (no red cube).
+# Units: m, rad (rotation vector).
 # Frame: robot base. This UR5e model faces -X at its home pose, so the work
 # area is at negative X. Tool-down orientation = rotation vector [pi, 0, 0].
 # Targets here are "taught" into the RoboDK demo station by `setup-station`;
@@ -10,15 +11,24 @@ targets:
     joints_rad: [0.0, -1.5708, 1.5708, -1.5708, -1.5708, 0.0]
     pose_m_rad: [-0.49195, -0.1333, 0.3379, 2.2214, 2.2214, 0.0]   # expected TCP (FK), used by mock
     description: safe home posture
-  pick_approach:   {pose_m_rad: [-0.45, -0.20, 0.150, 3.14159, 0, 0]}
-  pick_grasp:      {pose_m_rad: [-0.45, -0.20, 0.025, 3.14159, 0, 0]}
-  pick_lift:       {pose_m_rad: [-0.45, -0.20, 0.250, 3.14159, 0, 0]}
   shake_center:    {pose_m_rad: [-0.45,  0.00, 0.300, 3.14159, 0, 0]}
   shake_left:      {pose_m_rad: [-0.45,  0.04, 0.300, 3.14159, 0, 0]}
   shake_right:     {pose_m_rad: [-0.45, -0.04, 0.300, 3.14159, 0, 0]}
   delivery_approach: {pose_m_rad: [-0.45, 0.20, 0.150, 3.14159, 0, 0]}
   delivery_place:    {pose_m_rad: [-0.45, 0.20, 0.028, 3.14159, 0, 0]}
   delivery_retreat:  {pose_m_rad: [-0.45, 0.20, 0.200, 3.14159, 0, 0]}
+
+  # --- Arm camera (mounted on the arm head, looking down along the tool). Look poses for searching the table:
+  # high enough that the camera sees a wide strip of the table. Named targets only, same checks as any move.
+  scan_right:    {pose_m_rad: [-0.55, -0.20, 0.400, 3.14159, 0, 0]}
+  scan_center:   {pose_m_rad: [-0.55,  0.00, 0.400, 3.14159, 0, 0]}
+  scan_left:     {pose_m_rad: [-0.55,  0.20, 0.400, 3.14159, 0, 0]}
+  scan_delivery: {pose_m_rad: [-0.45,  0.20, 0.300, 3.14159, 0, 0]}
+
+  # --- Drop INTO the blue bucket (139 mm wide, 115 mm tall): held object released above the rim.
+  # place z = rim 0.115 + half a 90 mm screw below the TCP + 30 mm margin. Simulation placeholder: re-teach on a real cell.
+  blue_bucket_01_above:  {pose_m_rad: [-0.62, -0.24, 0.300, 3.14159, 0, 0]}
+  blue_bucket_01_drop:   {pose_m_rad: [-0.62, -0.24, 0.190, 3.14159, 0, 0]}
 
   # --- Demo objects (objects/, imported by scripts/import_all.py). SIMULATION PLACEHOLDERS:
   # positions = display layout in object_specifications.json (Objects_Frame at base [-620,0,0], rz=90).
@@ -38,14 +48,6 @@ targets:
   white_bucket_lid_04_lift:     {pose_m_rad: [-0.62, +0.24, 0.300, 3.14159, 0, 0]}
 
 objects:
-  red_cube:
-    dimensions_m: [0.05, 0.05, 0.05]
-    mass_kg: 0.1
-    approach_target: pick_approach
-    grasp_target: pick_grasp
-    lift_target: pick_lift
-    class_labels: [red_cube, cube, red cube, cubo rosso]
-    station_item: red_cube
   blue_bucket_01:   # 139x139x115 mm cup; grasp height = mid-height
     dimensions_m: [0.139, 0.139, 0.115]
     # mass_kg: unknown -> shake is refused until a measured mass is added
@@ -76,10 +78,14 @@ objects:
     approach_target: white_bucket_lid_04_approach
     grasp_target: white_bucket_lid_04_grasp
     lift_target: white_bucket_lid_04_lift
-    class_labels: [tappo_bianco, tappo, white lid, lid, White_Bucket_Lid_04]   # vision model classes first
+    class_labels: [tappo_bianco, tappo, white lid, white bucket lid, bucket lid, lid, White_Bucket_Lid_04]   # vision model classes first
     station_item: White_Bucket_Lid_04
 
 destinations:
+  blue_bucket_01_inside:    # drop the held object into the blue bucket (where the bucket's slot is)
+    approach_target: blue_bucket_01_above
+    place_target: blue_bucket_01_drop
+    retreat_target: blue_bucket_01_above
   delivery_zone:
     approach_target: delivery_approach
     place_target: delivery_place
@@ -111,6 +117,16 @@ patterns:
     cycle_targets: [shake_left, shake_right]
     end_target: shake_center
 
+# Camera on the arm head: before a pick the bridge first looks straight down at the object's slot
+# (its approach target), then visits scan_targets in order until the camera sees the object.
+search:
+  camera: arm_mounted
+  scan_targets: [scan_center, scan_right, scan_left, scan_delivery]
+  look_first: object_approach
+  settle_s: 0.6
+  look_s: 1.5
+  description: "eye-in-hand search over the demo table"
+
 motions:
   go_home:
     targets: [home]
@@ -127,8 +143,3 @@ station_geometry:
     pose_m_rad: [-0.45, 0.20, 0.0, 0, 0, 0]
     color: [0.20, 0.70, 0.30, 1.0]
     no_collision_with: [table]
-  red_cube:
-    size_m: [0.05, 0.05, 0.05]
-    pose_m_rad: [-0.45, -0.20, 0.0, 0, 0, 0]
-    color: [0.90, 0.15, 0.15, 1.0]
-    no_collision_with: [table, delivery_pad]

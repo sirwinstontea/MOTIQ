@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "task_id": "move_001",
   "actions": [
-    {"action_id": "m1", "action": "move_to_target", "parameters": {"target_id": "pick_approach"}},
+    {"action_id": "m1", "action": "move_to_target", "parameters": {"target_id": "orange_screw_03_approach"}},
     {"action_id": "m2", "action": "move_to_target", "parameters": {"target_id": "home"}}
   ]
 }

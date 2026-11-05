@@ -31,17 +31,17 @@ Task status and action status are tracked separately:
   "schema_version": "1.0", "event_id": 7, "task_id": "demo_001", "action_id": "a2",
   "action": "pick_object", "state": "LIFTING", "status": "SUCCEEDED",
   "timestamp_utc": "2026-11-04T16:14:35.788Z", "backend": "robodk_sim", "robot_model": "UR5e",
-  "parameters": {"object_id": "red_cube"},
+  "parameters": {"object_id": "orange_screw_03"},
   "feedback": {
     "tcp_pose": {"x": -0.45, "y": -0.2, "z": 0.25, "rx": 3.1416, "ry": 0.0, "rz": 0.0,
                  "frame_id": "base", "units": "m_rad_rotvec"},
     "joints": {"values": [0.14, -1.59, 1.82, -1.80, -1.57, 1.72], "units": "rad"},
-    "holding_object_id": "red_cube", "grip_confirmed": true, "gripper_state": "closed",
+    "holding_object_id": "orange_screw_03", "grip_confirmed": true, "gripper_state": "closed",
     "feedback_source": "simulated", "data_age_ms": 3.1, "detector": "mock"
   },
   "error": null,
   "safety_checks": {"approved": true, "reasons": ["..."]},
-  "result": {"object_id": "red_cube", "object_state": "held", "grip_confirmed": true, "grip_source": "simulated"}
+  "result": {"object_id": "orange_screw_03", "object_state": "held", "grip_confirmed": true, "grip_source": "simulated"}
 }
 ```
 

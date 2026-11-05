@@ -67,6 +67,21 @@ Show Motion ─▶ 15 s video + audio ─▶ teach server :8001 ─▶ vision/pl
   `.env`. On its own: `run.py teach`. It reuses the app's `EXPO_PUBLIC_XAI_API_KEY` if `computer-vision/.env` has no
   `XAI_API_KEY`. With no key at all it runs Grok in mock mode, which is only useful for testing.
 - **Skills → Learn from camera** also has **Upload video** for a demonstration recorded earlier (`POST /teach`).
+- `./run_all.sh` (repo root) starts the teach server too, forwards port 8001 to the tablet over USB and adds
+  `EXPO_PUBLIC_TEACH_SERVER=http://127.0.0.1:8001` to `groky-app/.env` if it's missing.
+- **Learned skills are kept on the PC** as well: every skill learned from a video or the camera (and each new revision)
+  is saved to `computer-vision/data/skills/learned/<skill id>.json` (`GET/POST /skills`, `DELETE /skills/<id>`), and
+  the app loads any it doesn't have when it starts. Deleting the skill in the app deletes the PC copy.
+
+### From a phone video to the arm doing it
+
+1. Talk tab, tablet camera selected → **Show Motion**, do the task with the objects while saying what you do (15 s).
+2. The teach server reads the video (keyframes, speech, actions); Grok writes a skill using only the arm's four
+   objects and its destinations (delivery zone, into the blue bucket, back to an object's spot).
+3. The skill is saved in Skills, and Motion says what it understood and runs it. On the real arm it runs only after
+   you approve it in Skills, or straight away if you said "full access".
+4. On the arm each step is: **DETECT** = the arm moves its head camera around until it sees the object, **PICK/PLACE**
+   = one checked controller task each, **VERIFY** = the arm camera looks at the destination.
 
 ## Using a phone / tablet / another computer
 

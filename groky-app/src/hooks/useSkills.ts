@@ -16,6 +16,7 @@ import { skillFromVoice } from '../skills/fromVoice';
 import type { VoiceCommand } from '../skills/fromVoice';
 import { generateSkill } from '../skills/generate';
 import { nameSkill } from '../skills/nameSkill';
+import { deleteLearned, fetchLearned, isLearned, storeLearned } from '../skills/store';
 import { Progress, runSkill, StepResult, Token } from '../skills/runner';
 import { useNotify } from './useNotify';
 
@@ -73,8 +74,32 @@ export function useSkills() {
         if (rv) setReviews(JSON.parse(rv));
       })
       .catch(() => {})
-      .finally(() => (loaded.current = true));
+      .finally(() => {
+        loaded.current = true;
+        // learned skills kept on the robot PC (teach server) that this tablet doesn't have yet
+        fetchLearned().then((pc) => {
+          if (!pc.length) return;
+          setCustom((prev) => {
+            const have = new Set(prev.map((s) => s.skill.id));
+            const add = pc.filter((d) => d?.skill?.id && !have.has(d.skill.id) && !findDuplicate(d, [...builtinSkills, ...prev]));
+            return add.length ? [...prev, ...add] : prev;
+          });
+        });
+      });
   }, []);
+
+  // every learned skill (and each new revision of it) is also saved on the robot PC
+  const synced = useRef<Record<string, string>>({});
+  useEffect(() => {
+    if (!loaded.current) return;
+    for (const d of custom) {
+      if (!isLearned(d)) continue;
+      const sig = `${d.skill.updated_at}|${d.review?.revision}|${d.review?.approved}`;
+      if (synced.current[d.skill.id] === sig) continue;
+      synced.current[d.skill.id] = sig;
+      storeLearned(d);
+    }
+  }, [custom]);
 
   useEffect(() => {
     if (loaded.current) AsyncStorage.setItem(SKILLS_KEY, JSON.stringify(custom)).catch(() => {});
@@ -125,7 +150,11 @@ export function useSkills() {
     [notify],
   );
 
-  const remove = useCallback((id: string) => setCustom((prev) => prev.filter((s) => s.skill.id !== id)), []);
+  const remove = useCallback((id: string) => {
+    const doc = skillsRef.current.find((s) => s.skill.id === id);
+    if (doc && isLearned(doc)) deleteLearned(id);
+    setCustom((prev) => prev.filter((s) => s.skill.id !== id));
+  }, []);
 
   // A spoken request moved a robot: keep what ran as a skill in the Skills tab (tap it to run it again).
   // Called again as more actions of the same request finish, so it updates one skill. Never saved: a request that

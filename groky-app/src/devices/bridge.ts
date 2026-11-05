@@ -54,19 +54,37 @@ export async function runTool(fullName: string, args: Record<string, unknown>): 
     await new Promise((r) => setTimeout(r, Math.min(10, Math.max(0, Number(args.seconds ?? 0.5))) * 1000));
     return { ok: true, waited: args.seconds };
   }
-  if (tool.id === 'arm') return runArmTool(tool.name, args, url);
+  if (tool.id === 'arm') return queuedArm(tool.name, args, url);
   if (!url) return simulate(tool.id, tool.name, args);
   return post(`${url}/tools/${tool.name}`, args);
 }
 
-// null = simulated arm
+// null = simulated arm. Step moves run on the physical arm at 5 cm/s, so allow a minute.
 export function armSend() {
   const url = devices.arm.url;
-  return url ? (tool: string, body: Record<string, unknown>) => post(`${url}/tools/${tool}`, body) : null;
+  return url ? (tool: string, body: Record<string, unknown>) => post(`${url}/tools/${tool}`, body, 60000) : null;
+}
+
+// Grok often sends several arm calls in one turn ("5 cm up, then down") and the session runs them together.
+// The arm can only do one thing at a time, so queue them in the order Grok asked. Stop bypasses the queue.
+let armQueue: Promise<unknown> = Promise.resolve();
+function queuedArm(name: string, args: Record<string, unknown>, url: string): Promise<ToolResult> {
+  const next = armQueue.then(() => runArmTool(name, args, url));
+  armQueue = next.catch(() => {});
+  return next;
+}
+
+// the fixed physical-arm tool (bridge `ur_down_up`); not offered to Grok, only run from its built-in skill
+export async function armPhysical(tool: 'ur_down_up', body: Record<string, unknown>): Promise<ToolResult> {
+  const url = devices.arm.url;
+  if (!url) return { ok: false, error: 'no arm bridge configured (EXPO_PUBLIC_ARM_URL)' };
+  return post(`${url}/tools/${tool}`, body, 60000);
 }
 
 // arm: every primitive is checked against the UR5e model first, so nothing outside the limits reaches the bridge
 async function runArmTool(name: string, args: Record<string, unknown>, url: string): Promise<ToolResult> {
+  // camera on the arm head: on the real arm the bridge moves the camera around until it sees the object
+  if (name === 'detect' && url) return post(`${url}/tools/find`, { object: args.target ?? args.object }, 180000);
   if (name === 'detect') {
     const id = resolveObject(String(args.target ?? ''));
     if (!id)

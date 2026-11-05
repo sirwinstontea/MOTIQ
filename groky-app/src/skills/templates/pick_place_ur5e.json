@@ -3,11 +3,11 @@
 
   "skill": {
     "id": "skill_pick_place_001",
-    "name": "Pick red cube and place in blue box",
+    "name": "Pick the orange screw and place it in the delivery zone",
     "version": "1.1.0",
     "status": "draft",
 
-    "description": "Find a red cube, pick it up and place it inside a blue box while keeping it upright. Executed by a UR5e arm using the action primitives listed in 'action_primitives'.",
+    "description": "Find the orange screw, pick it up and place it in the delivery zone while keeping it upright. Executed by a UR5e arm using the action primitives listed in 'action_primitives'.",
 
     "created_at": "2026-11-04T10:00:00Z",
     "updated_at": "2026-11-04T15:00:00Z",
@@ -22,14 +22,14 @@
   },
 
   "intent": {
-    "goal": "Place the red cube inside the blue box.",
-    "natural_language_instruction": "Pick up the red cube and put it inside the blue box. Keep it upright.",
+    "goal": "Place the orange screw in the delivery zone.",
+    "natural_language_instruction": "Pick up the orange screw and put it in the delivery zone. Keep it upright.",
 
     "success_conditions": [
-      "The red cube is inside the blue box.",
-      "The cube remains upright.",
-      "The robot releases the cube.",
-      "The cube remains stable after release."
+      "The orange screw is in the delivery zone.",
+      "The screw remains upright.",
+      "The robot releases the screw.",
+      "The screw remains stable after release."
     ]
   },
 
@@ -255,18 +255,20 @@
 
     "objects": [
       {
-        "id": "object_cube",
-        "name": "red cube",
-        "category": "cube",
+        "id": "blue_bucket_01",
+        "name": "blue bucket",
+        "category": "bucket",
         "attributes": {
-          "color": "red",
-          "shape": "cube"
+          "color": "blue",
+          "shape": "bucket",
+          "size_m": 0.139,
+          "grip_width_m": 0.017
         },
         "initial_state": {
           "location": {
-            "x": 0.30,
-            "y": 0.15,
-            "z": 0.02
+            "x": 0.62,
+            "y": 0.24,
+            "z": 0.0575
           },
           "orientation": {
             "type": "upright"
@@ -274,29 +276,108 @@
         },
         "detection": {
           "required": true,
-          "class": "cube",
+          "class": "secchio_blu",
           "reidentify_before_pick": true
         }
       },
       {
-        "id": "object_box",
-        "name": "blue box",
-        "category": "container",
+        "id": "green_ring_02",
+        "name": "green ring",
+        "category": "ring",
         "attributes": {
-          "color": "blue",
-          "shape": "box"
+          "color": "green",
+          "shape": "ring",
+          "size_m": 0.139,
+          "grip_width_m": 0.0305
         },
         "initial_state": {
           "location": {
-            "x": 0.55,
-            "y": 0.10,
-            "z": 0.0
+            "x": 0.62,
+            "y": 0.07,
+            "z": 0.015
+          },
+          "orientation": {
+            "type": "upright"
           }
         },
         "detection": {
           "required": true,
-          "class": "container",
-          "reidentify_before_place": true
+          "class": "anello_verde",
+          "reidentify_before_pick": true
+        }
+      },
+      {
+        "id": "orange_screw_03",
+        "name": "orange screw",
+        "category": "screw",
+        "attributes": {
+          "color": "orange",
+          "shape": "screw",
+          "size_m": 0.03,
+          "grip_width_m": 0.03
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.62,
+            "y": -0.08,
+            "z": 0.045
+          },
+          "orientation": {
+            "type": "upright"
+          }
+        },
+        "detection": {
+          "required": true,
+          "class": "vite_arancione",
+          "reidentify_before_pick": true
+        }
+      },
+      {
+        "id": "white_bucket_lid_04",
+        "name": "white bucket lid",
+        "category": "lid",
+        "attributes": {
+          "color": "white",
+          "shape": "lid",
+          "size_m": 0.139,
+          "grip_width_m": 0.025
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.62,
+            "y": -0.24,
+            "z": 0.0265
+          },
+          "orientation": {
+            "type": "upright"
+          }
+        },
+        "detection": {
+          "required": true,
+          "class": "tappo_bianco",
+          "reidentify_before_pick": true
+        }
+      },
+      {
+        "id": "delivery_zone",
+        "name": "delivery zone",
+        "category": "container",
+        "attributes": {
+          "color": "green",
+          "shape": "container",
+          "size_m": 0.12
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.45,
+            "y": -0.2,
+            "z": 0.0
+          }
+        },
+        "detection": {
+          "required": false,
+          "class": "delivery_pad",
+          "reidentify_before_place": false
         }
       }
     ]
@@ -306,13 +387,13 @@
     "object_constraints": [
       {
         "type": "orientation",
-        "object": "object_cube",
+        "object": "orange_screw_03",
         "required_value": "upright"
       },
       {
         "type": "containment",
-        "object": "object_cube",
-        "container": "object_box"
+        "object": "orange_screw_03",
+        "container": "delivery_zone"
       }
     ],
 
@@ -332,41 +413,41 @@
     {
       "id": "step_001",
       "action": "DETECT",
-      "target": "object_cube",
-      "description": "Locate and identify the red cube.",
+      "target": "orange_screw_03",
+      "description": "Locate and identify the orange screw.",
       "preconditions": [
         "Camera is operational.",
         "Workspace is visible."
       ],
       "postconditions": [
-        "Red cube is detected.",
-        "Cube position is available."
+        "Orange screw is detected.",
+        "Screw position is available."
       ],
       "failure_policy": "STOP_AND_REOBSERVE"
     },
     {
       "id": "step_002",
       "action": "PICK",
-      "target": "object_cube",
-      "description": "Grasp the red cube without changing its upright orientation.",
+      "target": "orange_screw_03",
+      "description": "Grasp the orange screw without changing its upright orientation.",
       "parameters": {
         "grasp_type": "top_grasp",
         "preserve_orientation": true
       },
       "primitive_sequence": [
         { "primitive": "OPEN_GRIPPER" },
-        { "primitive": "MOVE_ABOVE", "parameters": { "target": "object_cube", "height_m": 0.15 } },
+        { "primitive": "MOVE_ABOVE", "parameters": { "target": "orange_screw_03", "height_m": 0.15 } },
         { "primitive": "MOVE_DOWN", "parameters": { "distance_m": 0.13, "speed_mps": 0.05 } },
         { "primitive": "CLOSE_GRIPPER", "parameters": { "force_pct": 70 } },
         { "primitive": "MOVE_UP", "parameters": { "distance_m": 0.13 } }
       ],
       "preconditions": [
-        "Red cube is detected.",
+        "Orange screw is detected.",
         "Grasp pose is validated.",
         "Robot reachability is confirmed."
       ],
       "postconditions": [
-        "Cube is attached to gripper.",
+        "Screw is attached to gripper.",
         "Grasp is verified."
       ],
       "failure_policy": "RETRY_WITH_REOBSERVATION"
@@ -374,45 +455,45 @@
     {
       "id": "step_003",
       "action": "PLACE",
-      "target": "object_box",
-      "description": "Place the cube inside the blue box.",
+      "target": "delivery_zone",
+      "description": "Place the screw in the delivery zone.",
       "parameters": {
         "placement_mode": "inside_container",
         "preserve_orientation": true,
         "release_after_placement": true
       },
       "primitive_sequence": [
-        { "primitive": "MOVE_ABOVE", "parameters": { "target": "object_box", "height_m": 0.15 } },
+        { "primitive": "MOVE_ABOVE", "parameters": { "target": "delivery_zone", "height_m": 0.15 } },
         { "primitive": "MOVE_DOWN", "parameters": { "distance_m": 0.08, "speed_mps": 0.05 } },
         { "primitive": "OPEN_GRIPPER" },
         { "primitive": "MOVE_UP", "parameters": { "distance_m": 0.08 } },
         { "primitive": "HOME" }
       ],
       "preconditions": [
-        "Cube is securely grasped.",
-        "Blue box is detected.",
+        "Screw is securely grasped.",
+        "Delivery zone is clear.",
         "Placement area is validated."
       ],
       "postconditions": [
-        "Cube is released inside the box."
+        "Screw is released in the delivery zone."
       ],
       "failure_policy": "STOP_AND_REPLAN"
     },
     {
       "id": "step_004",
       "action": "VERIFY",
-      "target": "object_cube",
-      "description": "Check that the cube is inside the blue box and upright.",
+      "target": "orange_screw_03",
+      "description": "Check that the screw is in the delivery zone and upright.",
       "parameters": {
         "check_containment": true,
         "check_orientation": true,
         "check_stability": true
       },
       "success_conditions": [
-        "Cube is inside box.",
-        "Cube is upright.",
-        "Cube is stable.",
-        "Gripper is no longer holding cube."
+        "Screw is in the delivery zone.",
+        "Screw is upright.",
+        "Screw is stable.",
+        "Gripper is no longer holding the screw."
       ],
       "failure_policy": "REPORT_FAILURE"
     }
@@ -432,8 +513,8 @@
     "human_review_required": true,
 
     "uncertainties": [
-      "Exact cube dimensions are not known.",
-      "Container interior dimensions require measurement.",
+      "Orange screw geometry is approximate (only length 90 mm and max diameter 30 mm are measured).",
+      "Object masses are not measured yet.",
       "Gripper model is not confirmed (stroke and URScript commands may differ).",
       "Base frame orientation (left/right/forward) is not calibrated on the real cell.",
       "Descent distances assume the TCP is calibrated at the gripper fingertips."
