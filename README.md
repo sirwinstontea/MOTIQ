@@ -1,5 +1,5 @@
-<p align="center">
-  <img src="media/motiq-logo.jpg" alt="motiq logo" width="720">
+﻿<p align="center">
+  <img src="demonstration%20video/motiq-logo.jpg" alt="motiq logo" width="720">
 </p>
 
 <h1 align="center">MOTIQ:Intelligent Motion</h1>
@@ -187,7 +187,7 @@ MOTIQ/
 ├── computer-vision/         Perception server, Grok vision toolkit, video planner
 ├── computer-vision-to-app/  One-command vision setup and the teach server
 ├── robot-chooser/           Robot catalog and cell description → controller config
-└── media/                   Images used by this README
+└── demonstration video/     Logo and demo video
 ```
 
 | Component | Role | Stack | Default port |
