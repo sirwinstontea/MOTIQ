@@ -19,14 +19,14 @@ export default function PlanApproval({ onDecide }: { onDecide: (ok: boolean) => 
   return (
     <View style={s.wrap} pointerEvents="box-none">
       <View style={s.card}>
-        <Text style={[s.overline, { color: c.warn }]}>Real arm · waiting for your approval</Text>
+        <Text style={[s.overline, { color: c.warn }]}>Waiting for your approval</Text>
         <Text style={s.say}>{plan.say}</Text>
         {plan.steps.map((step, i) => (
           <Text key={i} style={s.step}>
             {i + 1}. {step}
           </Text>
         ))}
-        <Text style={s.hint}>{'Say "yes" or "no", or tap.'}</Text>
+        <Text style={s.hint}>{'Say "yes" or "no", or tap. Nothing moves until you approve.'}</Text>
         <View style={s.row}>
           <Button label="Cancel" icon="close" onPress={() => decide(false)} />
           <Button label="Approve" icon="checkmark" variant="primary" onPress={() => decide(true)} />

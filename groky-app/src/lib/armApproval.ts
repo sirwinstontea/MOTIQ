@@ -1,7 +1,7 @@
-// Real-arm approval. Motion (Grok voice or typed chat) has full authorization to plan and run tasks and skills,
-// but before the REAL arm moves it must say what it will do (propose_plan) and get a yes from a person:
-// spoken or typed ("yes", "go ahead", "sì", ...), or the Approve button on screen. The voice session refuses
-// real-arm tools until then (session.ts). A new request from the user, a "no", a stop, or 5 minutes end an approval.
+// Motion approval. Motion (Grok voice or typed chat) may plan tasks and skills, but before the arm moves —
+// simulator or real — it must say what it will do (propose_plan) and get a yes from a person: spoken or typed
+// ("yes", "go ahead", "sì", ...), or the Approve button on screen. The voice session refuses arm tools and
+// run_skill until then (session.ts). A new request, a "no", a stop, or 5 minutes ends an approval.
 // Grok can't approve its own plan: approval only comes from the user's own words or a tap.
 import { useSyncExternalStore } from 'react';
 
