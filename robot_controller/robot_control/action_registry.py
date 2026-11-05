@@ -24,6 +24,7 @@ DESCRIPTIONS: dict[ActionName, str] = {
     ActionName.MOVE_TO_TARGET: "Move to a registered named target.",
     ActionName.SHAKE_OBJECT: "Run an approved bounded shake pattern while holding a verified object.",
     ActionName.PERFORM_MOTION: "Run a pre-validated named motion macro.",
+    ActionName.PUSH_OBJECT: "Push a registered, freshly identified object along its taught push path (gripper closed, empty): above -> beside it -> push -> lift. Only objects with a push definition.",
     ActionName.GET_TASK_STATUS: "Progress and events of a task (API call, not a task step).",
     ActionName.CANCEL_TASK: "Controlled cancellation of a task (not an emergency stop).",
     ActionName.STOP_ROBOT: "Request a controlled stop (not an emergency stop).",

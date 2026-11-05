@@ -1,3 +1,9 @@
+> **DEPRECATO / DEPRECATED (2026-11-05).** Questa skill muove il braccio da sola e usa la posa del **TCP attivo** come
+> se fosse la flangia: entrambe le cose sono vietate da `MOTIQ_Codex_Calibration_Skill_EN.md`. Non importatela e non
+> approvatela per il braccio vero. Usate **Skills → Calibration** nell'app (wizard senza movimenti, flangia verificata,
+> scacchiera 21,8 mm): vedi `computer-vision/vision/eyes/README.md`, sezione *Skills → Calibration*.
+> The `/calibration/arm/{reset,sample,solve,look_pose}` endpoints below remain only for backward compatibility.
+
 # Skill "Calibrate arm camera" per Aman
 
 Calibra la RealSense sul polso dell'UR dall'app, **senza toccare il foglio con la punta**. La calibrazione la fai tu sul

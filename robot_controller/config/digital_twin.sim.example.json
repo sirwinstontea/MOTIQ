@@ -1,0 +1,141 @@
+{
+  "_comment": "SIMULATION, no robot at all: scripted joints (telemetry fake) + replay fixture objects. Copy to config/digital_twin.sim.json. The replay points are defined directly in the RoboDK robot base, so T_R_B = identity is true by construction here (and only here).",
+  "schema_version": "1.0.0",
+  "mode": "mirror_only",
+  "target": "simulation",
+  "physical_robot": {
+    "model": "UR5e",
+    "telemetry": "fake",
+    "host": "127.0.0.1",
+    "allow_non_loopback": false,
+    "require_manual_robot_motion": true
+  },
+  "vision": {
+    "source": "replay",
+    "base_url": "http://127.0.0.1:8000",
+    "api_key_env": "BRIDGE_KEY",
+    "require_validated_eye_in_hand": true,
+    "require_pose_reference": "flange",
+    "require_matching_robot_identity": true,
+    "expected_calibration_id": null,
+    "expected_robot_serial": null,
+    "min_confidence": 0.65,
+    "min_depth_valid_ratio": 0.6,
+    "min_depth_points": 30,
+    "max_detection_age_ms": 750,
+    "max_flange_mismatch_mm": 10.0,
+    "max_flange_mismatch_deg": 3.0,
+    "update_only_when_stationary": true,
+    "replay_file": "digital_twin_replay.example.json"
+  },
+  "robodk": {
+    "host": "127.0.0.1",
+    "port": 20500,
+    "station_name": null,
+    "robot_item_name": "UR5e",
+    "require_simulation_mode": true,
+    "reject_connected_robot_driver": true,
+    "base_alignment": {
+      "frame_from": "ur_physical_base",
+      "frame_to": "robodk_virtual_robot_base",
+      "validated": true,
+      "validated_for": "simulation",
+      "validated_by": "replay fixture points are expressed in the RoboDK robot base",
+      "T_R_B": [
+        [
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1
+        ]
+      ],
+      "translation_units": "m"
+    },
+    "object_parent_frame": "Objects_Frame",
+    "create_visible_point_markers": true,
+    "marker_radius_mm": 12,
+    "allow_cad_model_reposition": false
+  },
+  "sync": {
+    "joints_hz": 10,
+    "objects_hz": 2,
+    "stale_after_ms": 1500,
+    "on_stale": "freeze_and_mark_stale",
+    "auto_start": false
+  },
+  "service": {
+    "host": "127.0.0.1",
+    "port": 8770
+  },
+  "objects": {
+    "blue_bucket_01": {
+      "robodk_item_name": "Blue_Bucket_01",
+      "marker_name": "MOTIQ_Detected_blue_bucket_01",
+      "class_labels": [
+        "secchio_blu",
+        "secchio",
+        "blue bucket",
+        "bucket",
+        "Blue_Bucket_01"
+      ],
+      "pose_policy": "visible_surface_marker"
+    },
+    "green_ring_02": {
+      "robodk_item_name": "Green_Ring_02",
+      "marker_name": "MOTIQ_Detected_green_ring_02",
+      "class_labels": [
+        "anello_verde",
+        "anello",
+        "green ring",
+        "ring",
+        "Green_Ring_02"
+      ],
+      "pose_policy": "visible_surface_marker"
+    },
+    "orange_screw_03": {
+      "robodk_item_name": "Orange_Screw_03",
+      "marker_name": "MOTIQ_Detected_orange_screw_03",
+      "class_labels": [
+        "vite_arancione",
+        "vite arancione",
+        "vite",
+        "orange screw",
+        "screw",
+        "Orange_Screw_03"
+      ],
+      "pose_policy": "visible_surface_marker"
+    },
+    "white_bucket_lid_04": {
+      "robodk_item_name": "White_Bucket_Lid_04",
+      "marker_name": "MOTIQ_Detected_white_bucket_lid_04",
+      "class_labels": [
+        "tappo_bianco",
+        "tappo",
+        "white lid",
+        "white bucket lid",
+        "bucket lid",
+        "lid",
+        "White_Bucket_Lid_04"
+      ],
+      "pose_policy": "visible_surface_marker"
+    }
+  }
+}

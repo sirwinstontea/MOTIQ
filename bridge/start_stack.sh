@@ -7,8 +7,11 @@
 #   BACKEND=robodk_sim|mock   controller backend (default: whatever config/robot.yaml says)
 #   VISION=1|0                start computer-vision (default 1 if computer-vision/.venv exists)
 #   VISION_MODE=realsense|webcam|synthetic   passed to the vision server as --mode
+#   VISION_ROBOT_IP=192.168.7.20   read-only UR telemetry (rtde_receive) for Skills -> Calibration; never moves the arm
 #   BRIDGE_PORT=8080
 #   TEACH_PORT=8001           teach server (demonstration video -> skill), started with the vision server
+#   DIGITAL_TWIN_CONFIG=config/digital_twin.sim.json   start the READ-ONLY digital twin service (127.0.0.1:8770,
+#                             relative to robot_controller/) for Skills -> Sync Digital Twin. Mirror only.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 RC="$ROOT/robot_controller"
@@ -29,7 +32,7 @@ VISION="${VISION:-$([ -x "$CV/.venv/bin/python" ] && echo 1 || echo 0)}"
 vision_url=""
 if [ "$VISION" = "1" ]; then
   echo "[stack] vision server on :8000"
-  (cd "$CV" && exec .venv/bin/python -m vision.eyes.cli run --port 8000 ${VISION_MODE:+--mode "$VISION_MODE"}) &
+  (cd "$CV" && exec .venv/bin/python -m vision.eyes.cli run --port 8000 ${VISION_MODE:+--mode "$VISION_MODE"} ${VISION_ROBOT_IP:+--robot-ip "$VISION_ROBOT_IP"}) &
   pids+=($!)
   vision_url="http://127.0.0.1:8000"
   detector=(--detector vision_file --vision-file "$VISION_FILE")
@@ -54,6 +57,12 @@ if [ "${BACKEND:-}" != "mock" ] && ! (echo > /dev/tcp/127.0.0.1/20500) 2>/dev/nu
   (cd "$RC" && setsid nohup "$HOME/RoboDK/RoboDK-Start.sh" stations/UR5e_demo.rdk >/dev/null 2>&1 &)
   for _ in $(seq 1 90); do (echo > /dev/tcp/127.0.0.1/20500) 2>/dev/null && break; sleep 1; done
   sleep 5   # let it finish loading the station
+fi
+
+if [ -n "${DIGITAL_TWIN_CONFIG:-}" ]; then
+  echo "[stack] digital twin (MIRROR ONLY, no physical motion) on 127.0.0.1:8770, config $DIGITAL_TWIN_CONFIG"
+  (cd "$RC" && exec "$PY" -m robot_control.digital_twin.cli serve --config "$DIGITAL_TWIN_CONFIG") &
+  pids+=($!)
 fi
 
 echo "[stack] robot controller on 127.0.0.1:$CTRL_PORT (dashboard http://127.0.0.1:$CTRL_PORT/)"

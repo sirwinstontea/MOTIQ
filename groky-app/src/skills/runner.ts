@@ -40,10 +40,6 @@ export async function runSkill(
       await wait(Math.min(10, Number(c.parameters?.seconds ?? 0.5)) * 1000, token);
       return { ok: true };
     }
-    if (device === 'dog') {
-      const r = await runTool(`dog_${c.primitive.toLowerCase()}`, c.parameters ?? {});
-      return { ok: r.ok, error: r.ok ? undefined : String(r.error ?? r.status ?? 'failed') };
-    }
     const r = await runArm(c.primitive, c.parameters ?? {}, armSend(), opts);
     return {
       ok: r.ok,
@@ -87,6 +83,19 @@ export async function runSkill(
 
   const once = async (i: number, step: SkillStep): Promise<Res> => {
     on.progress({ step: i, prim: null });
+    if (step.action === 'OVERVIEW') {
+      // Real arm: the bridge reads the arm camera from where the arm is now; nothing moves.
+      if (device === 'arm' && real) {
+        const r = await runTool('arm_overview', {});
+        return { ok: r.ok, note: typeof r.did === 'string' ? r.did : undefined, error: r.ok ? undefined : String(r.error ?? 'camera unavailable') };
+      }
+      const seen: string[] = [];
+      const missing: string[] = [];
+      for (const id of CELL_OBJECTS) ((await detect(id, false)).ok ? seen : missing).push(armWorld()[id]?.name ?? id);
+      return seen.length
+        ? { ok: true, note: `sees ${seen.join(', ')}${missing.length ? `; not in view: ${missing.join(', ')}` : ''}` }
+        : { ok: false, error: 'none of the 4 objects is in view' };
+    }
     if (step.action === 'DETECT') return step.target ? look(step.target) : { ok: false, error: 'no target' };
     if (step.action === 'VERIFY' && device === 'arm' && real && step.target && CELL_OBJECTS.includes(step.target)) {
       // look at where the skill put it with the arm camera (destination = the containment constraint, else the last
@@ -112,6 +121,17 @@ export async function runSkill(
         step.action === 'PICK'
           ? await runTool('arm_pick', { object: step.target })
           : await runTool('arm_place', { destination: step.target });
+      return {
+        ok: r.ok,
+        note: typeof r.did === 'string' ? r.did : undefined,
+        error: r.ok ? undefined : String(r.error ?? r.status ?? 'failed'),
+        refused: !!r.refused,
+      };
+    }
+    // PUSH with the arm bridge connected: ONE robot_controller task (push_object along the object's taught push path,
+    // simulation backends). The primitive_sequence is only what the app's own simulator shows.
+    if (device === 'arm' && real && step.action === 'PUSH' && step.target) {
+      const r = await runTool('arm_push', { object: step.target });
       return {
         ok: r.ok,
         note: typeof r.did === 'string' ? r.did : undefined,
@@ -210,4 +230,4 @@ export async function runSkill(
   return { ok: !error, state: error ? 'failed' : 'done', error, results };
 }
 
-const isLook = (s: SkillStep) => s.action === 'DETECT' || s.action === 'VERIFY';
+const isLook = (s: SkillStep) => s.action === 'DETECT' || s.action === 'VERIFY' || s.action === 'OVERVIEW';

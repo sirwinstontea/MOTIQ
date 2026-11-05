@@ -24,7 +24,7 @@ export async function nameSkill(doc: SkillDoc, said: string): Promise<string | n
       role: 'system',
       content:
         'You name robot skills. Reply with ONLY a short title of 2 to 4 words, Title Case, describing the action ' +
-        '(for example "Pick Orange Screw", "Dog Greeting Wave"). No quotes, no punctuation, no extra text.',
+        '(for example "Pick Orange Screw", "Push Blue Bucket"). No quotes, no punctuation, no extra text.',
     },
     { role: 'user', content: `The operator said: "${said}"\nDevice: ${deviceOf(doc)}\nSteps:\n${steps}` },
   ];

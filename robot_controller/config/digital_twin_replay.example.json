@@ -1,0 +1,50 @@
+{
+  "_comment": "Synthetic observations for SIMULATION ONLY, UR5e base frame, m, visible-surface centroids (top faces of the demo station objects: Objects_Frame at (-620, 0, 0) mm rz=90 under the robot base). Not measurements. Includes one unknown label and one low-confidence detection to show the gates.",
+  "objects": [
+    {
+      "object_class": "secchio_blu",
+      "position_base_m": [
+        -0.62,
+        -0.24,
+        0.115
+      ],
+      "confidence": 0.93
+    },
+    {
+      "object_class": "anello_verde",
+      "position_base_m": [
+        -0.62,
+        -0.07,
+        0.007
+      ],
+      "confidence": 0.9
+    },
+    {
+      "object_class": "vite_arancione",
+      "position_base_m": [
+        -0.62,
+        0.08,
+        0.09
+      ],
+      "confidence": 0.88
+    },
+    {
+      "object_class": "tappo_bianco",
+      "position_base_m": [
+        -0.62,
+        0.24,
+        0.053
+      ],
+      "confidence": 0.4
+    },
+    {
+      "object_class": "tazza",
+      "position_base_m": [
+        -0.45,
+        0.0,
+        0.05
+      ],
+      "confidence": 0.95
+    }
+  ]
+}

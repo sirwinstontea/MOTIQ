@@ -64,7 +64,7 @@ def test_tool_allowlist_has_no_raw_motion():
     names = {s["name"] for s in tool_specs()}
     assert names == {"get_robot_state", "get_scene", "identify_object", "pick_object", "move_object",
                      "place_object", "release_object", "move_to_target", "shake_object", "perform_motion",
-                     "get_task_status", "cancel_task", "stop_robot"}
+                     "get_task_status", "cancel_task", "stop_robot", "push_object"}
     for s in tool_specs():
         assert s["parameters"]["additionalProperties"] is False
         props = set(s["parameters"].get("properties", {}))

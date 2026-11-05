@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LayoutChangeEvent, Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { ARM, ArmFrame, buildTimeline, DogFrame, H, Pt, Timeline, W } from '../preview/scene';
+import { ARM, ArmFrame, buildTimeline, H, Pt, Timeline, W } from '../preview/scene';
 import type { SkillDoc } from '../skills';
 import { Colors, fonts, radius, type, useStyles, useTheme } from '../theme';
 import { IconButton } from './ui';
@@ -59,7 +59,7 @@ export default function SkillPreview({ skill, autoPlay = true }: Props) {
   return (
     <View style={s.wrap}>
       <View style={s.scene} onLayout={(e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width)}>
-        {width > 0 && (f.device === 'arm' ? <ArmScene f={f} k={k} c={c} /> : <DogScene f={f} tl={tl} k={k} c={c} />)}
+        {width > 0 && <ArmScene f={f} k={k} c={c} />}
         <View style={s.badge}>
           <Text style={s.badgeText}>CONCEPTUAL 2D</Text>
         </View>
@@ -361,112 +361,6 @@ function Scan({ scan, k, c, label }: { scan: number; k: number; c: Colors; label
       >
         ● {label}
       </Text>
-    </>
-  );
-}
-
-// ---------- dog (top-down) ----------
-
-function DogScene({ f, tl, k, c }: { f: DogFrame; tl: Timeline; k: number; c: Colors }) {
-  const sc = f.scale;
-  const size = 260 * sc; // local box, dog centred in it (room for the camera beam)
-  const mid = size / 2;
-  const L = f.len;
-  const Wd = f.wid;
-  const local = (x: number, y: number): Pt => ({ x: mid + x * sc, y: mid + y * sc });
-  const head = L * 22 + 4;
-  const waveAng = -Math.PI / 3 - f.wave;
-  const pawStart = { x: L * 14, y: -Wd * 12 };
-  const pawEnd = { x: pawStart.x + 16 * Math.cos(waveAng), y: pawStart.y + 16 * Math.sin(waveAng) };
-
-  return (
-    <>
-      {tl.grid.xs.map((x) => (
-        <Rect key={`x${x}`} x0={x} y0={0} x1={x + 1 / k} y1={H} k={k} style={{ backgroundColor: c.line }} />
-      ))}
-      {tl.grid.ys.map((y) => (
-        <Rect key={`y${y}`} x0={0} y0={y} x1={W} y1={y + 1 / k} k={k} style={{ backgroundColor: c.line }} />
-      ))}
-      <Text
-        style={{ position: 'absolute', left: 12 * k, top: 8 * k, fontFamily: fonts.mono, fontSize: 11, color: c.dim }}
-      >
-        pose: {f.pose}
-      </Text>
-      <Rect x0={12} y0={H - 15} x1={12 + 50 * sc} y1={H - 13} k={k} style={{ backgroundColor: c.faint }} />
-      <Text
-        style={{
-          position: 'absolute',
-          left: (18 + 50 * sc) * k,
-          top: (H - 21) * k,
-          fontFamily: fonts.mono,
-          fontSize: 10,
-          color: c.faint,
-        }}
-      >
-        0.5 m
-      </Text>
-
-      {f.trail.slice(1).map((p, i) => (
-        <Bar key={i} a={f.trail[i]} b={p} w={3} k={k} color={c.accent} opacity={0.55} />
-      ))}
-      <Dot p={f.trail[0]} r={4} k={k} color={c.accent} />
-
-      {/* the dog, drawn facing right in a local box, then rotated */}
-      <View
-        style={{
-          position: 'absolute',
-          left: (f.pos.x - mid) * k,
-          top: (f.pos.y - mid) * k,
-          width: size * k,
-          height: size * k,
-          transform: [{ rotate: `${-f.heading}deg` }],
-        }}
-      >
-        {f.scan > 0.01 && (
-          <Rect
-            x0={mid + (head + 8) * sc}
-            y0={mid - 30 * sc}
-            x1={mid + (head + 80) * sc}
-            y1={mid + 30 * sc}
-            k={k}
-            style={{
-              backgroundColor: c.accent,
-              opacity: 0.3 * f.scan,
-              borderTopRightRadius: 30 * sc * k,
-              borderBottomRightRadius: 30 * sc * k,
-            }}
-          />
-        )}
-        {[L * 14, -L * 14].flatMap((lx) =>
-          [-(Wd * 13 + 1), Wd * 13 + 1].map((ly) => (
-            <Dot key={`${lx}${ly}`} p={local(lx, ly)} r={4 * sc} k={k} color={c.dim} />
-          )),
-        )}
-        {f.wave > 0.01 && (
-          <Bar a={local(pawStart.x, pawStart.y)} b={local(pawEnd.x, pawEnd.y)} w={5 * sc} k={k} color={c.accent} />
-        )}
-        <Bar a={local(-L * 16, 0)} b={local(L * 16, 0)} w={22 * Wd * sc} k={k} color="#d6d3ce" />
-        <Dot p={local(head, 0)} r={10 * sc} k={k} color={c.text} />
-        <Dot p={local(head + 4, -4)} r={1.6 * sc} k={k} color={c.accentInk} />
-        <Dot p={local(head + 4, 4)} r={1.6 * sc} k={k} color={c.accentInk} />
-        <Dot p={local(head + 10, 0)} r={2.2 * sc} k={k} color={c.accent} />
-      </View>
-
-      {f.scan > 0.01 && (
-        <Text
-          style={{
-            position: 'absolute',
-            right: 14 * k,
-            top: 8 * k,
-            fontFamily: fonts.mono,
-            fontSize: 11,
-            color: c.accent,
-            opacity: f.scan,
-          }}
-        >
-          ● camera
-        </Text>
-      )}
     </>
   );
 }

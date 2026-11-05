@@ -1,5 +1,4 @@
-// Robot profiles and their action primitives. The arm comes straight from the skill template so there is one
-// source of truth; the dog has a small hand-written profile until its hardware is known.
+// Robot profile and its action primitives: the UR5e arm, straight from the skill template (one source of truth).
 import template from '../skills/templates/pick_place_ur5e.json';
 import type { Device, OperationalLimits, Primitive, Robot } from '../skills/schema';
 
@@ -8,40 +7,8 @@ export const ARM_PRIMITIVES = template.action_primitives as unknown as Primitive
 export const ARM_LIMITS = UR5E.operational_limits as OperationalLimits;
 export const ARM_HOME = UR5E.home_joints_deg as number[];
 
-export const DOG: Robot = { device: 'dog', model: 'TO_BE_CONFIRMED robot dog' };
-
-// names match the existing dog bridge endpoints (POST /tools/walk, ...)
-export const DOG_PRIMITIVES: Primitive[] = [
-  {
-    id: 'WALK',
-    description: 'Walk the robot dog. Positive meters forward, negative backward.',
-    parameters: { meters: { type: 'number', min: -2, max: 2 } },
-  },
-  {
-    id: 'TURN',
-    description: 'Turn in place. Positive degrees = left.',
-    parameters: { degrees: { type: 'number', min: -180, max: 180 } },
-  },
-  {
-    id: 'POSE',
-    description: 'Put the dog in a pose.',
-    parameters: { pose: { type: 'enum', values: ['stand', 'sit', 'lie', 'wave'] } },
-  },
-  {
-    id: 'LOOK',
-    description: "Take a photo with the dog's camera and describe what is in front of it.",
-    parameters: {},
-  },
-  {
-    id: 'WAIT',
-    description: 'Pause.',
-    parameters: { seconds: { type: 'number', default: 0.5, min: 0, max: 10 } },
-  },
-];
-
 export const profiles: Record<Device, { robot: Robot; primitives: Primitive[] }> = {
   arm: { robot: UR5E, primitives: ARM_PRIMITIVES },
-  dog: { robot: DOG, primitives: DOG_PRIMITIVES },
 };
 
 export function primitive(device: Device, id: string): Primitive | undefined {

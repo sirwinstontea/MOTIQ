@@ -169,6 +169,18 @@ class ObjectDef(_Cfg):
     lift_target: str
     class_labels: list[str] = Field(default_factory=list)   # vision labels mapped to this ID
     station_item: Optional[str] = None                       # RoboDK object to attach (simulation)
+    push: Optional[PushDef] = None                           # None = this object cannot be pushed
+
+
+class PushDef(_Cfg):
+    """An operator-taught push path for one object, only named targets: above it, beside it (gripper not touching),
+    pushed (`end`), lifted clear. The object is moved by `distance_m` along the start->end line."""
+    above_target: str
+    start_target: str
+    end_target: str
+    lift_target: str
+    distance_m: float = Field(gt=0, le=0.15)
+    description: str = ""
 
 
 class DestinationDef(_Cfg):
@@ -236,6 +248,9 @@ class SceneConfig(_Cfg):
         refs = [("home_target", self.home_target)]
         for oid, o in self.objects.items():
             refs += [(f"objects.{oid}", t) for t in (o.approach_target, o.grasp_target, o.lift_target)]
+            if o.push:
+                refs += [(f"objects.{oid}.push", t) for t in (o.push.above_target, o.push.start_target,
+                                                               o.push.end_target, o.push.lift_target)]
         for did, d in self.destinations.items():
             refs += [(f"destinations.{did}", t) for t in (d.approach_target, d.place_target, d.retreat_target)]
         for pid, p in self.patterns.items():

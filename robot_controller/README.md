@@ -87,6 +87,10 @@ RUN_URSIM_TESTS=1 python -m pytest -m integration tests/test_ursim_sync_smoke.py
 python scripts/mirror_ursim_to_robodk.py        # read-only live mirror (e.g. while jogging in PolyScope)
 ```
 
+Read-only digital twin (joints + calibrated object markers, app-controlled, simulate first then the real UR5e):
+`python -m robot_control.digital_twin.cli check|snapshot|run|serve --config config/digital_twin.sim.json`, see
+[docs/DIGITAL_TWIN_SYNC.md](docs/DIGITAL_TWIN_SYNC.md).
+
 ### Tasks for the demo objects (`examples/objects/`)
 
 | Task | Actions |

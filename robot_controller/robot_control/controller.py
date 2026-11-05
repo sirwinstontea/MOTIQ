@@ -163,6 +163,16 @@ class RobotController(ABC):
     @abstractmethod
     def get_gripper_state(self) -> GripStatus: ...
 
+    # --- push -------------------------------------------------------------
+    def begin_push(self, object_id: str) -> bool:
+        """Called with the closed, empty gripper beside `object_id`, right before the push segment. A simulator moves
+        the object model with the tool on that segment and returns True; the default only moves the robot (False).
+        Raise PRECONDITION_FAILED if the object is not where the push path expects it."""
+        return False
+
+    def end_push(self) -> None:
+        """After the push segment (also on failure): leave the pushed object where it is now."""
+
     # --- stop ---------------------------------------------------------------
     @abstractmethod
     def stop(self) -> None:

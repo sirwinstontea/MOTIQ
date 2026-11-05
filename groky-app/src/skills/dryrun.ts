@@ -1,5 +1,5 @@
 // Run a skill against the arm model without touching anything: feasibility check + data for the preview.
-import { applyArm, ArmState, evaluate, initialArm, Keyframe, resolveParams, World, worldFromEnv } from '../robot/arm';
+import { applyArm, ArmState, evaluate, initialArm, Keyframe, World, worldFromEnv } from '../robot/arm';
 import { armOpts, deviceOf, isLookStep, primitivesOf, primLabel } from './index';
 import type { SkillDoc, SkillStep } from './schema';
 
@@ -51,7 +51,12 @@ export function dryRun(doc: SkillDoc, start: ArmState = initialArm()): DryRun {
   outer: for (const [i, step] of doc.steps.entries()) {
     if (isLookStep(step)) {
       const name = world[step.target ?? '']?.name ?? step.target ?? 'the scene';
-      let note = step.action === 'DETECT' ? `Looks for the ${name}` : `Camera check on the ${name}`;
+      let note =
+        step.action === 'OVERVIEW'
+          ? 'Looks at the whole table from where the arm is (no motion)'
+          : step.action === 'DETECT'
+            ? `Looks for the ${name}`
+            : `Camera check on the ${name}`;
       let warn = false;
       if (step.action === 'VERIFY' && device === 'arm') {
         const check = verifyCheck(doc, step);
@@ -81,27 +86,6 @@ export function dryRun(doc: SkillDoc, start: ArmState = initialArm()): DryRun {
 
     for (const [j, call] of (step.primitive_sequence ?? []).entries()) {
       const label = `${step.action} · ${primLabel(call)}`;
-      if (device === 'dog') {
-        const p = prims.find((x) => x.id === call.primitive);
-        const r = p ? resolveParams(p, call.parameters ?? {}, false) : { error: `unknown primitive ${call.primitive}` };
-        const err = 'error' in r ? r.error : undefined;
-        beats.push({
-          step: i,
-          prim: j,
-          label,
-          note: err ?? p!.description,
-          warn: !!err,
-          error: err,
-          scan: false,
-          seconds: 1,
-          frames: [],
-        });
-        if (err) {
-          error = `Step ${i + 1}: ${err}`;
-          break outer;
-        }
-        continue;
-      }
       const out = applyArm(call.primitive, call.parameters, state, world, opts, prims);
       if (!out.ok) {
         error = `Step ${i + 1} (${step.action}), ${out.error?.startsWith(call.primitive) ? out.error : `${call.primitive}: ${out.error}`}`;

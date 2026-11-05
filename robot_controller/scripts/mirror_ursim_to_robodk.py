@@ -1,22 +1,32 @@
 #!/usr/bin/env python3
-"""Mirror URSim's joint positions onto the RoboDK UR5e model (one-way, read-only on the UR side).
+"""Mirror UR joint positions onto the RoboDK UR5e model (one-way, read-only on the UR side).
 
     python scripts/mirror_ursim_to_robodk.py --once          # copy the current pose once
     python scripts/mirror_ursim_to_robodk.py                 # follow live at 10 Hz (Ctrl+C to stop)
 
-UR side: uses only rtde_receive (no rtde_control), so nothing is sent to the
-controller. Host is restricted to loopback (URSim) unless --allow-host is given.
-RoboDK side: only robot.setJoints() on the simulated robot (display update, no
-program, no driver connection); RoboDK run mode is checked to be simulate.
+Thin wrapper over robot_control.digital_twin (the full feature, with objects and the app controls, is
+`python -m robot_control.digital_twin.cli ...`, see docs/DIGITAL_TWIN_SYNC.md).
+
+UR side: rtde_receive only (no rtde_control), so nothing is sent to the controller. Host is restricted to loopback
+(URSim) unless --allow-host is given. RoboDK side: only robot.setJoints() on the simulated robot, after checking
+before EVERY write that RoboDK is in simulate mode, the robot item has no driver connection and no program moves it.
+
+The printed comparison is like-for-like: RoboDK flange FK vs nominal UR5e DH flange FK of the same joints (model /
+base-convention consistency). The UR's active TCP is not the flange and is not compared to it.
 """
 from __future__ import annotations
 
 import argparse
-import math
 import sys
 import time
+from pathlib import Path
 
-LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from robot_control.digital_twin.config import LOOPBACK, RoboDK  # noqa: E402
+from robot_control.digital_twin.frames import joints_rad_to_robodk_deg, pose_delta, ur5e_fk_flange  # noqa: E402
+from robot_control.digital_twin.robodk_writer import GuardError, RoboDKWriter  # noqa: E402
+from robot_control.digital_twin.telemetry import RTDEJointSource, TelemetryError  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -32,31 +42,33 @@ def main(argv=None) -> int:
     if a.host not in LOOPBACK and not a.allow_host:
         print(f"refusing non-loopback host {a.host!r} (pass --allow-host to read from it)")
         return 2
-    import rtde_receive
-    from robodk import robolink as rl, robomath as rm
-
-    RDK = rl.Robolink(port=a.port)
-    if RDK.RunMode() != rl.RUNMODE_SIMULATE:
-        print(f"RoboDK run mode is {RDK.RunMode()}, not simulate; refusing")
+    writer = RoboDKWriter(RoboDK(robot_item_name=a.robot, port=a.port))
+    try:
+        writer.guard()
+    except GuardError as e:
+        print(f"[{e.status}] {e.reason}")
         return 2
-    robot = RDK.Item(a.robot, rl.ITEM_TYPE_ROBOT)
-    if not robot.Valid():
-        print(f"RoboDK robot {a.robot!r} not found in station {RDK.ActiveStation().Name()!r}")
-        return 2
-    if robot.ConnectedState()[0] == rl.ROBOTCOM_READY:
-        print("RoboDK robot is connected to a real driver; refusing to mirror onto it")
-        return 2
-
-    rec = rtde_receive.RTDEReceiveInterface(a.host)
+    rec = RTDEJointSource(a.host)
+    print("MIRROR ONLY — NO PHYSICAL MOTION")
     try:
         while True:
-            q = [math.degrees(x) for x in rec.getActualQ()]
-            tcp = rec.getActualTCPPose()
-            robot.setJoints(q)
-            fk = rm.Pose_2_UR(robot.SolveFK(q))
-            err = math.dist([v * 1000 for v in tcp[:3]], fk[:3])
-            line = (f"joints deg {[round(v, 2) for v in q]}  UR TCP mm {[round(v * 1000, 1) for v in tcp[:3]]}"
-                    f"  RoboDK flange-vs-UR TCP {err:.2f} mm")
+            try:
+                s = rec.read()
+                q = joints_rad_to_robodk_deg(s.q_rad)
+                T_robodk = writer.write_joints(q)
+            except TelemetryError as e:
+                print(f"\r[{e.status}] {e.reason}", end="", flush=True)
+                if a.once:
+                    print()
+                    return 1
+                time.sleep(1.0)
+                continue
+            except GuardError as e:
+                print(f"\n[{e.status}] {e.reason}: stopped, nothing more written")
+                return 2
+            dmm, ddeg = pose_delta(ur5e_fk_flange(s.q_rad), T_robodk)
+            line = (f"joints deg {[round(v, 2) for v in q]}  RoboDK flange FK vs UR5e nominal-DH flange FK "
+                    f"{dmm:.2f} mm / {ddeg:.2f} deg")
             if a.once:
                 print(line)
                 return 0
@@ -66,7 +78,7 @@ def main(argv=None) -> int:
         print()
         return 0
     finally:
-        rec.disconnect()
+        rec.close()
 
 
 if __name__ == "__main__":

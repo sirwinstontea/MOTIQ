@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0.0",
+  "robot": {
+    "model": "UR5e",
+    "pose_mode": "physical_read_only",
+    "calibration_frame": "flange",
+    "robot_serial": null
+  },
+  "camera": {
+    "model": "Intel RealSense D435",
+    "serial": null,
+    "coordinate_frame": "camera_color_optical"
+  },
+  "camera_mount_estimate": {
+    "reference_frame_as_measured": "unconfirmed_tcp_or_flange",
+    "x_longitudinal_mm": 75.0,
+    "y_mm": null,
+    "z_mm": 35.0,
+    "x_sign_confirmed": false,
+    "z_sign_confirmed": false,
+    "rotation_rpy_deg": null,
+    "status": "rough_estimate_only",
+    "use_as_calibration": false
+  },
+  "board": {
+    "type": "chessboard",
+    "square_size_mm": 21.8,
+    "inner_corners_columns": null,
+    "inner_corners_rows": null,
+    "orientation_reference_confirmed": false
+  },
+  "capture": {
+    "recommended_samples": 20,
+    "min_samples_to_solve": 12,
+    "robot_must_be_stationary": true,
+    "allow_automatic_robot_motion": false
+  },
+  "localization": {
+    "frame": "robot_base",
+    "point_semantics": "visible_surface_centroid_3d",
+    "send_robot_motion_commands": false
+  }
+}

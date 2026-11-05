@@ -1,8 +1,8 @@
 import env from '../lib/config';
-import { ARM_PRIMITIVES, DOG_PRIMITIVES, isRequired, limitFor } from '../robot/profiles';
+import { ARM_PRIMITIVES, isRequired, limitFor } from '../robot/profiles';
 import type { Primitive } from '../skills/schema';
 
-export type DeviceId = 'dog' | 'arm';
+export type DeviceId = 'arm';
 
 type Tool = {
   name: string;
@@ -60,11 +60,12 @@ const fromPrimitives = (list: Primitive[], device: DeviceId): Tool[] =>
     }));
 
 // Names map 1:1 to POST {bridge}/tools/{name}. Arm names are the UR5e primitives from the skill template.
-const dogTools: Tool[] = fromPrimitives(DOG_PRIMITIVES, 'dog');
 
 // High-level tasks run by robot_controller through the arm bridge (../bridge). The real arm only moves between
 // taught positions. Small step moves (move_up/down/..., move_joint, rotate_yaw) go to the physical arm via ur_jog.
-export const ARM_TASK_TOOLS = new Set(['pick_and_place', 'pick', 'place', 'shake', 'find', 'scan', 'check_placed']);
+export const ARM_TASK_TOOLS = new Set([
+  'pick_and_place', 'pick', 'place', 'shake', 'find', 'scan', 'check_placed', 'overview', 'push',
+]);
 const objectParam = {
   type: 'string',
   description: 'object name ("orange screw", "blue bucket", "green ring", "white bucket lid") or the number the vision server shows on it',
@@ -135,7 +136,6 @@ const armTools: Tool[] = [
 ];
 
 export const devices: Record<DeviceId, { label: string; url: string; tools: Tool[] }> = {
-  dog: { label: 'Dog', url: env.dogUrl, tools: dogTools },
   arm: { label: 'Arm', url: env.armUrl, tools: armTools },
 };
 
@@ -147,7 +147,7 @@ const stopTool: Tool = {
   parameters: params({}),
 };
 
-// Grok gets one flat list: dog_walk, arm_move_left, ...
+// Grok gets one flat list: arm_pick, arm_move_left, ...
 export function grokTools() {
   const list = deviceIds.flatMap((id) =>
     devices[id].tools.map((t) => ({ type: 'function', ...t, name: `${id}_${t.name}` })),

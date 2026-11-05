@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { isRequired, limitFor, profiles } from '../robot/profiles';
+import { isRequired, limitFor } from '../robot/profiles';
 import {
   deviceOf,
   Device,
@@ -23,6 +23,8 @@ import {
   Primitive,
   PrimitiveCall,
   primitivesOf,
+  PUSHABLE_OBJECTS,
+  pushSimSequence,
   realArmConnected,
   realArmProblems,
   SkillDoc,
@@ -131,6 +133,12 @@ function blankStep(action: string, doc: SkillDoc): SkillStep {
   const box = objs.find((o) => o.category === 'container')?.id;
   const id = `step_${Date.now().toString(36)}`;
   switch (action) {
+    case 'OVERVIEW':
+      return { id, action, failure_policy: 'STOP_AND_REOBSERVE' };
+    case 'PUSH': {
+      const t = objs.find((o) => PUSHABLE_OBJECTS.includes(o.id))?.id ?? thing ?? '';
+      return { id, action, target: t, failure_policy: 'REPORT_FAILURE', primitive_sequence: pushSimSequence(t) };
+    }
     case 'DETECT':
       return { id, action, target: thing, failure_policy: 'STOP_AND_REOBSERVE' };
     case 'VERIFY':
@@ -248,16 +256,6 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
       const next = clone(prev);
       fn(next);
       return next;
-    });
-
-  const changeDevice = (d: Device) =>
-    patch((x) => {
-      x.robot = { ...profiles[d].robot, device: d };
-      delete x.action_primitives;
-      const ok = new Set(profiles[d].primitives.map((p) => p.id));
-      x.steps = x.steps
-        .map((st) => ({ ...st, primitive_sequence: st.primitive_sequence?.filter((cl) => ok.has(cl.primitive)) }))
-        .filter((st) => d === 'arm' || !isLookStep(st));
     });
 
   const switchMode = (m: 'form' | 'json') => {
@@ -423,16 +421,6 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
                   multiline
                 />
 
-                <Text style={s.label}>Robot</Text>
-                <Segmented
-                  options={(['arm', 'dog'] as Device[]).map((d) => ({
-                    id: d,
-                    label: d === 'arm' ? 'Arm (UR5e)' : 'Dog',
-                  }))}
-                  value={device}
-                  onChange={changeDevice}
-                />
-
                 <Text style={s.label}>Icon</Text>
                 <View style={s.chips}>
                   {skillIcons.map((ic) => (
@@ -532,7 +520,7 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
 
                     {device === 'arm' && objectIds.length > 0 && (
                       <View style={s.arg}>
-                        <Text style={s.argKey}>target{st.action === 'DETECT' || st.action === 'VISIT' ? '' : ' (optional)'}</Text>
+                        <Text style={s.argKey}>target{['DETECT', 'VISIT', 'PUSH'].includes(st.action) ? '' : ' (optional)'}</Text>
                         <View style={s.chips}>
                           {objectIds.map((id) => (
                             <Chip
@@ -562,6 +550,13 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
                       </View>
                     </View>
 
+                    {st.action === 'PUSH' && (
+                      <Text style={s.hint}>
+                        Arm connected: one checked controller task in RoboDK / URSim (closed gripper, down beside the
+                        object, push 5 cm, lift) on its taught push path. Pushable: {PUSHABLE_OBJECTS.join(', ')}. The
+                        moves below are what the app simulator shows.
+                      </Text>
+                    )}
                     {st.action === 'VISIT' && (
                       <Text style={s.hint}>
                         Real arm: the arm camera finds the target and guides the arm over it (sideways only, same
@@ -571,7 +566,9 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
                     )}
                     {isLookStep(st) ? (
                       <Text style={s.hint}>
-                        {st.action === 'DETECT'
+                        {st.action === 'OVERVIEW'
+                          ? 'The arm camera looks at the table from where the arm is now and lists the objects it sees. No motion.'
+                          : st.action === 'DETECT'
                           ? 'Looks for the target with the vision server or the camera before moving to it.'
                           : 'Checks the success conditions with the camera (in the simulator: against the predicted scene).'}
                       </Text>

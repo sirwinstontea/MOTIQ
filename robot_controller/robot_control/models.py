@@ -42,6 +42,7 @@ class ActionName(str, Enum):
     MOVE_TO_TARGET = "move_to_target"
     SHAKE_OBJECT = "shake_object"
     PERFORM_MOTION = "perform_motion"
+    PUSH_OBJECT = "push_object"
     GET_TASK_STATUS = "get_task_status"
     CANCEL_TASK = "cancel_task"
     STOP_ROBOT = "stop_robot"
@@ -64,6 +65,7 @@ class TaskState(str, Enum):
     MOVING = "MOVING"
     TRANSPORTING = "TRANSPORTING"
     SHAKING = "SHAKING"
+    PUSHING = "PUSHING"
     APPROACH_PLACE = "APPROACH_PLACE"
     AT_PLACE = "AT_PLACE"
     RELEASING = "RELEASING"
@@ -222,6 +224,7 @@ PARAMS_BY_ACTION: dict[ActionName, type[Strict]] = {
     ActionName.MOVE_TO_TARGET: TargetParams,
     ActionName.SHAKE_OBJECT: ShakeParams,
     ActionName.PERFORM_MOTION: MotionParams,
+    ActionName.PUSH_OBJECT: ObjectParams,
     ActionName.GET_TASK_STATUS: TaskIdParams,
     ActionName.CANCEL_TASK: TaskIdParams,
     ActionName.STOP_ROBOT: NoParams,

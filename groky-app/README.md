@@ -1,20 +1,20 @@
 # MOTIQ
 
-Talk to Motion, the voice agent for a robot dog and a robot arm, and watch them do it. Motion (running on Grok)
-listens, decides, moves the robots, looks through the cameras to check its own work, and tells you how it went.
+Talk to Motion, the voice agent for a UR5e robot arm, and watch it work. Motion (running on Grok)
+listens, decides, moves the arm, looks through the cameras to check its own work, and tells you how it went.
 
 Built at the Grok Hackathon, Ctrl+Alt Museum, Pavia (4-5 Nov 2026).
 
 ## The idea
 
 Controlling a robot usually means a laptop, a terminal and someone who knows the API. We wanted anyone walking into
-the museum to pick up a tablet and say _"put the orange screw in the delivery zone"_ or _"dog, come here and sit"_, and have it
+the museum to pick up a tablet and say _"put the orange screw in the delivery zone"_ or _"push the blue bucket"_, and have it
 just work.
 
 Three things make that possible:
 
 - **Voice agent.** Grok Voice runs the conversation in real time and calls robot actions as tools. One agent drives
-  both robots, so a single sentence can involve the dog and the arm.
+  the arm, so one sentence can chain several actions.
 - **Vision in the loop.** Grok can take a picture through any camera (tablet, robot, overhead) and reason about it.
   It looks before acting on something it hasn't seen, and after a pick it checks that the object actually landed
   where it should. If not, it says so and offers to retry.
@@ -25,14 +25,14 @@ Three things make that possible:
 
 1. "What do you see?" - Grok looks through the tablet camera and describes the table.
 2. "Put the orange screw in the delivery zone." - arm picks it up, places it, then Grok checks the camera and confirms.
-3. "Dog, walk forward a meter and wave." - two tool calls in a row, dog card shows it running.
+3. "Where is the green ring?" - the arm camera guides the arm over it, then the arm goes back.
 4. "Stop!" - everything halts, Grok talks after.
 5. Open History, tap an earlier command to run it again.
 
 ## How it works
 
 ```
-   you ──voice──▶  Grok Voice (realtime)  ──tool call──▶  robot bridge (HTTP)  ──▶  dog / arm
+   you ──voice──▶  Grok Voice (realtime)  ──tool call──▶  robot bridge (HTTP)  ──▶  arm      
     ▲                    │      ▲                                 │
     │                    │      └──────── result ◀────────────────┘
     │                    ▼
@@ -41,11 +41,10 @@ Three things make that possible:
     └────── speech ◀─────┘
 ```
 
-The app holds the Grok session, plays the audio and runs the tools. Each robot sits behind a small HTTP bridge on
-its own laptop, so the app doesn't care what SDK the hardware uses.
+The app holds the Grok session, plays the audio and runs the tools. The arm sits behind a small HTTP bridge on
+the robot PC, so the app doesn't care what SDK the hardware uses.
 
-Grok sees one flat tool list: `dog_walk`, `dog_turn`, `dog_pose`, `arm_goto`, `arm_grip`, `arm_pick_place`,
-`arm_check`, `camera_look` and `stop`.
+Grok sees one flat tool list: the `arm_*` tools (UR5e primitives and controller tasks), `camera_look` and `stop`.
 
 ## The app
 
@@ -65,7 +64,7 @@ Skills use the MOTIQ skill format (schema 1.1.0). `src/skills/templates/pick_pla
 and success conditions, the robot profile, `action_primitives`, environment objects, constraints, steps
 (DETECT / PICK / PLACE / VERIFY / SEQUENCE, each with a `primitive_sequence` and a `failure_policy`), interpretation
 and safety. The arm's tools and limits are read straight from that template (`src/robot/profiles.ts`). Two app
-extensions: `robot.device` (`arm` | `dog`) and an `app` block (icon, builtin).
+extensions: `robot.device` (always `arm`; skills for any other robot are refused on import) and an `app` block (icon, builtin).
 
 - **Editing:** the Skills tab has a form for steps, primitives, objects and success conditions, and a JSON tab for
   the whole file. Import pastes a skill in; the share button exports a self-contained file.
@@ -87,8 +86,7 @@ MOVE_ABOVE lifts straight up and then travels in joint space: from HOME, a strai
 
 ## Skill preview
 
-The film icon on a skill card (or Preview in the editor) replays the dry run as a 2D side view for the arm and a
-top-down floor for the dog, and flags steps that would be refused, grasps that would close on nothing and checks
+The film icon on a skill card (or Preview in the editor) replays the dry run as a 2D side view of the arm, and flags steps that would be refused, grasps that would close on nothing and checks
 that would fail. The arm drawing is a 2-link sketch of the real 6 joints. Logic in `src/preview/scene.ts`.
 
 ## Robot bridge
@@ -129,7 +127,7 @@ Scan the QR code with Expo Go. On venue wifi use `npm run tunnel`, or plug the t
 | --- | --- |
 | `EXPO_PUBLIC_XAI_API_KEY` | xAI key. Gets bundled into the app, so only on our own devices |
 | `EXPO_PUBLIC_TOKEN_URL` | optional backend that mints short-lived Grok Voice tokens, used instead of the key |
-| `EXPO_PUBLIC_DOG_URL`, `EXPO_PUBLIC_ARM_URL` | robot bridges, e.g. `http://192.168.1.20:8000`. Empty = simulated |
+| `EXPO_PUBLIC_ARM_URL` | arm bridge, e.g. `http://192.168.1.20:8080`. Empty = simulated |
 | `EXPO_PUBLIC_BRIDGE_KEY` | sent as `X-Bridge-Key` |
 | `EXPO_PUBLIC_CAMERAS` | extra cameras, `Name=url,Name=url`, each url returns a JPEG |
 | `EXPO_PUBLIC_VISION_SERVER` | computer-vision server (`../computer-vision/API_APP.md`), used by skill DETECT steps |

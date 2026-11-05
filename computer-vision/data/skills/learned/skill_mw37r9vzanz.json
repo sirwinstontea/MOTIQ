@@ -1,0 +1,538 @@
+{
+  "schema_version": "1.1.0",
+  "skill": {
+    "id": "skill_mw37r9vzanz",
+    "name": "Reproduce Demo",
+    "version": "1.0.0",
+    "status": "draft",
+    "description": "Reproduce 2s demo with wait and observe",
+    "created_at": "2026-11-05T07:18:27Z",
+    "updated_at": "2026-11-05T07:18:27Z",
+    "source": {
+      "type": "video",
+      "video": "tablet recording",
+      "summary": "A person recorded a 2 s demonstration video of a task for the robot arm.\nObjects in the scene: white white_power_strip, black black_plugs, white white_cable, black black_cables, green rice_cake_box, blue snack_bag, black black_pouch, black keyboard, clear plastic_cup, white right_power_strip, black power_adapter, white cable_holder.\nActions, in order:\n- 0.0-0.9s: attendere [wait] \n- 0.9-2.0s: osservare [unknown] \n- 2.0-2.4s: attendere [wait] \nWrite a skill that makes the robot arm reproduce this task: detect each object first, pick, place at the same destination, verify, then go home. Keep the same order. The arm's camera is on its head and it knows four objects: orange screw, blue bucket, green ring, white bucket lid; map what the person handled to the closest of these. Putting something in a cup/bucket/container means into the blue bucket; putting it to one side or on a pad means the delivery zone.",
+      "tokens": 3
+    }
+  },
+  "intent": {
+    "goal": "Detect mapped objects in order, pick and place each to delivery zone, verify, home",
+    "natural_language_instruction": "A person recorded a 2 s demonstration video of a task for the robot arm.\nObjects in the scene: white white_power_strip, black black_plugs, white white_cable, black black_cables, green rice_cake_box, blue snack_bag, black black_pouch, black keyboard, clear plastic_cup, white right_power_strip, black power_adapter, white cable_holder.\nActions, in order:\n- 0.0-0.9s: attendere [wait] \n- 0.9-2.0s: osservare [unknown] \n- 2.0-2.4s: attendere [wait] \nWrite a skill that makes the robot arm reproduce this task: detect each object first, pick, place at the same destination, verify, then go home. Keep the same order. The arm's camera is on its head and it knows four objects: orange screw, blue bucket, green ring, white bucket lid; map what the person handled to the closest of these. Putting something in a cup/bucket/container means into the blue bucket; putting it to one side or on a pad means the delivery zone.",
+    "success_conditions": [
+      "All objects detected, picked, and placed in delivery zone",
+      "Robot returns to home position"
+    ]
+  },
+  "robot": {
+    "device": "arm",
+    "model": "Universal Robots UR5e"
+  },
+  "environment": {
+    "coordinate_system": "world",
+    "units": "meters",
+    "workspace": {
+      "type": "tabletop",
+      "surface": "table"
+    },
+    "objects": [
+      {
+        "id": "white_bucket_lid_04",
+        "name": "white power strip",
+        "category": "lid",
+        "attributes": {
+          "color": "white",
+          "shape": "lid",
+          "size_m": 0.14,
+          "grip_width_m": 0.025
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.4,
+            "y": 0.1,
+            "z": 0.03
+          },
+          "orientation": {
+            "type": "upright"
+          }
+        },
+        "detection": {
+          "required": true,
+          "class": "tappo_bianco",
+          "reidentify_before_pick": true
+        }
+      },
+      {
+        "id": "blue_bucket_01",
+        "name": "rice cake box",
+        "category": "bucket",
+        "attributes": {
+          "color": "green",
+          "shape": "bucket",
+          "size_m": 0.14,
+          "grip_width_m": 0.017
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.5,
+            "y": -0.1,
+            "z": 0.05
+          },
+          "orientation": {
+            "type": "upright"
+          }
+        },
+        "detection": {
+          "required": true,
+          "class": "secchio_blu",
+          "reidentify_before_pick": true
+        }
+      },
+      {
+        "id": "green_ring_02",
+        "name": "snack bag",
+        "category": "ring",
+        "attributes": {
+          "color": "blue",
+          "shape": "ring",
+          "size_m": 0.14,
+          "grip_width_m": 0.0305
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.3,
+            "y": 0.2,
+            "z": 0.02
+          },
+          "orientation": {
+            "type": "upright"
+          }
+        },
+        "detection": {
+          "required": true,
+          "class": "anello_verde",
+          "reidentify_before_pick": true
+        }
+      },
+      {
+        "id": "orange_screw_03",
+        "name": "plastic cup",
+        "category": "screw",
+        "attributes": {
+          "color": "clear",
+          "shape": "screw",
+          "size_m": 0.03,
+          "grip_width_m": 0.03
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.45,
+            "y": -0.15,
+            "z": 0.04
+          },
+          "orientation": {
+            "type": "upright"
+          }
+        },
+        "detection": {
+          "required": true,
+          "class": "vite_arancione",
+          "reidentify_before_pick": true
+        }
+      },
+      {
+        "id": "delivery_zone",
+        "name": "delivery zone",
+        "category": "container",
+        "attributes": {
+          "color": "green",
+          "shape": "container",
+          "size_m": 0.12
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.45,
+            "y": -0.2,
+            "z": 0
+          }
+        },
+        "detection": {
+          "required": false,
+          "class": "delivery_pad",
+          "reidentify_before_place": false
+        }
+      }
+    ]
+  },
+  "constraints": {
+    "object_constraints": [],
+    "execution_constraints": {
+      "collision_avoidance": true,
+      "require_object_reidentification": true,
+      "require_workspace_validation": true,
+      "require_grasp_validation": true,
+      "allow_adaptive_replanning": false,
+      "open_gripper_before_descending": true,
+      "lift_before_horizontal_travel": true,
+      "respect_operational_limits": true
+    }
+  },
+  "steps": [
+    {
+      "id": "step_001",
+      "action": "DETECT",
+      "target": "white_bucket_lid_04",
+      "description": "Detect white power strip",
+      "failure_policy": "STOP_AND_REOBSERVE"
+    },
+    {
+      "id": "step_002",
+      "action": "PICK",
+      "target": "white_bucket_lid_04",
+      "description": "Pick white power strip",
+      "primitive_sequence": [
+        {
+          "primitive": "OPEN_GRIPPER"
+        },
+        {
+          "primitive": "MOVE_ABOVE",
+          "parameters": {
+            "target": "white_bucket_lid_04",
+            "height_m": 0.15
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.13,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "CLOSE_GRIPPER",
+          "parameters": {
+            "force_pct": 70
+          }
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.13
+          }
+        }
+      ],
+      "failure_policy": "RETRY_WITH_REOBSERVATION"
+    },
+    {
+      "id": "step_003",
+      "action": "PLACE",
+      "target": "delivery_zone",
+      "description": "Place white power strip in delivery zone",
+      "primitive_sequence": [
+        {
+          "primitive": "MOVE_ABOVE",
+          "parameters": {
+            "target": "delivery_zone",
+            "height_m": 0.15
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.08,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "OPEN_GRIPPER"
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.08
+          }
+        }
+      ],
+      "failure_policy": "STOP_AND_REPLAN"
+    },
+    {
+      "id": "step_004",
+      "action": "DETECT",
+      "target": "blue_bucket_01",
+      "description": "Detect rice cake box",
+      "failure_policy": "STOP_AND_REOBSERVE"
+    },
+    {
+      "id": "step_005",
+      "action": "PICK",
+      "target": "blue_bucket_01",
+      "description": "Pick rice cake box",
+      "primitive_sequence": [
+        {
+          "primitive": "OPEN_GRIPPER"
+        },
+        {
+          "primitive": "MOVE_ABOVE",
+          "parameters": {
+            "target": "blue_bucket_01",
+            "height_m": 0.15
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.13,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "CLOSE_GRIPPER",
+          "parameters": {
+            "force_pct": 70
+          }
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.13
+          }
+        }
+      ],
+      "failure_policy": "RETRY_WITH_REOBSERVATION"
+    },
+    {
+      "id": "step_006",
+      "action": "PLACE",
+      "target": "delivery_zone",
+      "description": "Place rice cake box in delivery zone",
+      "primitive_sequence": [
+        {
+          "primitive": "MOVE_ABOVE",
+          "parameters": {
+            "target": "delivery_zone",
+            "height_m": 0.15
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.08,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "OPEN_GRIPPER"
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.08
+          }
+        }
+      ],
+      "failure_policy": "STOP_AND_REPLAN"
+    },
+    {
+      "id": "step_007",
+      "action": "DETECT",
+      "target": "green_ring_02",
+      "description": "Detect snack bag",
+      "failure_policy": "STOP_AND_REOBSERVE"
+    },
+    {
+      "id": "step_008",
+      "action": "PICK",
+      "target": "green_ring_02",
+      "description": "Pick snack bag",
+      "primitive_sequence": [
+        {
+          "primitive": "OPEN_GRIPPER"
+        },
+        {
+          "primitive": "MOVE_ABOVE",
+          "parameters": {
+            "target": "green_ring_02",
+            "height_m": 0.15
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.13,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "CLOSE_GRIPPER",
+          "parameters": {
+            "force_pct": 70
+          }
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.13
+          }
+        }
+      ],
+      "failure_policy": "RETRY_WITH_REOBSERVATION"
+    },
+    {
+      "id": "step_009",
+      "action": "PLACE",
+      "target": "delivery_zone",
+      "description": "Place snack bag in delivery zone",
+      "primitive_sequence": [
+        {
+          "primitive": "MOVE_ABOVE",
+          "parameters": {
+            "target": "delivery_zone",
+            "height_m": 0.15
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.08,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "OPEN_GRIPPER"
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.08
+          }
+        }
+      ],
+      "failure_policy": "STOP_AND_REPLAN"
+    },
+    {
+      "id": "step_010",
+      "action": "DETECT",
+      "target": "orange_screw_03",
+      "description": "Detect plastic cup",
+      "failure_policy": "STOP_AND_REOBSERVE"
+    },
+    {
+      "id": "step_011",
+      "action": "PICK",
+      "target": "orange_screw_03",
+      "description": "Pick plastic cup",
+      "primitive_sequence": [
+        {
+          "primitive": "OPEN_GRIPPER"
+        },
+        {
+          "primitive": "MOVE_ABOVE",
+          "parameters": {
+            "target": "orange_screw_03",
+            "height_m": 0.15
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.13,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "CLOSE_GRIPPER",
+          "parameters": {
+            "force_pct": 70
+          }
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.13
+          }
+        }
+      ],
+      "failure_policy": "RETRY_WITH_REOBSERVATION"
+    },
+    {
+      "id": "step_012",
+      "action": "PLACE",
+      "target": "delivery_zone",
+      "description": "Place plastic cup in delivery zone",
+      "primitive_sequence": [
+        {
+          "primitive": "MOVE_ABOVE",
+          "parameters": {
+            "target": "delivery_zone",
+            "height_m": 0.15
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.08,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "OPEN_GRIPPER"
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.08
+          }
+        }
+      ],
+      "failure_policy": "STOP_AND_REPLAN"
+    },
+    {
+      "id": "step_013",
+      "action": "VERIFY",
+      "target": "delivery_zone",
+      "description": "Verify final placement",
+      "failure_policy": "REPORT_FAILURE"
+    },
+    {
+      "id": "step_014",
+      "action": "SEQUENCE",
+      "description": "Return to home",
+      "primitive_sequence": [
+        {
+          "primitive": "HOME"
+        }
+      ],
+      "failure_policy": "REPORT_FAILURE"
+    }
+  ],
+  "safety": {
+    "physical_execution_allowed": false,
+    "requires_feasibility_check": true,
+    "requires_operator_approval": true,
+    "requires_robot_controller_limits": true,
+    "unknown_parameters_policy": "NEEDS_VALIDATION",
+    "stop_primitive_always_available": true,
+    "reject_moves_outside_operational_limits": true
+  },
+  "review": {
+    "revision": 2,
+    "approved": false,
+    "approved_by": null,
+    "approval_timestamp": null
+  },
+  "app": {
+    "icon": "film-outline",
+    "builtin": false
+  },
+  "interpretation": {
+    "model": "grok-4.20-0309-non-reasoning",
+    "status": "draft",
+    "confidence": 0.65,
+    "human_review_required": true,
+    "uncertainties": [
+      "Demo shows only wait and observe actions, but skill performs pick-place on mapped objects as instructed.",
+      "Mapped white_power_strip->white_bucket_lid_04, rice_cake_box->blue_bucket_01, snack_bag->green_ring_02, plastic_cup->orange_screw_03.",
+      "All placements use delivery_zone as instructed for pad/side.",
+      "Objects positions are plausible placeholders since exact demo positions not provided."
+    ]
+  }
+}

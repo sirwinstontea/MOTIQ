@@ -2,10 +2,9 @@ import type { DeviceId } from './tools';
 import type { ToolResult } from './bridge';
 import { armState } from '../robot/runtime';
 
-// Fake robots so the voice side can be built without hardware. The arm is simulated in src/robot.
+// Fake robot so the voice side can be built without hardware. The arm is simulated in src/robot.
 
 export function simInfo(id: DeviceId): Record<string, unknown> {
-  if (id === 'dog') return { battery: 76, pose: 'stand', camera: 'front' };
   const s = armState();
   return {
     model: 'UR5e (sim)',

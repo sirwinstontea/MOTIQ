@@ -7,7 +7,7 @@ import {
   contentSignature,
   deviceOf,
   findDuplicate,
-  fromV1,
+  foreignRobot,
   revoked,
   SkillDoc,
   touched,
@@ -36,8 +36,10 @@ export type Run = {
 
 export type SkillStats = { runs: number; ok: number; lastAt?: number; lastOk?: boolean };
 
-const SKILLS_KEY = 'skills-v2';
-const OLD_SKILLS_KEY = 'skills-v1';
+// v3 (2026-11-05): new built-in set (overview, locate x4, push x3). Skills saved on this phone under the older keys are
+// no longer shown, but they are still in storage under 'skills-v2' / 'skills-v1' (not deleted). Learned skills come
+// back from the robot PC (teach server) as before.
+const SKILLS_KEY = 'skills-v3';
 const STATS_KEY = 'skill-stats-v1';
 // approvals of built-in skills (their files are read-only)
 const REVIEWS_KEY = 'skill-reviews-v1';
@@ -66,10 +68,9 @@ export function useSkills() {
   const token = useRef<Token | null>(null);
 
   useEffect(() => {
-    Promise.all([SKILLS_KEY, OLD_SKILLS_KEY, STATS_KEY, REVIEWS_KEY].map((k) => AsyncStorage.getItem(k)))
-      .then(([s, old, st, rv]) => {
+    Promise.all([SKILLS_KEY, STATS_KEY, REVIEWS_KEY].map((k) => AsyncStorage.getItem(k)))
+      .then(([s, st, rv]) => {
         if (s) setCustom(dropVoiceCopies(JSON.parse(s)));
-        else if (old) setCustom(JSON.parse(old).map(fromV1)); // one-time upgrade from the old flat format
         if (st) setStats(JSON.parse(st));
         if (rv) setReviews(JSON.parse(rv));
       })
@@ -81,7 +82,9 @@ export function useSkills() {
           if (!pc.length) return;
           setCustom((prev) => {
             const have = new Set(prev.map((s) => s.skill.id));
-            const add = pc.filter((d) => d?.skill?.id && !have.has(d.skill.id) && !findDuplicate(d, [...builtinSkills, ...prev]));
+            const add = pc.filter(
+              (d) => d?.skill?.id && !foreignRobot(d) && !have.has(d.skill.id) && !findDuplicate(d, [...builtinSkills, ...prev]),
+            );
             return add.length ? [...prev, ...add] : prev;
           });
         });

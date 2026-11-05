@@ -41,6 +41,15 @@ groky-app (tablet, Grok Voice)
 Destinations: `delivery_zone` (`box`, `pad`), `blue bucket` / `blue_bucket_01` (= `blue_bucket_01_inside`, drops it
 into the bucket), or `<object>_slot` (back where it was picked).
 
+## Sync Digital Twin (read-only, mirror only)
+
+`GET /digital-twin/status`, `POST /digital-twin/check|snapshot|start|stop` with an optional `{"objects": true|false}`
+body (anything else is a 400). Forwarded only to the local twin service (`--digital-twin`, default
+`http://127.0.0.1:8770`, env `DIGITAL_TWIN_URL`); the proxy holds no reference to the controller or the physical arm,
+so these routes cannot move or stop the robot. Start the service with
+`DIGITAL_TWIN_CONFIG=config/digital_twin.sim.json` in `start_stack.sh`, or see
+`robot_controller/docs/DIGITAL_TWIN_SYNC.md`.
+
 ## Camera on the arm head (eye-in-hand search)
 
 The arm camera moves with the arm, so "not in view" usually means "not in view from here". The scene's `search`

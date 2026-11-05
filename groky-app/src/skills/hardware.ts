@@ -179,12 +179,12 @@ function findValue(obj: unknown, names: string[], depth = 2): unknown {
 type Spec = { canonical: string; motion: boolean; vision: boolean; hold: boolean; release: boolean };
 const ALIASES: Record<string, string> = {};
 const alias = (c: string, ...names: string[]) => names.forEach((n) => (ALIASES[n] = c));
-alias('DETECT', 'DETECT', 'LOCATE', 'FIND', 'OBSERVE', 'SCAN', 'IDENTIFY', 'LOOK', 'SEARCH', 'REIDENTIFY');
+alias('DETECT', 'DETECT', 'LOCATE', 'FIND', 'OBSERVE', 'SCAN', 'IDENTIFY', 'LOOK', 'SEARCH', 'REIDENTIFY', 'OVERVIEW');
 alias('VERIFY', 'VERIFY', 'CHECK', 'INSPECT', 'CONFIRM', 'VALIDATE');
 alias('PICK', 'PICK', 'PICK_UP', 'PICKUP', 'GRASP', 'GRAB', 'TAKE', 'FETCH');
 alias('PLACE', 'PLACE', 'PUT', 'PUT_DOWN', 'DROP', 'DEPOSIT', 'SET_DOWN', 'STACK', 'PUT_IN', 'PUT_INTO');
 alias('SEQUENCE', 'SEQUENCE');
-alias('MOVE', 'MOVE', 'MOVE_TO', 'GO_TO', 'REACH', 'APPROACH', 'VISIT');
+alias('MOVE', 'MOVE', 'MOVE_TO', 'GO_TO', 'REACH', 'APPROACH', 'VISIT', 'PUSH');
 alias('HOME', 'HOME', 'GO_HOME', 'PARK');
 alias('WAIT', 'WAIT', 'PAUSE');
 

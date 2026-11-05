@@ -1,30 +1,39 @@
-import { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import CalibrationWizard from '../components/CalibrationWizard';
+import DigitalTwinPanel, { MIRROR_LABEL, stateTone } from '../components/DigitalTwinPanel';
 import SkillEditor from '../components/SkillEditor';
+import SkillPreview from '../components/SkillPreview';
 import TeachFromCamera from '../components/TeachFromCamera';
 import { teachReady, visionReady } from '../skills/fromVision';
-import { Button, IconButton, IconChip, Pill, Segmented } from '../components/ui';
-import { DeviceId, devices } from '../devices';
+import { Button, IconButton, IconChip, Pill } from '../components/ui';
+import { devices } from '../devices';
 import { useDevices } from '../hooks/useDevices';
 import { useFullAccess } from '../lib/fullAccess';
+import { confirmAction } from '../lib/confirm';
+import { ago } from '../lib/time';
+import { isLearned } from '../skills/store';
+import { calibration, calibrationReady, CardState } from '../lib/calibration';
+import { digitalTwin, digitalTwinReady, TwinState } from '../lib/digitalTwin';
 import type { Run, Skills as SkillsApi } from '../hooks/useSkills';
 import {
   deviceOf,
+  exportSkill,
   icon,
   isLookStep,
   newSkill,
   newSkillId,
   physicalBlock,
   primLabel,
+  primitiveCount,
   realArmProblems,
   SkillDoc,
   stepLabel,
 } from '../skills';
 import { Colors, fonts, radius, type, useStyles, useTheme } from '../theme';
 
-type Filter = 'all' | DeviceId;
 type Editing = { doc: SkillDoc; json?: boolean } | null;
 
 export default function Skills({ skills }: { skills: SkillsApi }) {
@@ -32,15 +41,12 @@ export default function Skills({ skills }: { skills: SkillsApi }) {
   const { width } = useWindowDimensions();
   const twoCols = width >= 1000;
   const mobile = width < 641;
-  const [filter, setFilter] = useState<Filter>('all');
   const [editing, setEditing] = useState<Editing>(null);
   const [teaching, setTeaching] = useState(false);
+  const [calibrating, setCalibrating] = useState(false);
+  const [twinOpen, setTwinOpen] = useState(false);
 
-  const list = skills.skills.filter((k) => filter === 'all' || deviceOf(k) === filter);
-  const filters: { id: Filter; label: string }[] = [
-    { id: 'all', label: 'All' },
-    ...(Object.keys(devices) as DeviceId[]).map((id) => ({ id, label: devices[id].label })),
-  ];
+  const list = skills.skills;
 
   const duplicate = (k: SkillDoc) => {
     const copy: SkillDoc = JSON.parse(JSON.stringify(k));
@@ -71,15 +77,22 @@ export default function Skills({ skills }: { skills: SkillsApi }) {
             label="New skill"
             icon="add"
             variant="primary"
-            onPress={() => setEditing({ doc: newSkill(filter === 'dog' ? 'dog' : 'arm') })}
+            onPress={() => setEditing({ doc: newSkill('arm') })}
           />
         </View>
 
-        <View style={s.filters}>
-          <Segmented options={filters} value={filter} onChange={setFilter} />
-        </View>
 
         <View style={[s.grid, twoCols && s.gridTwo]}>
+          {calibrationReady() && (
+            <View style={twoCols ? s.half : undefined}>
+              <CalibrationCard onStart={() => setCalibrating(true)} refreshKey={calibrating} />
+            </View>
+          )}
+          {digitalTwinReady() && (
+            <View style={twoCols ? s.half : undefined}>
+              <DigitalTwinCard onOpen={() => setTwinOpen(true)} refreshKey={twinOpen} />
+            </View>
+          )}
           {list.map((k) => (
             <View key={k.skill.id} style={twoCols ? s.half : undefined}>
               <Card skill={k} skills={skills} onEdit={() => setEditing({ doc: k })} onDuplicate={() => duplicate(k)} />
@@ -87,6 +100,10 @@ export default function Skills({ skills }: { skills: SkillsApi }) {
           ))}
         </View>
       </ScrollView>
+
+      {calibrating && <CalibrationWizard onClose={() => setCalibrating(false)} />}
+
+      {twinOpen && <DigitalTwinPanel onClose={() => setTwinOpen(false)} />}
 
       {teaching && (
         <TeachFromCamera
@@ -113,12 +130,118 @@ export default function Skills({ skills }: { skills: SkillsApi }) {
   );
 }
 
+// Calibration is a workflow, not a motion skill: its own card and wizard, never a SkillDoc and never runSkill().
+function CalibrationCard({ onStart, refreshKey }: { onStart: () => void; refreshKey: boolean }) {
+  const s = useStyles(makeStyles);
+  const [state, setState] = useState<CardState | 'Offline'>('Not calibrated');
+  const [detail, setDetail] = useState('');
+  const [mode, setMode] = useState('');
+
+  useEffect(() => {
+    if (refreshKey) return; // refresh when the wizard closes
+    let live = true;
+    calibration.status().then((r) => {
+      if (!live) return;
+      if (!r.ok) {
+        setState('Offline');
+        setDetail(r.reason);
+        return;
+      }
+      setState(r.card_state);
+      setMode(r.mode_label);
+      const rec = r.active_calibration.record;
+      setDetail(
+        r.active_calibration.valid && rec
+          ? `${rec.calibration_id} · hold-out ${rec.quality.holdout_error_mm ?? '–'} mm`
+          : (r.active_calibration.reason ?? 'Arm camera (D435) to UR5e flange, read-only'),
+      );
+    });
+    return () => {
+      live = false;
+    };
+  }, [refreshKey]);
+
+  const tone =
+    state === 'Calibrated' ? 'ok' : state === 'Error' || state === 'Offline' ? 'bad' : state === 'Not calibrated' ? 'neutral' : 'warn';
+  return (
+    <View style={s.card}>
+      <View style={s.cardHead}>
+        <IconChip icon="scan-outline" />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={s.name} numberOfLines={1}>
+            Calibration{mode ? ` · ${mode}` : ''}
+          </Text>
+          <Text style={s.meta} numberOfLines={1}>
+            {detail}
+          </Text>
+        </View>
+        <Pill label={state} tone={tone as any} dot />
+        <Button label="Start Calibration" icon="scan-outline" size="sm" onPress={onStart} disabled={state === 'Offline'} />
+      </View>
+    </View>
+  );
+}
+
+// Sync Digital Twin is a read-only service, not a motion skill: its own card and panel, never a SkillDoc, never
+// runSkill(), and its Stop never calls the robot stop. MIRROR ONLY — NO PHYSICAL MOTION.
+function DigitalTwinCard({ onOpen, refreshKey }: { onOpen: () => void; refreshKey: boolean }) {
+  const s = useStyles(makeStyles);
+  const [state, setState] = useState<TwinState | 'Offline'>('DISCONNECTED');
+  const [detail, setDetail] = useState(MIRROR_LABEL);
+
+  useEffect(() => {
+    if (refreshKey) return; // the panel polls while open; refresh when it closes
+    let live = true;
+    const poll = () =>
+      digitalTwin.status().then((r) => {
+        if (!live) return;
+        if (!r.ok) {
+          setState('Offline');
+          setDetail(r.reason);
+          return;
+        }
+        setState(r.state);
+        setDetail(
+          r.state === 'RUNNING' || r.state === 'PAUSED_STALE'
+            ? `${MIRROR_LABEL} · ${r.robot.hz.toFixed(1)} Hz · ${r.objects.updated} objects`
+            : `${MIRROR_LABEL} · ${r.target}`,
+        );
+      });
+    poll();
+    const t = setInterval(poll, 5000);
+    return () => {
+      live = false;
+      clearInterval(t);
+    };
+  }, [refreshKey]);
+
+  return (
+    <View style={s.card}>
+      <View style={s.cardHead}>
+        <IconChip icon="git-compare-outline" />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={s.name} numberOfLines={1}>
+            Sync Digital Twin (UR5e + RealSense)
+          </Text>
+          <Text style={s.meta} numberOfLines={1}>
+            {detail}
+          </Text>
+        </View>
+        <Pill label={state} tone={stateTone(state)} dot />
+        <Button label="Open" icon="open-outline" size="sm" onPress={onOpen} />
+      </View>
+    </View>
+  );
+}
+
 type CardProps = { skill: SkillDoc; skills: SkillsApi; onEdit: () => void; onDuplicate: () => void };
 
 function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
   const { c } = useTheme();
   const s = useStyles(makeStyles);
   const { status, ready } = useDevices();
+  const [open, setOpen] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
   const id = skill.skill.id;
   const device = deviceOf(skill);
   const builtin = !!skill.app?.builtin;
@@ -127,6 +250,7 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
   const busy = skills.running && !active;
   const real = !!devices[device].url;
   const offline = ready && status[device].state === 'offline';
+  const st = skills.stats[id];
   useFullAccess(); // re-check when full access is turned on/off
   const blocked = physicalBlock(skill, real);
 
@@ -135,11 +259,16 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
     skills.start(id);
   };
 
+  // only skills someone made or recorded can be deleted; built-ins are part of the app
   const confirmDelete = () =>
-    Alert.alert(`Delete "${skill.skill.name}"?`, 'This cannot be undone.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => skills.remove(id) },
-    ]);
+    confirmAction(
+      `Delete "${skill.skill.name}"?`,
+      isLearned(skill)
+        ? 'It is also removed from the robot PC (learned skills store). This cannot be undone.'
+        : 'This cannot be undone.',
+      'Delete',
+      () => skills.remove(id),
+    );
 
   const review = () => {
     if (skill.review?.approved) return skills.revoke(id);
@@ -154,6 +283,14 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
     );
   };
 
+  const share = async () => {
+    try {
+      await Share.share({ message: JSON.stringify(exportSkill(skill), null, 2), title: `${id}.json` });
+    } catch (e: any) {
+      Alert.alert('Export', String(e?.message ?? e));
+    }
+  };
+
   const progress = run ? run.results.filter((r) => r?.ok).length / skill.steps.length : 0;
   const statusPill =
     run?.state === 'running'
@@ -165,29 +302,40 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
           : run?.state === 'done'
             ? { label: 'done', tone: 'ok' as const }
             : null;
+  const reviewPill = skill.review?.approved
+    ? skill.safety?.physical_execution_allowed
+      ? { label: 'approved · real', tone: 'ok' as const }
+      : { label: 'approved · sim', tone: 'accent' as const }
+    : { label: skill.skill.status || 'draft', tone: 'warn' as const };
+  const src = skill.skill.source as SourceInfo | undefined;
+  const uncertainties = skill.interpretation?.uncertainties ?? [];
 
-  // minimal card: name, one line of description, edit and run. Steps only show while running or after a run.
-  // Preview, export and delete live in the editor (and delete on long press); approval only shows when the real
-  // robot needs it.
+  // compact by default: name, one line of description, details, edit, delete and run. Details open the full
+  // description, where the skill came from (video / camera / voice / Grok), approval, preview, steps and run stats.
   const needsApproval = !!blocked && !realArmProblems(skill).length;
   return (
-    <Pressable
-      onLongPress={builtin ? undefined : confirmDelete}
-      style={[s.card, active && { backgroundColor: c.panel, boxShadow: `inset 0 0 0 1px ${c.accentSoft}` }]}
-    >
+    <View style={[s.card, active && { backgroundColor: c.panel, boxShadow: `inset 0 0 0 1px ${c.accentSoft}` }]}>
       <View style={s.cardHead}>
         <IconChip icon={icon(skill)} color={active ? c.accent : c.text} bg={active ? c.accentSoft : undefined} />
-        <View style={{ flex: 1, minWidth: 0 }}>
+        <Pressable style={{ flex: 1, minWidth: 0 }} onPress={() => setOpen((v) => !v)}>
           <Text style={s.name} numberOfLines={1}>
             {skill.skill.name}
           </Text>
-          {skill.skill.description ? (
+          {skill.skill.description && !open ? (
             <Text style={s.meta} numberOfLines={1}>
               {skill.skill.description}
             </Text>
           ) : null}
-        </View>
+        </Pressable>
         {statusPill && statusPill.tone !== 'accent' && <Pill label={statusPill.label} tone={statusPill.tone} dot />}
+        <IconButton
+          icon={open ? 'chevron-up' : 'chevron-down'}
+          plain
+          size={32}
+          color={open ? c.accent : c.faint}
+          onPress={() => setOpen((v) => !v)}
+          label={open ? 'Hide details' : 'Details'}
+        />
         <IconButton
           icon={builtin ? 'copy-outline' : 'create-outline'}
           plain
@@ -196,6 +344,17 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
           onPress={builtin ? onDuplicate : onEdit}
           label={builtin ? 'Duplicate' : 'Edit'}
         />
+        {!builtin && (
+          <IconButton
+            icon="trash-outline"
+            plain
+            size={32}
+            color={c.faint}
+            onPress={confirmDelete}
+            label="Delete"
+            disabled={active}
+          />
+        )}
         {active ? (
           <Button label="Stop" icon="hand-left" variant="danger" size="sm" onPress={skills.stop} />
         ) : needsApproval ? (
@@ -223,12 +382,125 @@ function Card({ skill, skills, onEdit, onDuplicate }: CardProps) {
         </View>
       )}
 
+      {open && (
+        <View style={s.details}>
+          <Text style={s.desc}>{skill.skill.description || 'No description.'}</Text>
+          <Text style={s.meta}>
+            UR5e · {skill.steps.length} step{skill.steps.length === 1 ? '' : 's'} · {primitiveCount(skill)} primitives ·{' '}
+            {builtin ? 'built-in' : sourceLabel(src)}
+          </Text>
+
+          {src && (src.summary || src.transcript || src.note || src.prompt) ? (
+            <View style={s.source}>
+              <Text style={s.sourceHead}>
+                <Ionicons name={sourceIcon(src)} size={13} color={c.dim} /> {sourceLabel(src)}
+                {src.video ? ` · ${src.video}` : ''}
+                {src.tokens ? ` · ${src.tokens} actions recognised` : ''}
+                {src.seconds ? ` · ${Number(src.seconds).toFixed(0)} s watched` : ''}
+              </Text>
+              {src.summary ? <Text style={s.sourceText}>{src.summary}</Text> : null}
+              {src.transcript ? <Text style={s.sourceText}>They said: “{src.transcript}”</Text> : null}
+              {src.note ? <Text style={s.sourceText}>Your note: “{src.note}”</Text> : null}
+              {src.prompt && !src.summary ? <Text style={s.sourceText}>“{src.prompt}”</Text> : null}
+            </View>
+          ) : null}
+
+          <View style={s.reviewRow}>
+            <Pill label={reviewPill.label} tone={reviewPill.tone} dot />
+            {uncertainties.length ? (
+              <Text style={s.meta}>
+                {uncertainties.length} uncertaint{uncertainties.length === 1 ? 'y' : 'ies'}
+              </Text>
+            ) : null}
+            <View style={{ flex: 1 }} />
+            <Button
+              label={skill.review?.approved ? 'Revoke' : 'Review & approve'}
+              icon={skill.review?.approved ? 'close-circle-outline' : 'shield-checkmark-outline'}
+              size="sm"
+              variant="ghost"
+              onPress={review}
+            />
+          </View>
+          {uncertainties.map((u, k) => (
+            <Text key={k} style={[s.meta, { color: c.warn }]}>
+              • {u}
+            </Text>
+          ))}
+
+          <View style={s.reviewRow}>
+            <Button
+              label={showPreview ? 'Hide preview' : 'Preview'}
+              icon={showPreview ? 'film' : 'film-outline'}
+              size="sm"
+              variant="ghost"
+              onPress={() => setShowPreview((v) => !v)}
+            />
+            <Button label="Export JSON" icon="share-outline" size="sm" variant="ghost" onPress={share} />
+          </View>
+          {showPreview && <SkillPreview skill={skill} />}
+
+          {!active && <Steps skill={skill} run={run} />}
+
+          <Text style={s.stats}>
+            {run && run.state !== 'running'
+              ? runSummary(run)
+              : st
+                ? `ran ${st.runs}× · ${st.ok}/${st.runs} ok · last ${ago(st.lastAt)}${real ? '' : ' · simulated'}`
+                : real
+                  ? 'never run'
+                  : 'never run · runs in the simulator'}
+          </Text>
+        </View>
+      )}
+
       {active && <Steps skill={skill} run={run} />}
 
       {run?.error && run.state !== 'running' && <Text style={s.runError}>{run.error}</Text>}
       {!run && blocked && !needsApproval && <Text style={s.runError}>{blocked}</Text>}
-    </Pressable>
+    </View>
   );
+}
+
+type SourceInfo = {
+  type?: string;
+  video?: string;
+  summary?: string;
+  transcript?: string;
+  note?: string;
+  prompt?: string;
+  tokens?: number;
+  seconds?: number;
+};
+
+function sourceLabel(src?: SourceInfo): string {
+  switch (src?.type) {
+    case 'video':
+      return 'learned from a video';
+    case 'vision':
+      return 'learned from the camera';
+    case 'voice':
+      return 'made by voice';
+    case 'grok_prompt':
+      return 'written by Grok';
+    default:
+      return 'made by hand';
+  }
+}
+
+function sourceIcon(src?: SourceInfo): keyof typeof Ionicons.glyphMap {
+  return src?.type === 'video'
+    ? 'film-outline'
+    : src?.type === 'vision'
+      ? 'eye-outline'
+      : src?.type === 'voice'
+        ? 'mic-outline'
+        : 'sparkles-outline';
+}
+
+function runSummary(run: Run) {
+  const secs = (((run.endedAt ?? Date.now()) - run.startedAt) / 1000).toFixed(1);
+  const label = { done: 'finished', failed: 'failed', stopped: 'stopped', running: 'running' }[run.state];
+  return `${label} in ${secs}s${run.via === 'voice' ? ' · by Motion' : ''}`;
 }
 
 function Steps({ skill, run }: { skill: SkillDoc; run: Run | null }) {
@@ -301,6 +573,10 @@ const makeStyles = (c: Colors) =>
     name: { ...type.cardTitle, color: c.text },
     meta: { ...type.caption, color: c.faint, marginTop: 2 },
     desc: { ...type.body, color: c.dim },
+    details: { gap: 10 },
+    source: { backgroundColor: c.panelHi, borderRadius: radius.md, padding: 12, gap: 6 },
+    sourceHead: { ...type.caption, color: c.dim },
+    sourceText: { ...type.body, color: c.text },
     reviewRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     progress: { height: 4, borderRadius: 2, backgroundColor: c.hover, overflow: 'hidden' },
     progressFill: { height: 4, borderRadius: 2, backgroundColor: c.accent },

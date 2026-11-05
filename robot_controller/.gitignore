@@ -11,3 +11,6 @@ runs/
 config/selection.yaml
 config/robots/
 config/*.bak
+config/digital_twin.local.json
+config/digital_twin.sim.json
+config/digital_twin.ursim.json

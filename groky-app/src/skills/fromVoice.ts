@@ -50,7 +50,7 @@ export const voiceSignature = (calls: VoiceCommand['calls']) =>
   calls.map((c) => `${c.name}:${JSON.stringify(c.args ?? {})}`).join('|').toLowerCase();
 
 // robot tools that become steps (stop, vision_, camera_look and run_skill are not robot actions)
-export const isRobotTool = (name: string) => /^(arm|dog)_/.test(name) && name !== 'stop';
+export const isRobotTool = (name: string) => /^arm_/.test(name) && name !== 'stop';
 
 type Ctx = { objects: EnvObject[]; uncertain: string[] };
 
@@ -131,23 +131,17 @@ function armSteps(ctx: Ctx, name: string, a: Record<string, any>): Omit<SkillSte
   }
 }
 
-function dogSteps(name: string, a: Record<string, any>): Omit<SkillStep, 'id'>[] {
-  return [{ action: 'SEQUENCE', description: name.replace(/_/g, ' '),
-    primitive_sequence: [{ primitive: name.toUpperCase(), ...(Object.keys(a).length ? { parameters: a } : {}) }] }];
-}
-
 // null when nothing reusable ran, or the result would not validate
 export function skillFromVoice(cmd: VoiceCommand, skillId: string): SkillDoc | null {
   const robot = cmd.calls.filter((c) => isRobotTool(c.name));
   if (!robot.length) return null;
-  // one skill is for one robot: take the device used by the first command
-  const device: Device = robot[0].name.startsWith('dog_') ? 'dog' : 'arm';
-  const mine = robot.filter((c) => c.name.startsWith(device + '_'));
+  const device: Device = 'arm';
+  const mine = robot;
 
   const ctx: Ctx = { objects: [], uncertain: [] };
   const raw: Omit<SkillStep, 'id'>[] = mine.flatMap((c) => {
     const n = c.name.slice(device.length + 1);
-    return device === 'arm' ? armSteps(ctx, n, c.args ?? {}) : dogSteps(n, c.args ?? {});
+    return armSteps(ctx, n, c.args ?? {});
   });
   if (!raw.length) return null;
   const steps: SkillStep[] = raw.map((s, i) => ({ id: `step_${String(i + 1).padStart(3, '0')}`, ...s }));

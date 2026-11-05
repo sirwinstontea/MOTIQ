@@ -16,6 +16,13 @@ The app (EXPO_PUBLIC_ARM_URL) speaks the "bridge" protocol:
     POST /tools/find {"object"}       -> camera on the arm head: look for one object from the scene's look poses
     POST /tools/scan                  -> look at the whole table: which of the known objects are there
     POST /tools/check_placed {"object","destination"} -> look at the destination after a place
+    POST /tools/overview              -> the arm camera looks from where the arm is now (NO motion): which objects
+    POST /tools/push {"object"}       -> controller task: identify -> push_object along the object's taught push path
+                                         (robot_controller backends: RoboDK / URSim simulation, closed empty gripper)
+    GET  /digital-twin/status, POST /digital-twin/check|snapshot|start|stop {"objects": bool}
+                          -> READ-ONLY digital twin (real UR5e + RealSense -> RoboDK simulation), proxied to the local
+                             twin service (robot_control.digital_twin, 127.0.0.1:8770). MIRROR ONLY: these routes never
+                             reach the controller, PhysicalArm or /tools/stop; Stop ends mirroring, not the robot.
 
 The controller only accepts allowlisted high-level tasks (AI_ACTION_CONTRACT.md) and only on
 127.0.0.1, so this bridge runs on the same PC, translates tool calls into task JSON and is the
@@ -663,6 +670,28 @@ class Bridge:
             did += f"; didn't see {', '.join(o.replace('_', ' ') for o in missing)}"
         return {"ok": True, "did": did, "objects": found, "missing": missing}
 
+    def overview(self) -> dict:
+        """What the arm camera sees from where the arm is right now. Never moves anything."""
+        if not self.vision:
+            raise Refused("no vision server configured")
+        self.search_cancel.clear()
+        found = self._look(None, self._search_cfg()["look_s"])
+        missing = [o for o in self.objects if o not in found]
+        seen_txt = ", ".join(o.replace("_", " ") for o in found) or "none of the known objects"
+        did = f"the camera sees {seen_txt} from here"
+        if missing:
+            did += f"; not in view: {', '.join(o.replace('_', ' ') for o in missing)}"
+        return {"ok": True, "did": did, "objects": found, "missing": missing, "moved": False}
+
+    def push(self, oid: str) -> dict:
+        push = (self.objects.get(oid) or {}).get("push")
+        if not push:
+            raise Refused(f"the {oid.replace('_', ' ')} can't be pushed (no push path taught for it)")
+        self.ensure_visible(oid)
+        how = push.get("description") or f"{float(push.get('distance_m', 0)) * 100:g} cm"
+        return self.run_task([("identify_object", {"object_id": oid}), ("push_object", {"object_id": oid})],
+                             f"pushed the {oid.replace('_', ' ')} {how}")
+
     def ensure_visible(self, oid: str) -> Optional[dict]:
         """sync_vision for a pick, but with the camera on the arm: if it's not in view, go look for it first."""
         try:
@@ -805,6 +834,10 @@ class Bridge:
             return self.find(self.resolve_object(a.get("object") or a.get("target")))
         if name in ("scan", "look_around"):
             return self.scan()
+        if name in ("overview", "look"):
+            return self.overview()
+        if name in ("push", "push_object"):
+            return self.push(self.resolve_object(a.get("object") or a.get("target")))
         if name == "check_placed":
             oid = self.resolve_object(a.get("object") or a.get("target"))
             return self.check_placed(oid, self.resolve_destination(a.get("destination")))
@@ -892,7 +925,50 @@ class Bridge:
         return out
 
 
-def create_app(bridge: Bridge, key: str) -> FastAPI:
+class DigitalTwinProxy:
+    """Forwards /digital-twin/* to the local twin service. Deliberately holds NO reference to the controller,
+    PhysicalArm or any motion path: the only thing it can reach is the twin service's own five routes."""
+
+    ACTIONS = {"check", "snapshot", "start", "stop"}
+
+    def __init__(self, url: str, key: str = "", client: Optional[httpx.Client] = None):
+        url = (url or "").rstrip("/")
+        if url and not url.startswith(("http://127.0.0.1:", "http://localhost:")):
+            raise ValueError("--digital-twin must be a local http://127.0.0.1:<port> URL")
+        self.url, self.key = url, key
+        self.http = client or httpx.Client(timeout=15.0)
+
+    def call(self, method: str, action: str, body: Optional[dict] = None) -> tuple[int, dict]:
+        if action != "status" and action not in self.ACTIONS:
+            return 404, {"ok": False, "status": "unknown_action", "reason": f"no digital-twin action {action!r}"}
+        if not self.url:
+            return 503, {"ok": False, "status": "not_configured", "reason": "bridge started without --digital-twin"}
+        try:
+            r = self.http.request(method, f"{self.url}/digital-twin/{action}", json=body,
+                                  headers={"X-Bridge-Key": self.key})
+            try:
+                data = r.json()
+            except ValueError:
+                data = {"ok": False, "status": "bad_reply", "reason": f"HTTP {r.status_code}"}
+            return r.status_code, data
+        except httpx.HTTPError as e:
+            return 503, {"ok": False, "status": "service_unavailable", "state": "DISCONNECTED",
+                         "reason": "digital twin service not running (robot_controller: python -m "
+                                   f"robot_control.digital_twin.cli serve --config ...): {e.__class__.__name__}"}
+
+
+def parse_twin_body(body: Any) -> dict:
+    """Only {"objects": bool} is accepted; anything else is a 400."""
+    if body is None:
+        return {}
+    if not isinstance(body, dict) or set(body) - {"objects"}:
+        raise ValueError('body must be {} or {"objects": true|false}')
+    if "objects" in body and not isinstance(body["objects"], bool):
+        raise ValueError('"objects" must be true or false')
+    return body
+
+
+def create_app(bridge: Bridge, key: str, twin: Optional[DigitalTwinProxy] = None) -> FastAPI:
     app = FastAPI(title="MOTIQ arm bridge")
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -968,6 +1044,26 @@ def create_app(bridge: Bridge, key: str) -> FastAPI:
         log.info("tool %s %s -> %s", name, args, {k: res.get(k) for k in ("ok", "did", "error")})
         return JSONResponse(res, status_code=200 if res.get("ok") else 409)
 
+    # ---- read-only digital twin (mirror only): separate proxy, never the controller / PhysicalArm / stop
+    twin = twin or DigitalTwinProxy("")
+
+    @app.get("/digital-twin/status")
+    def twin_status():
+        code, res = twin.call("GET", "status")
+        return JSONResponse(res, status_code=code)
+
+    @app.post("/digital-twin/{action}")
+    async def twin_action(action: str, request: Request):
+        raw = await request.body()
+        try:
+            body = parse_twin_body(json.loads(raw) if raw.strip() else None)
+        except ValueError as e:
+            return JSONResponse({"ok": False, "status": "bad_request", "reason": str(e)}, status_code=400)
+        from starlette.concurrency import run_in_threadpool
+        code, res = await run_in_threadpool(twin.call, "POST", action, body)
+        log.info("digital-twin %s %s -> %s", action, body, {k: res.get(k) for k in ("ok", "status", "state")})
+        return JSONResponse(res, status_code=code)
+
     return app
 
 
@@ -983,6 +1079,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                     help="same path as the controller's --vision-file")
     ap.add_argument("--task-timeout", type=float, default=180.0)
     ap.add_argument("--min-conf", type=float, default=0.6, help="match the controller's min_detection_confidence")
+    ap.add_argument("--digital-twin", default=os.environ.get("DIGITAL_TWIN_URL", "http://127.0.0.1:8770"),
+                    help="local read-only digital twin service ('' = disabled)")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -993,7 +1091,8 @@ def main(argv: Optional[list[str]] = None) -> int:
                  "the app sends it as EXPO_PUBLIC_BRIDGE_KEY")
     bridge = Bridge(args.controller, args.vision, args.scene, args.vision_file, args.task_timeout, args.min_conf)
     log.info("controller=%s vision=%s vision_file=%s", bridge.controller, bridge.vision or "-", bridge.vision_file)
-    uvicorn.run(create_app(bridge, key), host=args.host, port=args.port, log_level="warning")
+    twin = DigitalTwinProxy(args.digital_twin, key)
+    uvicorn.run(create_app(bridge, key, twin), host=args.host, port=args.port, log_level="warning")
     return 0
 
 

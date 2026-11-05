@@ -450,6 +450,36 @@ class RoboDKSimController(RobotController):
         self._holding = object_id
         return self._status()
 
+    def begin_push(self, object_id):
+        """Simulation only: the station object rides with the tool on the push segment (no physics engine). Refused
+        if the object is not beside the gripper (e.g. already pushed, or picked and placed elsewhere)."""
+        self._require()
+        obj = self.scene.objects.get(object_id)
+        if obj is None or not obj.station_item:
+            return False
+        if self._held_item is not None:
+            raise RobotControlError(ErrorCode.PRECONDITION_FAILED, "cannot push while holding an object")
+        item = self.RDK.Item(obj.station_item, self.rl.ITEM_TYPE_OBJECT)
+        if not item.Valid():
+            raise RobotControlError(ErrorCode.CONFIG_ERROR, f"station object '{obj.station_item}' not found")
+        tcp = (self.base.PoseAbs() * self.robot.Pose()).Pos()
+        centre = item.PoseAbs().Pos()
+        gap_mm = math.hypot(tcp[0] - centre[0], tcp[1] - centre[1]) - max(obj.dimensions_m[:2]) * 500.0
+        if gap_mm > 45.0:
+            raise RobotControlError(ErrorCode.PRECONDITION_FAILED,
+                                    f"'{object_id}' is not beside the gripper ({gap_mm:.0f} mm away): it is no longer "
+                                    "at the spot its push path was taught for")
+        self._push_parent = item.Parent()
+        item.setParentStatic(self.tool)
+        self._pushed_item = item
+        return True
+
+    def end_push(self):
+        item, parent = getattr(self, "_pushed_item", None), getattr(self, "_push_parent", None)
+        self._pushed_item = self._push_parent = None
+        if item is not None:
+            item.setParentStatic(parent if parent is not None and parent.Valid() else self.base)
+
     def verify_grip(self):
         self._require()
         self._grip_confirmed = bool(self._held_item is not None and self._held_item.Parent() == self.tool

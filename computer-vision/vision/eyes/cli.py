@@ -382,6 +382,49 @@ def _cmd_calibrate_hand_eye(args: argparse.Namespace) -> int:
     return 0
 
 
+def _flange_provider(args: argparse.Namespace):
+    """Read-only flange pose source for Skills -> Calibration: physical UR via RTDE receive, or a labelled simulation."""
+    from .calibration.setup_config import load_setup
+    from .capture.ur_flange import MockFlangeProvider, RtdeFlangeProvider, pose_to_T as ur_pose_to_T
+
+    def setup_fn():
+        return load_setup()[0]
+
+    if getattr(args, "simulate_robot", None):
+        T = ur_pose_to_T(parse_pose_mm(args.simulate_robot))
+        print("[Robot] SIMULATION flange pose (set robot.pose_mode='simulation' in calibration_setup.json)")
+        return MockFlangeProvider(lambda: T, setup_fn)
+    if getattr(args, "robot_ip", None):
+        print(f"[Robot] read-only flange telemetry from UR at {args.robot_ip} (rtde_receive; never moves the robot)")
+        return RtdeFlangeProvider(args.robot_ip, setup_fn)
+    return None
+
+
+def _cmd_flange_pose(args: argparse.Namespace) -> int:
+    """Phase A check: print verified T_base_flange readings from the real UR (read-only), a few times."""
+    import time as _time
+
+    import numpy as _np
+
+    from .capture.ur_flange import pose_delta
+    prov = _flange_provider(args)
+    if prov is None:
+        print("Needs --robot-ip <UR IP>")
+        return 2
+    first = None
+    for k in range(args.count):
+        r = prov.read()
+        if not r.valid:
+            print(f"[{k + 1}] INVALID ({r.status}): {r.reason}")
+        else:
+            d = "" if first is None else "  drift vs first: %.2f mm / %.3f deg" % pose_delta(first, r.T_base_flange)
+            first = first if first is not None else r.T_base_flange
+            print(f"[{k + 1}] {r.source} moving={r.moving} xyz_m={_np.round(r.T_base_flange[:3, 3], 5).tolist()} "
+                  f"check={r.diagnostics.get('fk_crosscheck_mm', '-')} mm{d}")
+        _time.sleep(args.interval)
+    return 0
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     pipeline = EyePipeline(fps=args.fps)
     mode, arm_target = args.mode, (args.file if args.mode == "replay" else args.device)
@@ -402,7 +445,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
         robodk_options=_robodk_options(args) if mode == "robodk" or args.robot_pose == "robodk" else None,
     )
     if args.robot_ip:  # sola lettura della posa: serve alla calibrazione dall'app (skill), non muove mai il robot
-        arm.robot_pose_fn = RtdeTcp(args.robot_ip)
+        try:
+            arm.robot_pose_fn = RtdeTcp(args.robot_ip)   # legacy TCP-pose path (/calibration/arm/sample)
+        except RuntimeError as exc:
+            print(f"[Robot] legacy TCP reader unavailable: {exc}")
+    arm.flange_provider = _flange_provider(args)     # Skills -> Calibration: verified flange pose, read-only
     if args.dog_target:  # solo se richiesto: una seconda sorgente sulla stessa camera la aprirebbe due volte
         dog_mode = mode if mode in ("replay", "synthetic") else ("webcam" if args.dog_target.isdigit() else "stream")
         pipeline.add_source(
@@ -487,12 +534,21 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Posa TCP fissa dal pendant 'x,y,z,rx,ry,rz' (mm, rad) al posto del controller")
     p_run.add_argument("--robot-ip", default=None,
                        help="IP dell'UR: la posa si legge via RTDE (sola lettura) per calibrare dall'app")
+    p_run.add_argument("--simulate-robot", default=None, metavar="X,Y,Z,RX,RY,RZ",
+                       help="Demo only: fixed SIMULATED flange pose (mm, rad) for Skills -> Calibration")
     p_run.add_argument("--robot-pose", default="controller", choices=["controller", "robodk"],
                        help="Con la hand-eye: posa da robot_controller o della flangia da RoboDK (sola lettura)")
     p_run.add_argument("--color-labels", default=None,
                        help="Con --mock-tracker: 'arancione=vite_arancione,blu=secchio_blu' (oggetti per colore)")
     _add_robodk_args(p_run)
     p_run.set_defaults(func=_cmd_run)
+
+    # flange-pose (read-only): Phase A acceptance check for Skills -> Calibration
+    p_fp = sub.add_parser("flange-pose", help="Print verified UR5e T_base_flange readings (read-only RTDE)")
+    p_fp.add_argument("--robot-ip", required=True)
+    p_fp.add_argument("--count", type=int, default=5)
+    p_fp.add_argument("--interval", type=float, default=1.0)
+    p_fp.set_defaults(func=_cmd_flange_pose)
 
     # calibrate-look-pose
     p_lp = sub.add_parser("calibrate-look-pose",

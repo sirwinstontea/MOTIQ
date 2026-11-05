@@ -11,6 +11,8 @@ import {
   realArmConnected,
   CELL_DESTINATIONS,
   CELL_OBJECTS,
+  PUSHABLE_OBJECTS,
+  pushSimSequence,
   realArmProblems,
   REAL_ARM_PRIMITIVES,
   skillIcons,
@@ -54,7 +56,7 @@ type Draft = {
 const SCHEMA = {
   type: 'object',
   properties: {
-    device: { type: 'string', enum: ['arm', 'dog'] },
+    device: { type: 'string', enum: ['arm'] },
     name: { type: 'string' },
     description: { type: 'string' },
     goal: { type: 'string' },
@@ -82,7 +84,7 @@ const SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['DETECT', 'PICK', 'PLACE', 'VISIT', 'VERIFY', 'SEQUENCE'] },
+          action: { type: 'string', enum: ['OVERVIEW', 'DETECT', 'PICK', 'PLACE', 'VISIT', 'PUSH', 'VERIFY', 'SEQUENCE'] },
           target: { type: 'string' },
           description: { type: 'string' },
           primitive_sequence: {
@@ -144,16 +146,11 @@ function systemPrompt(): string {
   return `You turn a user's plain-language task into a robot skill draft (JSON matching the given schema).
 Write ONLY the task-specific parts. Safety, constraints, robot specs and approval are filled in by code with safe defaults.
 
-Robots:
-- "arm": UR5e collaborative arm with a gripper, on a table. Units: metres, base frame (x forward, y left, z up). Table at z = 0.
-- "dog": small robot dog on the floor. Pick "dog" only if the user clearly says the dog (walk, sit, patrol, ...).
-  Visiting / going to / going over an object (e.g. "visit the green object and come back") is an ARM skill.
+Robot ("device": "arm"): UR5e collaborative arm with a gripper, on a table. Units: metres, base frame (x forward, y left,
+z up). Table at z = 0. It is the only robot; never make a skill for another robot.
 
 Arm primitives:
 ${primitiveList('arm')}
-
-Dog primitives:
-${primitiveList('dog')}
 
 Arm limits: max single step ${lim.max_step_m} m, max TCP speed ${lim.max_tcp_speed_mps} m/s, never below z = ${lim.min_z_above_table_m} m,
 safe travel height ${lim.safe_travel_height_m} m, max rotation step ${lim.max_rotation_step_deg} deg.
@@ -173,7 +170,11 @@ Rules:
    arm's camera guides it over the object and it returns to where it started by itself (no HOME needed).
    Its primitive_sequence is only for the simulator: [{"primitive":"MOVE_ABOVE","parameters":{"target":"<id>"}},
    {"primitive":"WAIT","parameters":{"seconds":2}}]. Use VISIT whenever the user says visit / go to / go over.
-   DETECT and VERIFY steps have no primitive_sequence. Dog skills use only SEQUENCE steps and no objects.
+   PUSH (arm only): push an object 5 cm with the closed gripper. One PUSH step with "target" = ${PUSHABLE_OBJECTS.join(
+     ' or ',
+   )} (the green ring is too flat to push), then a SEQUENCE with HOME. Use it when the person pushes / slides / nudges
+   an object. OVERVIEW (arm only, no target): the camera looks at the whole table and lists what it sees, no motion.
+   DETECT, VERIFY and OVERVIEW steps have no primitive_sequence; PUSH needs none.
 5. Never invent facts. If a position, size or object isn't given and isn't one of the known objects, use a plausible
    placeholder inside the reachable table area (x 0.25-0.6, y -0.3-0.3) AND add a line to "uncertainties" saying so.
    Anything else ambiguous also goes into "uncertainties".
@@ -195,7 +196,8 @@ THE REAL ARM IS CONNECTED. Arm skills must run on it, so for the arm:
   (blue_bucket_01 = drop it INTO the blue bucket; <object>_slot = put it back where it was; delivery_zone = the pad).
 - DETECT before each PICK makes the arm look around with its camera until it sees the object. End with VERIFY
   (target = the object) after the last PLACE, then a SEQUENCE with HOME.
-- Allowed steps: DETECT, VERIFY, PICK (with target), PLACE (with target), VISIT (with target), and SEQUENCE steps that use ONLY
+- Allowed steps: OVERVIEW, DETECT, VERIFY, PICK (with target), PLACE (with target), VISIT (with target), PUSH (target
+  ${PUSHABLE_OBJECTS.join(', ')}), and SEQUENCE steps that use ONLY
   these primitives: ${REAL_ARM_PRIMITIVES.filter((p) => p !== 'STOP').join(', ')}.
 - PICK and PLACE run as one controller task each (the controller does the approach, grasp and release itself),
   so keep their primitive_sequence as in the pattern above; that sequence is only used by the simulator.
@@ -275,16 +277,15 @@ const POLICY: Record<string, string> = {
   DETECT: 'STOP_AND_REOBSERVE',
   PICK: 'RETRY_WITH_REOBSERVATION',
   VISIT: 'REPORT_FAILURE',
+  PUSH: 'REPORT_FAILURE',
+  OVERVIEW: 'STOP_AND_REOBSERVE',
   PLACE: 'STOP_AND_REPLAN',
 };
 
 function build(d: Draft, prompt: string, id: string, keep?: SkillDoc): SkillDoc {
-  const device: Device = d.device === 'dog' ? 'dog' : 'arm';
+  const device: Device = 'arm';
   const known = template.environment.objects as unknown as EnvObject[];
-  const objects: EnvObject[] =
-    device === 'dog'
-      ? []
-      : (d.objects ?? []).map((o) => {
+  const objects: EnvObject[] = (d.objects ?? []).map((o) => {
           const base = known.find((k) => k.id === o.id);
           const container = o.category === 'container';
           return {
@@ -315,13 +316,15 @@ function build(d: Draft, prompt: string, id: string, keep?: SkillDoc): SkillDoc 
         });
 
   const steps: SkillStep[] = (d.steps ?? []).map((s, i) => {
-    const look = s.action === 'DETECT' || s.action === 'VERIFY';
+    const look = s.action === 'DETECT' || s.action === 'VERIFY' || s.action === 'OVERVIEW';
+    // PUSH: the app's simulator moves are fixed (the real task is robot_controller's push_object)
+    const seqFor = s.action === 'PUSH' && s.target && device === 'arm' ? pushSimSequence(s.target) : s.primitive_sequence ?? [];
     return {
       id: `step_${String(i + 1).padStart(3, '0')}`,
-      action: device === 'dog' ? 'SEQUENCE' : s.action || 'SEQUENCE',
+      action: s.action || 'SEQUENCE',
       ...(s.target && device === 'arm' ? { target: s.target } : {}),
       description: s.description,
-      ...(look ? {} : { primitive_sequence: s.primitive_sequence ?? [] }),
+      ...(look ? {} : { primitive_sequence: seqFor }),
       failure_policy: s.failure_policy || POLICY[s.action] || 'REPORT_FAILURE',
     };
   });

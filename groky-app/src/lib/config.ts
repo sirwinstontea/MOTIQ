@@ -4,14 +4,13 @@ const env = {
   xaiKey: process.env.EXPO_PUBLIC_XAI_API_KEY ?? '',
   voiceModel: process.env.EXPO_PUBLIC_GROK_VOICE_MODEL || 'grok-voice-latest',
   voice: process.env.EXPO_PUBLIC_GROK_VOICE || 'eve',
-  dogUrl: (process.env.EXPO_PUBLIC_DOG_URL ?? '').replace(/\/$/, ''),
   armUrl: (process.env.EXPO_PUBLIC_ARM_URL ?? '').replace(/\/$/, ''),
   bridgeKey: process.env.EXPO_PUBLIC_BRIDGE_KEY ?? '',
   visionModel: process.env.EXPO_PUBLIC_GROK_VISION_MODEL || 'grok-4.20-0309-non-reasoning',
   visionUrl: process.env.EXPO_PUBLIC_VISION_URL ?? '',
   // computer-vision server (../computer-vision/API_APP.md), used by DETECT for measured object positions
   visionServer: (process.env.EXPO_PUBLIC_VISION_SERVER ?? '').replace(/\/$/, ''),
-  // which vision sources to list as cameras (the server publishes 'arm', and 'dog' if started with a dog camera)
+  // which vision sources to list as cameras (the server publishes 'arm')
   visionSources: (process.env.EXPO_PUBLIC_VISION_SOURCES || 'arm') as string,
   // teach server (../computer-vision-to-app/teach_server.py): demonstration video -> action tokens via vision/planner
   teachServer: (process.env.EXPO_PUBLIC_TEACH_SERVER ?? '').replace(/\/$/, ''),

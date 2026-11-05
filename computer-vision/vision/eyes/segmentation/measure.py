@@ -86,16 +86,40 @@ def principal_px(intrinsics: Any) -> tuple[float, float] | None:
     return float(cx), float(cy)
 
 
+def normalized_rays(us: np.ndarray, vs: np.ndarray, intrinsics: Any, f: tuple[float, float],
+                    c: tuple[float, float]) -> tuple[np.ndarray, np.ndarray]:
+    """Pixel coordinates -> normalized image coordinates (x/z, y/z).
+
+    Pinhole when the camera reports zero distortion (the D435 colour stream, and every legacy intrinsics object).
+    With non-zero Brown-Conrady coefficients the pixels are undistorted with OpenCV first. An unsupported model keeps
+    the pinhole result here; the calibration wizard and `/localization/snapshot` refuse such a camera explicitly.
+    """
+    from vision.eyes.capture.realsense import UnsupportedDistortion, opencv_distortion
+    us = np.asarray(us, dtype=np.float64)
+    vs = np.asarray(vs, dtype=np.float64)
+    try:
+        dist = opencv_distortion(intrinsics)
+    except UnsupportedDistortion:
+        dist = np.zeros(5)
+    if not dist.any():
+        return (us - c[0]) / f[0], (vs - c[1]) / f[1]
+    K = np.array([[f[0], 0, c[0]], [0, f[1], c[1]], [0, 0, 1]], dtype=np.float64)
+    pts = np.column_stack([us.ravel(), vs.ravel()]).reshape(-1, 1, 2)
+    und = cv2.undistortPoints(pts, K, dist).reshape(-1, 2)
+    return und[:, 0].reshape(us.shape), und[:, 1].reshape(vs.shape)
+
+
 def deproject(u: float, v: float, z_m: float, intrinsics: Any) -> tuple[float, float, float] | None:
     """Pixel (u, v) alla profondità `z_m` -> punto (x, y, z) in m nel frame camera (x destra, y giù, z avanti).
 
-    Pinhole senza distorsione: è quello che fa `rs2_deproject_pixel_to_point` sul colore della D435, che ha i
-    coefficienti a zero (`capture.realsense` avvisa se non lo sono).
+    Pinhole (come `rs2_deproject_pixel_to_point` sul colore della D435, coefficienti a zero); con distorsione
+    Brown-Conrady non nulla il pixel viene prima corretto (`normalized_rays`).
     """
     f, c = focal_px(intrinsics), principal_px(intrinsics)
     if f is None or c is None or z_m is None or z_m <= 0:
         return None
-    return ((u - c[0]) * z_m / f[0], (v - c[1]) * z_m / f[1], float(z_m))
+    xn, yn = normalized_rays(np.array([u]), np.array([v]), intrinsics, f, c)
+    return (float(xn[0]) * z_m, float(yn[0]) * z_m, float(z_m))
 
 
 def surface_centroid(depth_mm: np.ndarray, inner: np.ndarray, intrinsics: Any, min_px: int = MIN_DEPTH_PX,
@@ -118,7 +142,8 @@ def surface_centroid(depth_mm: np.ndarray, inner: np.ndarray, intrinsics: Any, m
     if n < max(min_px, int(min_fraction * len(vs))):
         return None
     z, us, vs = z[ok], us[ok], vs[ok]
-    pts = np.column_stack([(us - c[0]) * z / f[0], (vs - c[1]) * z / f[1], z])
+    xn, yn = normalized_rays(us, vs, intrinsics, f, c)
+    pts = np.column_stack([xn * z, yn * z, z])
     xyz = np.median(pts, axis=0)
     return (float(xyz[0]), float(xyz[1]), float(xyz[2])), n, n / len(ok)
 

@@ -34,8 +34,10 @@ S = TaskState
 # --------------------------------------------------------------------------
 # Explicit transition table
 # --------------------------------------------------------------------------
-ACTION_ENTRY = {S.IDENTIFYING, S.APPROACH_PICK, S.MOVING, S.TRANSPORTING, S.SHAKING, S.APPROACH_PLACE, S.RELEASING}
-RESTING = {S.VALIDATING, S.IDENTIFIED, S.LIFTING, S.MOVING, S.TRANSPORTING, S.SHAKING, S.RETREATING, S.RELEASING}
+ACTION_ENTRY = {S.IDENTIFYING, S.APPROACH_PICK, S.MOVING, S.TRANSPORTING, S.SHAKING, S.APPROACH_PLACE, S.RELEASING,
+                S.PUSHING}
+RESTING = {S.VALIDATING, S.IDENTIFIED, S.LIFTING, S.MOVING, S.TRANSPORTING, S.SHAKING, S.RETREATING, S.RELEASING,
+           S.PUSHING}
 TERMINAL_STOP = {S.FAULT, S.CANCELLED}
 
 TRANSITIONS: dict[TaskState, set[TaskState]] = {s: set() for s in TaskState}
@@ -385,6 +387,16 @@ class TaskExecutor:
                     raise RobotControlError(ErrorCode.PRECONDITION_FAILED,
                                             f"{a.action_id}: release while holding is only allowed via place_object")
                 gripper = "open"
+            elif n == ActionName.PUSH_OBJECT:
+                o = sc.object(p["object_id"])
+                if o.push is None:
+                    raise RobotControlError(ErrorCode.PRECONDITION_FAILED,
+                                            f"{a.action_id}: '{p['object_id']}' cannot be pushed (no push path in the scene)")
+                if holding:
+                    raise RobotControlError(ErrorCode.PRECONDITION_FAILED,
+                                            f"{a.action_id}: push_object needs an empty gripper (holding '{holding}')")
+                targets += [o.push.above_target, o.push.start_target, o.push.end_target, o.push.lift_target]
+                gripper = "closed"
             elif n == ActionName.MOVE_TO_TARGET:
                 sc.target(p["target_id"])
                 targets.append(p["target_id"])
@@ -474,6 +486,7 @@ class TaskExecutor:
             ActionName.MOVE_TO_TARGET: self._a_move_to_target,
             ActionName.SHAKE_OBJECT: self._a_shake,
             ActionName.PERFORM_MOTION: self._a_motion,
+            ActionName.PUSH_OBJECT: self._a_push,
         }.get(a.action)
         if handler is None:
             raise RobotControlError(ErrorCode.UNSUPPORTED, f"'{a.action.value}' is not a task step")
@@ -573,6 +586,36 @@ class TaskExecutor:
             return {"gripper": "open", "note": "already open; no command sent"}
         g = self.c.open_gripper()
         return {"gripper": g.state, "source": g.source.value}
+
+    def _a_push(self, p, dl):
+        """Closed, empty gripper: above the object -> down beside it -> push `distance_m` -> lift. Every segment is
+        planned and safety/collision-checked like any other; the object moves only on the push segment."""
+        oid = p["object_id"]
+        obj = self.scene.object(oid)
+        pu = obj.push
+        if pu is None:
+            raise RobotControlError(ErrorCode.PRECONDITION_FAILED, f"'{oid}' cannot be pushed (no push path)")
+        self._require(self.policy.check_detection(self.scene.detection(oid)))
+        g = self._grip()
+        if g.holding_object_id:
+            raise RobotControlError(ErrorCode.PRECONDITION_FAILED, f"push needs an empty gripper (holding "
+                                    f"'{g.holding_object_id}')")
+        self._go(S.PUSHING)
+        if g.state != "closed":
+            self._step("gripper")
+            self.c.close_gripper(None)       # closed fingers push; nothing is grasped
+        self._segments([(pu.above_target, "joint"), (pu.start_target, "linear")], dl)
+        carried = self.c.begin_push(oid)
+        try:
+            self._segment(pu.end_target, "linear", dl)
+        finally:
+            if carried:
+                self.c.end_push()
+        self._segment(pu.lift_target, "linear", dl)
+        self.scene.clear_detection(oid)      # object moved; old detection no longer valid
+        return {"object_id": oid, "object_state": "pushed", "distance_m": pu.distance_m,
+                "object_model_moved": carried,
+                "note": "the object's pick/place targets were taught for its old spot"}
 
     def _a_move_to_target(self, p, dl):
         g = self._grip()

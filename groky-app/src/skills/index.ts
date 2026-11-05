@@ -27,16 +27,23 @@ export const skillIcons: Icon[] = [
   'sparkles-outline',
 ];
 
-export const STEP_ACTIONS = ['DETECT', 'PICK', 'PLACE', 'VISIT', 'VERIFY', 'SEQUENCE'] as const;
+export const STEP_ACTIONS = ['OVERVIEW', 'DETECT', 'PICK', 'PLACE', 'VISIT', 'PUSH', 'VERIFY', 'SEQUENCE'] as const;
 export const FAILURE_POLICIES = ['STOP_AND_REOBSERVE', 'RETRY_WITH_REOBSERVATION', 'STOP_AND_REPLAN', 'REPORT_FAILURE'];
-// steps that look instead of moving
-export const isLookStep = (s: SkillStep) => s.action === 'DETECT' || s.action === 'VERIFY';
+// steps that look instead of moving (OVERVIEW = the arm camera looks at the table from where it is, no motion)
+export const isLookStep = (s: SkillStep) => s.action === 'DETECT' || s.action === 'VERIFY' || s.action === 'OVERVIEW';
 
 // ---------- reading a skill ----------
 
-export function deviceOf(doc: Pick<SkillDoc, 'robot'>): Device {
-  if (doc.robot?.device === 'arm' || doc.robot?.device === 'dog') return doc.robot.device;
-  return /dog/i.test(doc.robot?.model ?? '') ? 'dog' : 'arm';
+// MOTIQ drives one robot: the UR5e arm.
+export function deviceOf(_doc: Pick<SkillDoc, 'robot'>): Device {
+  return 'arm';
+}
+
+// A skill made for another robot (the old robot dog, or anything not the arm): never run it as an arm skill.
+export function foreignRobot(doc: unknown): string | null {
+  const r = (doc as Partial<SkillDoc> | null)?.robot as { device?: string; model?: string } | undefined;
+  if (r?.device && r.device !== 'arm') return r.device;
+  return /dog/i.test(r?.model ?? '') ? 'dog' : null;
 }
 
 // the skill's own primitive list if it has one, otherwise the robot profile's
@@ -98,6 +105,20 @@ export const CELL_DESTINATIONS = [
   ...CELL_OBJECTS.map((id) => `${id}_slot`), // back where that object was picked
 ];
 
+// Objects with a taught push path in robot_controller (config/scene.example.yaml `push:`). The 7 mm green ring has
+// none: the fingers would have to go below the 15 mm workspace floor.
+export const PUSHABLE_OBJECTS = ['blue_bucket_01', 'orange_screw_03', 'white_bucket_lid_04'];
+
+// What the app's simulator shows for a PUSH step: a rough preview (it has no contact physics, and CLOSE_GRIPPER on
+// nothing would count as a failed grasp there). With the arm bridge connected the step is ONE robot_controller task
+// (push_object: closes the gripper itself, above -> beside -> push 5 cm -> lift, every segment checked).
+export const pushSimSequence = (target: string): PrimitiveCall[] => [
+  { primitive: 'MOVE_ABOVE', parameters: { target, height_m: 0.15 } },
+  { primitive: 'MOVE_DOWN', parameters: { distance_m: 0.05, speed_mps: 0.05 } },
+  { primitive: 'MOVE_FORWARD', parameters: { distance_m: 0.05, speed_mps: 0.05 } },
+  { primitive: 'MOVE_UP', parameters: { distance_m: 0.05 } },
+];
+
 // steps the real arm can't run, as readable messages (empty = fine)
 export function realArmProblems(doc: SkillDoc): string[] {
   if (deviceOf(doc) !== 'arm') return [];
@@ -111,6 +132,10 @@ export function realArmProblems(doc: SkillDoc): string[] {
         `Step ${i + 1}: the real arm can place at ${CELL_DESTINATIONS.join(', ')} (not "${s.target}").`,
       );
     if ((s.action === 'PICK' || s.action === 'PLACE') && s.target) return;
+    if (s.action === 'PUSH')
+      return void (s.target && PUSHABLE_OBJECTS.includes(s.target)
+        ? undefined
+        : out.push(`Step ${i + 1}: the arm can push ${PUSHABLE_OBJECTS.join(', ')} (not "${s.target ?? 'nothing'}").`));
     if (s.physical_tool === 'ur_down_up') return; // one fixed bridge tool, see runner.ts
     if (s.action === 'VISIT') return; // bridge ur_visit: the arm camera guides the arm over it, see runner.ts
     const bad = [
@@ -171,7 +196,8 @@ export function validateSkill(doc: SkillDoc): Validation {
     if (s.target && device === 'arm' && !objects.has(s.target)) errors.push(`${at}: unknown target "${s.target}".`);
     if (s.action === 'DETECT' && !s.target) errors.push(`${at}: say which object to detect.`);
     if (s.action === 'VISIT' && !s.target) errors.push(`${at}: say which object to visit.`);
-    if (!isLookStep(s) && s.action !== 'VISIT' && !s.primitive_sequence?.length)
+    if (s.action === 'PUSH' && !s.target) errors.push(`${at}: say which object to push.`);
+    if (!isLookStep(s) && s.action !== 'VISIT' && s.action !== 'PUSH' && !s.primitive_sequence?.length)
       errors.push(`${at}: add at least one primitive.`);
     s.primitive_sequence?.forEach((c, j) => {
       const p = prims.find((x) => x.id === c.primitive);
@@ -313,13 +339,15 @@ export function normalizeSkill(raw: unknown): SkillDoc {
   if (!raw || typeof raw !== 'object') throw new Error('Not a skill: expected a JSON object.');
   const r = raw as Partial<SkillDoc>;
   if (!r.skill || !Array.isArray(r.steps)) throw new Error('Not a skill: it needs "skill" and "steps".');
+  const other = foreignRobot(r);
+  if (other) throw new Error(`This skill is for the robot ${other}; MOTIQ only runs skills for the UR5e arm.`);
   const device = deviceOf(r as SkillDoc);
   const base = makeSkill({
     id: r.skill.id || newSkillId(),
     name: r.skill.name ?? '',
     description: r.skill.description ?? '',
     device,
-    icon: (r.app?.icon as Icon) ?? (device === 'arm' ? 'cube-outline' : 'walk-outline'),
+    icon: (r.app?.icon as Icon) ?? 'cube-outline',
     steps: [],
   });
   return {
@@ -388,46 +416,9 @@ export function revoked(doc: SkillDoc): SkillDoc {
   };
 }
 
-// ---------- old format (skills-v1) ----------
-
-type V1 = {
-  id: string;
-  name: string;
-  description: string;
-  device: Device;
-  icon: string;
-  steps: { tool: string; args: Record<string, unknown> }[];
-};
-
-export function fromV1(old: V1): SkillDoc {
-  const calls: PrimitiveCall[] = [];
-  let dropped = 0;
-  for (const st of old.steps) {
-    const name = st.tool.slice(st.tool.indexOf('_') + 1);
-    if (st.tool === 'wait') calls.push({ primitive: 'WAIT', parameters: { seconds: st.args.seconds } });
-    else if (old.device === 'dog') calls.push({ primitive: name.toUpperCase(), parameters: st.args });
-    else if (name === 'grip') calls.push({ primitive: st.args.state === 'close' ? 'CLOSE_GRIPPER' : 'OPEN_GRIPPER' });
-    else if (name === 'goto' && st.args.place === 'home') calls.push({ primitive: 'HOME' });
-    else dropped++;
-  }
-  const doc = makeSkill({
-    id: old.id,
-    name: old.name,
-    description: old.description,
-    device: old.device,
-    icon: old.icon as Icon,
-    steps: calls.length
-      ? [{ id: 'step_001', action: 'SEQUENCE', primitive_sequence: calls, failure_policy: 'REPORT_FAILURE' }]
-      : [],
-  });
-  if (dropped)
-    doc.interpretation = {
-      uncertainties: [`${dropped} step(s) from the old format had no UR5e primitive and were dropped.`],
-    };
-  return doc;
-}
-
 // ---------- built-ins ----------
+// Only the 4 cell objects: one overview, locate each object, push the three pushable ones. Every other skill is
+// recorded (Show Motion / Learn from camera) or made by Grok, never hard-coded here.
 
 const seq = (id: string, description: string, calls: PrimitiveCall[]): SkillStep => ({
   id,
@@ -437,194 +428,86 @@ const seq = (id: string, description: string, calls: PrimitiveCall[]): SkillStep
   failure_policy: 'REPORT_FAILURE',
 });
 
-const pickPlace: SkillDoc = {
-  ...(clone(template) as unknown as SkillDoc),
-  robot: { ...(template.robot as unknown as SkillDoc['robot']), device: 'arm' },
-  app: { icon: 'cube-outline', builtin: true },
-};
-delete pickPlace.action_primitives; // same as the profile
-
-// Skills that run on the real arm through robot_controller (../bridge). PICK / PLACE steps become one controller
-// task each when the arm is connected; their primitive_sequence is what the simulator runs.
-const templateSteps = template.steps as unknown as SkillStep[];
 const armObjects = clone(template.environment.objects) as unknown as EnvObject[];
-const simSeq = (stepId: string) => clone(templateSteps.find((s) => s.id === stepId)?.primitive_sequence ?? []);
+const objName = (id: string) => armObjects.find((o) => o.id === id)?.name ?? id.replace(/_/g, ' ');
+const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
-const controllerSkills: SkillDoc[] = [
+const overview = makeSkill({
+  id: 'arm_overview',
+  name: 'Overview: what is on the table',
+  description:
+    'The arm camera looks at the table from where the arm is now and reports which of the 4 objects it sees. The arm does not move.',
+  device: 'arm',
+  icon: 'eye-outline',
+  builtin: true,
+  objects: armObjects,
+  success: ['Every object on the table is reported as seen or not in view.'],
+  steps: [{ id: 'step_001', action: 'OVERVIEW', description: 'Look at the table, list the objects.', failure_policy: 'STOP_AND_REOBSERVE' }],
+});
+
+// Real arm: the vision server guides the arm over the object (sideways only, same height, 5 cm/s, never down), it
+// holds, then goes back to where it started. The primitives are what the app's simulator runs.
+const locate = (oid: string) =>
   makeSkill({
-    id: 'arm_visit_screw',
-    name: 'Visit the orange screw',
-    description: 'Move above the orange screw, pause, and go back home. No camera needed: a safe first test.',
+    id: `arm_locate_${oid}`,
+    name: `Locate the ${objName(oid)}`,
+    description: `The arm camera finds the ${objName(oid)} and the arm moves over it (sideways only, same height, slow), waits 2 s and goes back to where it started. STOP halts it.`,
     device: 'arm',
-    icon: 'search-outline',
+    icon: 'locate-outline',
     builtin: true,
     objects: armObjects,
-    steps: [
-      seq('step_001', 'Go above the orange screw and pause.', [
-        { primitive: 'MOVE_ABOVE', parameters: { target: 'orange_screw_03' } },
-        { primitive: 'WAIT', parameters: { seconds: 1 } },
-      ]),
-      seq('step_002', 'Back home.', [{ primitive: 'HOME' }]),
-    ],
-  }),
-  makeSkill({
-    id: 'arm_controller_pick_place',
-    name: 'Pick & place (arm controller)',
-    description:
-      'The camera confirms the object, the arm picks it, places it in the delivery zone and goes home. Each step is one checked controller task.',
-    device: 'arm',
-    icon: 'gift-outline',
-    builtin: true,
-    objects: armObjects,
-    success: ['The object is in the delivery zone.', 'The gripper is open and the arm is home.'],
+    success: [`The arm went over the ${objName(oid)} and is back at its starting pose.`],
     steps: [
       {
         id: 'step_001',
-        action: 'PICK',
-        target: 'orange_screw_03',
-        description: 'Find the orange screw with the camera and pick it up (grip verified).',
-        primitive_sequence: simSeq('step_002'),
+        action: 'VISIT',
+        target: oid,
+        description: `Go over the ${objName(oid)}, wait, come back.`,
+        parameters: { hold_s: 2, come_back: true },
         failure_policy: 'REPORT_FAILURE',
+        primitive_sequence: [
+          { primitive: 'MOVE_ABOVE', parameters: { target: oid, height_m: 0.15 } },
+          { primitive: 'WAIT', parameters: { seconds: 2 } },
+        ],
       },
-      {
-        id: 'step_002',
-        action: 'PLACE',
-        target: 'delivery_zone',
-        description: 'Place it in the delivery zone and release.',
-        primitive_sequence: simSeq('step_003'),
-        failure_policy: 'REPORT_FAILURE',
-      },
-      seq('step_003', 'Back home.', [{ primitive: 'HOME' }]),
     ],
-  }),
-];
+  });
 
-// Physical UR arm: one fixed motion through the bridge tool `ur_down_up` (no homing). The primitives are what the
-// simulator shows; on the real arm the bridge runs the same down + up with its own checks and STOP.
-const physicalDownUp = makeSkill({
-  id: 'arm_physical_down_up',
-  name: 'Down 5 cm & up (physical arm)',
-  description:
-    'Moves the physical UR arm 5 cm straight down, 5 cm back up, then stops. Slow (5 cm/s), no homing. STOP halts it.',
-  device: 'arm',
-  icon: 'flash-outline',
-  builtin: true,
-  success: ['The arm is back at its starting height and stopped.'],
-  steps: [
-    {
-      ...seq('step_001', 'Straight down 5 cm, back up 5 cm, stop.', [
-        { primitive: 'MOVE_DOWN', parameters: { distance_m: 0.05, speed_mps: 0.05 } },
-        { primitive: 'MOVE_UP', parameters: { distance_m: 0.05, speed_mps: 0.05 } },
-      ]),
-      parameters: { mm: 50 },
-      physical_tool: 'ur_down_up',
-    },
-  ],
-});
+const PUSH_DIRECTION: Record<string, string> = {
+  blue_bucket_01: 'sideways, away from the ring',
+  orange_screw_03: 'towards the robot',
+  white_bucket_lid_04: 'sideways, away from the screw',
+};
 
-// Physical UR arm, camera-guided: the vision server finds the green ring and the bridge (`ur_visit`) moves the arm
-// over it sideways at the same height, waits, then returns to the start pose. The primitives are the simulator's.
-const physicalVisitRing = makeSkill({
-  id: 'arm_physical_visit_green_ring',
-  name: 'Visit the green ring (physical arm)',
-  description:
-    'The arm camera finds the green ring, the arm moves over it (sideways only, same height, 5 cm/s), waits 2 s and goes back to where it started. STOP halts it.',
-  device: 'arm',
-  icon: 'locate-outline',
-  builtin: true,
-  objects: armObjects,
-  success: ['The arm went over the green ring and is back at its starting pose.'],
-  steps: [
-    {
-      id: 'step_001',
-      action: 'VISIT',
-      target: 'green_ring_02',
-      description: 'Go over the green ring, wait, come back.',
-      parameters: { hold_s: 2, come_back: true },
-      failure_policy: 'REPORT_FAILURE',
-      primitive_sequence: [
-        { primitive: 'MOVE_ABOVE', parameters: { target: 'green_ring_02', height_m: 0.15 } },
-        { primitive: 'WAIT', parameters: { seconds: 2 } },
-      ],
-    },
-  ],
-});
-
-export const builtinSkills: SkillDoc[] = [
-  physicalDownUp,
-  physicalVisitRing,
-  ...controllerSkills,
-  pickPlace,
+// Simulation first: robot_controller runs it in RoboDK / URSim on the object's taught push path. The path is a
+// placeholder for the demo station; teach it on the real table before running it on the physical arm.
+const push = (oid: string) =>
   makeSkill({
-    id: 'handover',
-    name: 'Hand it over',
-    description: 'Bring what the arm is holding to the handover spot, wait, let go and go home.',
+    id: `arm_push_${oid}`,
+    name: `Push the ${objName(oid)}`,
+    description: `Simulation (RoboDK / URSim): the arm closes the gripper, comes down beside the ${objName(oid)}, pushes it 5 cm ${PUSH_DIRECTION[oid]}, lifts and goes home. The push path is not taught on the real table yet.`,
     device: 'arm',
-    icon: 'hand-right-outline',
+    icon: 'arrow-forward-circle-outline',
     builtin: true,
+    objects: armObjects,
+    success: [`The ${objName(oid)} moved 5 cm ${PUSH_DIRECTION[oid]}.`, 'The arm is home.'],
     steps: [
-      seq('step_001', 'Carry it to the handover spot at a safe height.', [
-        { primitive: 'MOVE_TO_POSE', parameters: { x: 0.3, y: -0.4, z: 0.3, speed_mps: 0.15 } },
-        { primitive: 'WAIT', parameters: { seconds: 2 } },
-        { primitive: 'OPEN_GRIPPER' },
-      ]),
+      {
+        id: 'step_001',
+        action: 'PUSH',
+        target: oid,
+        description: `${cap(objName(oid))}: come down beside it, push 5 cm, lift.`,
+        failure_policy: 'REPORT_FAILURE',
+        primitive_sequence: pushSimSequence(oid),
+      },
       seq('step_002', 'Back home.', [{ primitive: 'HOME' }]),
     ],
-  }),
-  makeSkill({
-    id: 'arm_reset',
-    name: 'Reset arm',
-    description: 'Open the gripper and park the arm at home.',
-    device: 'arm',
-    icon: 'refresh-outline',
-    builtin: true,
-    steps: [seq('step_001', 'Open and go home.', [{ primitive: 'OPEN_GRIPPER' }, { primitive: 'HOME' }])],
-  }),
-  makeSkill({
-    id: 'greet',
-    name: 'Greet visitors',
-    description: 'Stand up, wave and take a look at who is there.',
-    device: 'dog',
-    icon: 'happy-outline',
-    builtin: true,
-    steps: [
-      seq('step_001', 'Stand and wave.', [
-        { primitive: 'POSE', parameters: { pose: 'stand' } },
-        { primitive: 'POSE', parameters: { pose: 'wave' } },
-        { primitive: 'LOOK' },
-      ]),
-    ],
-  }),
-  makeSkill({
-    id: 'patrol',
-    name: 'Short patrol',
-    description: 'Walk a meter out and back, turning around at each end.',
-    device: 'dog',
-    icon: 'walk-outline',
-    builtin: true,
-    steps: [
-      seq('step_001', 'Out and back.', [
-        { primitive: 'WALK', parameters: { meters: 1 } },
-        { primitive: 'TURN', parameters: { degrees: 180 } },
-        { primitive: 'WALK', parameters: { meters: 1 } },
-        { primitive: 'TURN', parameters: { degrees: 180 } },
-      ]),
-    ],
-  }),
-  makeSkill({
-    id: 'rest',
-    name: 'Rest',
-    description: 'Sit down, then lie down.',
-    device: 'dog',
-    icon: 'bed-outline',
-    builtin: true,
-    steps: [
-      seq('step_001', 'Sit, then lie down.', [
-        { primitive: 'POSE', parameters: { pose: 'sit' } },
-        { primitive: 'POSE', parameters: { pose: 'lie' } },
-      ]),
-    ],
-  }),
+  });
+
+export const builtinSkills: SkillDoc[] = [
+  overview,
+  ...CELL_OBJECTS.map(locate),
+  ...PUSHABLE_OBJECTS.map(push),
 ];
 
 export { defaultOpts };

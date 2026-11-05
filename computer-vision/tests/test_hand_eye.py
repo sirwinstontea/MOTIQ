@@ -222,13 +222,13 @@ class _FakeReader:
         return True, self.color, self.depth, 1, time.time()
 
 
-def _app(reader):
+def _app(reader, calib_dir):
     from fastapi.testclient import TestClient
 
     from vision.eyes.server.app import create_app
     pipe = EyePipeline()
     pipe.nodes["arm"] = SourceNode(source="arm", reader=reader, tracker=None)
-    return TestClient(create_app(pipe)), pipe.nodes["arm"]
+    return TestClient(create_app(pipe, calib_dir=calib_dir)), pipe.nodes["arm"]
 
 
 def test_app_calibration_endpoints_hand_eye_then_look_pose(tmp_path, monkeypatch):
@@ -243,7 +243,7 @@ def test_app_calibration_endpoints_hand_eye_then_look_pose(tmp_path, monkeypatch
     current = {}
     monkeypatch.setattr(app_mod, "board_pose",
                         lambda frame, intr: (np.linalg.inv(pose_to_T(current["pose"]) @ T_tool_cam) @ T_base_board, 4, 0.2))
-    client, node = _app(_FakeReader(np.zeros((480, 640, 3), np.uint8), None))
+    client, node = _app(_FakeReader(np.zeros((480, 640, 3), np.uint8), None), tmp_path)
     assert client.post("/calibration/arm/sample", json={}).json()["ok"] is False        # niente posa: non inventa
     for _ in range(12):
         R = cv2.Rodrigues(np.array(DOWN))[0] @ cv2.Rodrigues(rng.uniform(-0.35, 0.35, 3))[0]
@@ -253,7 +253,10 @@ def test_app_calibration_endpoints_hand_eye_then_look_pose(tmp_path, monkeypatch
     assert client.post("/calibration/arm/sample", json={"tcp_pose": current["pose"]}).json()["ok"] is False  # ferma
     assert client.get("/calibration/arm").json()["n"] == 12
     he_file, mk_file = tmp_path / "hand_eye.json", tmp_path / "markers_mm.json"
-    res = client.post(f"/calibration/arm/solve?hand_eye_file={he_file}&markers_file={mk_file}").json()
+    # legacy file parameters: bare names inside the calibration directory only, never arbitrary paths
+    assert client.post(f"/calibration/arm/solve?hand_eye_file={he_file}").status_code == 400
+    assert client.post("/calibration/arm/solve?hand_eye_file=../x.json").status_code == 400
+    res = client.post("/calibration/arm/solve?hand_eye_file=hand_eye.json&markers_file=markers_mm.json").json()
     assert res["ok"] and res["spread_mm"] < 1.0, res
     mk = json.loads(mk_file.read_text(encoding="utf-8"))
     from vision.eyes.calibration.hand_eye import _sheet_centers_m
@@ -261,18 +264,17 @@ def test_app_calibration_endpoints_hand_eye_then_look_pose(tmp_path, monkeypatch
         assert np.allclose(mk[str(m)], (T_base_board @ np.array([sx, sy, 0.0, 1.0]))[:2] * 1000, atol=1.0)
     assert abs(mk["_table_z_mm"] - 12.0) < 1.0
     assert client.post("/calibration/arm/reset").json()["n"] == 0
-    assert client.post(f"/calibration/arm/solve?hand_eye_file={he_file}").json()["ok"] is False   # troppo pochi
+    assert client.post("/calibration/arm/solve").json()["ok"] is False   # troppo pochi
 
     # 2) dalla posa di osservazione: il foglio, con i centri nel base, dà fixed_pose.json e viene attivata subito
     img, depth, markers_mm, T_true = _fixed_scene()
     (tmp_path / "markers_base.json").write_text(
         json.dumps({"_table_z_mm": 20.0, **{str(k): list(v) for k, v in markers_mm.items()}}), encoding="utf-8")
-    client, node = _app(_FakeReader(img, depth))
-    out = tmp_path / "fixed_pose.json"
-    r = client.post(f"/calibration/arm/look_pose?markers_file={tmp_path / 'markers_base.json'}&out={out}").json()
+    client, node = _app(_FakeReader(img, depth), tmp_path)
+    r = client.post("/calibration/arm/look_pose?markers_file=markers_base.json&out=fixed_pose.json").json()
     assert r["ok"] and r["reproj_px"] < 1.0 and abs(r["table_check_mm"]) < 2.0, r
     assert node.hand_eye is not None and node.hand_eye.tcp_source == "fixed" and node.calibration_id.startswith("fixed_pose")
     sheet_mm = {0: [38.1, 38.1], 1: [258.9, 38.1], 2: [258.9, 171.8], 3: [38.1, 171.8]}
     (tmp_path / "sheet.json").write_text(json.dumps({str(k): v for k, v in sheet_mm.items()}), encoding="utf-8")
-    bad = client.post(f"/calibration/arm/look_pose?markers_file={tmp_path / 'sheet.json'}&out={tmp_path / 'x.json'}").json()
+    bad = client.post("/calibration/arm/look_pose?markers_file=sheet.json&out=x.json").json()
     assert bad["ok"] is False and "foglio" in bad["reason"]            # i centri sul foglio non si accettano

@@ -47,6 +47,23 @@ targets:
   white_bucket_lid_04_grasp:    {pose_m_rad: [-0.62, +0.24, 0.0265, 3.14159, 0, 0]}
   white_bucket_lid_04_lift:     {pose_m_rad: [-0.62, +0.24, 0.300, 3.14159, 0, 0]}
 
+  # --- Push paths (closed gripper, tool down). SIMULATION PLACEHOLDERS, same layout as above: re-teach on a real cell.
+  # TCP starts 25 mm from the object's side, pushes 50 mm. Directions keep every object on the table (x >= -0.70) and
+  # away from its neighbours: bucket -Y, lid +Y, screw +X (towards the robot). The 7 mm ring is not pushable: the
+  # fingers would have to go below the 15 mm workspace floor.
+  blue_bucket_01_push_above: {pose_m_rad: [-0.62, -0.1455, 0.250, 3.14159, 0, 0]}
+  blue_bucket_01_push_start: {pose_m_rad: [-0.62, -0.1455, 0.050, 3.14159, 0, 0]}
+  blue_bucket_01_push_end:   {pose_m_rad: [-0.62, -0.1955, 0.050, 3.14159, 0, 0]}
+  blue_bucket_01_push_lift:  {pose_m_rad: [-0.62, -0.1955, 0.250, 3.14159, 0, 0]}
+  orange_screw_03_push_above: {pose_m_rad: [-0.66, +0.08, 0.250, 3.14159, 0, 0]}
+  orange_screw_03_push_start: {pose_m_rad: [-0.66, +0.08, 0.030, 3.14159, 0, 0]}
+  orange_screw_03_push_end:   {pose_m_rad: [-0.61, +0.08, 0.030, 3.14159, 0, 0]}
+  orange_screw_03_push_lift:  {pose_m_rad: [-0.61, +0.08, 0.250, 3.14159, 0, 0]}
+  white_bucket_lid_04_push_above: {pose_m_rad: [-0.62, +0.1455, 0.250, 3.14159, 0, 0]}
+  white_bucket_lid_04_push_start: {pose_m_rad: [-0.62, +0.1455, 0.030, 3.14159, 0, 0]}
+  white_bucket_lid_04_push_end:   {pose_m_rad: [-0.62, +0.1955, 0.030, 3.14159, 0, 0]}
+  white_bucket_lid_04_push_lift:  {pose_m_rad: [-0.62, +0.1955, 0.250, 3.14159, 0, 0]}
+
 objects:
   blue_bucket_01:   # 139x139x115 mm cup; grasp height = mid-height
     dimensions_m: [0.139, 0.139, 0.115]
@@ -56,6 +73,8 @@ objects:
     lift_target: blue_bucket_01_lift
     class_labels: [secchio_blu, secchio, blue bucket, bucket, Blue_Bucket_01]   # vision model classes first
     station_item: Blue_Bucket_01
+    push: {above_target: blue_bucket_01_push_above, start_target: blue_bucket_01_push_start, end_target: blue_bucket_01_push_end,
+           lift_target: blue_bucket_01_push_lift, distance_m: 0.05, description: "50 mm along -Y (away from the ring)"}
   green_ring_02:   # 139x139x7 mm ring; grasp at workspace floor z=15 mm (ring centre z=3.5 mm)
     dimensions_m: [0.139, 0.139, 0.007]
     # mass_kg: unknown -> shake is refused until a measured mass is added
@@ -72,6 +91,8 @@ objects:
     lift_target: orange_screw_03_lift
     class_labels: [vite_arancione, vite arancione, vite, orange screw, screw, Orange_Screw_03]   # vision model classes first
     station_item: Orange_Screw_03
+    push: {above_target: orange_screw_03_push_above, start_target: orange_screw_03_push_start, end_target: orange_screw_03_push_end,
+           lift_target: orange_screw_03_push_lift, distance_m: 0.05, description: "50 mm along +X (towards the robot)"}
   white_bucket_lid_04:   # 139x139x53 mm lid; grasp height = mid-height
     dimensions_m: [0.139, 0.139, 0.053]
     # mass_kg: unknown -> shake is refused until a measured mass is added
@@ -80,6 +101,8 @@ objects:
     lift_target: white_bucket_lid_04_lift
     class_labels: [tappo_bianco, tappo, white lid, white bucket lid, bucket lid, lid, White_Bucket_Lid_04]   # vision model classes first
     station_item: White_Bucket_Lid_04
+    push: {above_target: white_bucket_lid_04_push_above, start_target: white_bucket_lid_04_push_start, end_target: white_bucket_lid_04_push_end,
+           lift_target: white_bucket_lid_04_push_lift, distance_m: 0.05, description: "50 mm along +Y (away from the screw)"}
 
 destinations:
   blue_bucket_01_inside:    # drop the held object into the blue bucket (where the bucket's slot is)

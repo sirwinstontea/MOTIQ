@@ -181,6 +181,20 @@ class MockController(RobotController):
             self._grip_confirmed = False   # only verify_grip confirms
             return self._status()
 
+    def begin_push(self, object_id):
+        self._require_connected()
+        self._fault("begin_push")
+        with self._lock:
+            if self._holding:
+                raise RobotControlError(ErrorCode.PRECONDITION_FAILED, "cannot push while holding an object")
+            self.pushing = object_id
+            return True
+
+    def end_push(self):
+        with self._lock:
+            self.pushed = [*getattr(self, "pushed", []), getattr(self, "pushing", None)]
+            self.pushing = None
+
     def verify_grip(self):
         self._require_connected()
         self._fault("verify_grip")

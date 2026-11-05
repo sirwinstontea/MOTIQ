@@ -14,7 +14,7 @@ from typing import Any
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
@@ -26,7 +26,10 @@ from ..calibration.hand_eye import (
     DEFAULT_MAX_SPREAD_M, FIXED_POSE, FixedTcp, HandEye, aggregate, board_pose, is_stationary, look_pose_and_save,
     solve_and_save,
 )
+from ..calibration.service import CalibrationService, WorkflowError
+from ..calibration.setup_config import CALIB_DIR
 from ..pipeline import EyePipeline
+from .calibration_api import build_router, require_access, workflow_error_handler
 from ..verification.verifier import verify_action_local
 
 
@@ -57,8 +60,13 @@ def encode_jpeg(frame_bgr, quality: int = 80) -> bytes:
     return buf.tobytes()
 
 
-def create_app(pipeline: EyePipeline | None = None) -> FastAPI:
-    """Crea e configura l'applicazione FastAPI collegata alla `EyePipeline`."""
+def create_app(pipeline: EyePipeline | None = None, calibration_service: CalibrationService | None = None,
+               calib_dir: str | Path | None = None) -> FastAPI:
+    """Crea e configura l'applicazione FastAPI collegata alla `EyePipeline`.
+
+    `calibration_service`: backend of Skills -> Calibration (flange hand-eye) and `/localization/snapshot`; by default
+    one for the `arm` source, using the read-only `flange_provider` the CLI attached to that node (if any).
+    `calib_dir`: the only directory calibration files are read from / written to (default data/calibration)."""
     if pipeline is None:
         pipeline = EyePipeline()
         pipeline.add_source("arm", mode="synthetic")
@@ -79,6 +87,23 @@ def create_app(pipeline: EyePipeline | None = None) -> FastAPI:
 
     app.state.pipeline = pipeline
     app.state.vision_state = pipeline.state
+    calib_root = Path(calib_dir) if calib_dir is not None else CALIB_DIR
+    if calibration_service is None:
+        arm = pipeline.nodes.get("arm")
+        calibration_service = CalibrationService(pipeline, "arm", calib_root,
+                                                 flange_provider=getattr(arm, "flange_provider", None))
+    app.state.calibration = calibration_service
+    calibration_service.apply_to_pipeline()  # an approved flange calibration drives live xyz_base_m / GET /locate
+    app.add_exception_handler(WorkflowError, workflow_error_handler)
+    # registered BEFORE the legacy /calibration/{source} routes, so /calibration/status and /setup are not swallowed
+    app.include_router(build_router(lambda: app.state.calibration))
+
+    def _calib_file(name: str) -> Path:
+        """Legacy endpoints: a bare *.json file name inside the calibration directory, never an arbitrary path."""
+        p = Path(name)
+        if p.name != name or p.suffix != ".json" or name.startswith("."):
+            raise WorkflowError("bad_request", "file must be a bare .json name inside data/calibration", 400)
+        return calib_root / name
 
     @app.get("/health")
     def health() -> dict:
@@ -194,7 +219,7 @@ def create_app(pipeline: EyePipeline | None = None) -> FastAPI:
                 return None, None
             await asyncio.sleep(0.05)
 
-    @app.post("/calibration/{source}/reset")
+    @app.post("/calibration/{source}/reset", dependencies=[Depends(require_access)])
     def calibration_reset(source: str) -> dict:
         calib[source] = []
         return {"ok": True, "n": 0}
@@ -206,7 +231,7 @@ def create_app(pipeline: EyePipeline | None = None) -> FastAPI:
                 "robot_pose_source": getattr(getattr(node, "robot_pose_fn", None), "__class__", type(None)).__name__,
                 "calibration_id": getattr(node, "calibration_id", None)}
 
-    @app.post("/calibration/{source}/sample")
+    @app.post("/calibration/{source}/sample", dependencies=[Depends(require_access)])
     async def calibration_sample(source: str, request: Request) -> dict:
         """Un campione: posa del foglio vista ora + posa del braccio ora. Corpo opzionale `{"tcp_pose": [x, y, z, rx,
         ry, rz]}` (m, rad, frame Base); senza, la posa si legge dalla fonte del server (`run --robot-ip`)."""
@@ -247,10 +272,12 @@ def create_app(pipeline: EyePipeline | None = None) -> FastAPI:
         return {"ok": True, "n": len(samples), "markers_seen": found[1], "reproj_px": round(found[2], 2),
                 "advice": "bastano 12-15 pose, ruotate attorno ad assi diversi" if len(samples) < 12 else "abbastanza pose: /solve"}
 
-    @app.post("/calibration/{source}/solve")
-    def calibration_solve(source: str, hand_eye_file: str = Query(default="data/calibration/hand_eye.json"),
-                          markers_file: str = Query(default="data/calibration/markers_mm.json")) -> dict:
-        """Hand-eye dai campioni -> hand_eye.json + centri dei marker nel base in markers_mm.json (senza toccarli)."""
+    @app.post("/calibration/{source}/solve", dependencies=[Depends(require_access)])
+    def calibration_solve(source: str, hand_eye_file: str = Query(default="hand_eye.json"),
+                          markers_file: str = Query(default="markers_mm.json")) -> dict:
+        """LEGACY (TCP frame, ArUco). Hand-eye dai campioni -> hand_eye.json + centri dei marker nel base in
+        markers_mm.json. Per la camera sul braccio usate Skills -> Calibration (flangia, /calibration/sessions)."""
+        hand_eye_file, markers_file = _calib_file(hand_eye_file), _calib_file(markers_file)
         node = pipeline.nodes.get(source)
         samples = calib.get(source, [])
         if len(samples) < 3:
@@ -262,11 +289,16 @@ def create_app(pipeline: EyePipeline | None = None) -> FastAPI:
             res.update(ok=False, reason=f"dispersione {res['spread_mm']} mm (> 5): più pose e rotazioni più ampie")
         return res
 
-    @app.post("/calibration/{source}/look_pose")
+    @app.post("/calibration/{source}/look_pose", dependencies=[Depends(require_access)])
     async def calibration_look_pose(source: str, table_z_mm: float | None = Query(default=None),
-                                    markers_file: str = Query(default="data/calibration/markers_mm.json"),
-                                    out: str = Query(default="data/calibration/fixed_pose.json")) -> dict:
-        """Dalla posa di osservazione, con il foglio ancora sul tavolo: posa fissa -> fixed_pose.json, usata subito."""
+                                    markers_file: str = Query(default="markers_mm.json"),
+                                    out: str = Query(default="fixed_pose.json")) -> dict:
+        """LEGACY. Dalla posa di osservazione, con il foglio ancora sul tavolo: posa fissa -> fixed_pose.json.
+        Rifiutata se è attiva una calibrazione sulla flangia (niente ritorno silenzioso alla posa fissa)."""
+        markers_file, out = _calib_file(markers_file), _calib_file(out)
+        if source == calibration_service.source and calibration_service.active()[0] is not None:
+            return {"ok": False, "status": "flange_calibration_active",
+                    "reason": "a flange calibration is active: the fixed look pose would replace it"}
         node = pipeline.nodes.get(source)
         intr = getattr(getattr(node, "reader", None), "intrinsics", None)
         if node is None or intr is None:
@@ -286,7 +318,7 @@ def create_app(pipeline: EyePipeline | None = None) -> FastAPI:
             node.tcp_readings.clear()
         return res
 
-    @app.post("/empty_table/{source}")
+    @app.post("/empty_table/{source}", dependencies=[Depends(require_access)])
     async def record_empty_table(source: str, timeout_s: float = Query(default=5.0, gt=0, le=30)) -> dict:
         """Registra il tavolo vuoto (sfondo per le maschere dalla profondità). Va fatto con il braccio nella posa di
         osservazione e **niente** sul tavolo: vale solo per quella posa. Ripetere se cambia la luce o la posa."""

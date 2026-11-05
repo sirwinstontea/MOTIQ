@@ -52,16 +52,55 @@ class RealSenseError(RuntimeError):
 
 @dataclass(frozen=True)
 class Intrinsics:
-    """Intrinseci della camera colore (la profondità è allineata a lei), in pixel."""
+    """Intrinseci della camera colore (la profondità è allineata a lei), in pixel.
+
+    `model` / `coeffs`: distortion as the device reports it (librealsense order k1, k2, p1, p2, k3). "none" with zero
+    coefficients = ideal pinhole (the usual D435 colour stream). See `opencv_distortion`.
+    """
     fx: float
     fy: float
     cx: float
     cy: float
     width: int
     height: int
+    model: str = "none"
+    coeffs: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0, 0.0)
 
     def as_tuple(self) -> tuple[float, float, float, float]:
         return self.fx, self.fy, self.cx, self.cy
+
+    def to_dict(self) -> dict:
+        return {"fx": self.fx, "fy": self.fy, "cx": self.cx, "cy": self.cy, "width": self.width,
+                "height": self.height, "distortion_model": self.model, "coeffs": [float(c) for c in self.coeffs]}
+
+
+class UnsupportedDistortion(ValueError):
+    """The camera reports a distortion model we cannot reproduce exactly with OpenCV."""
+
+
+# librealsense model names that are the OpenCV radial-tangential (Brown-Conrady) model, same coefficient order
+_OPENCV_COMPATIBLE = {"brown_conrady", "distortion.brown_conrady", "rs2_distortion_brown_conrady"}
+
+
+def opencv_distortion(intrinsics: Any) -> np.ndarray:
+    """Distortion coefficients for `cv2.solvePnP` / `cv2.undistortPoints` (5 values).
+
+    Zero coefficients (any model) -> zeros. Non-zero Brown-Conrady -> the coefficients. Any other model with non-zero
+    coefficients (e.g. librealsense *inverse* Brown-Conrady, whose coefficients map the other way) raises
+    `UnsupportedDistortion`: calibration and localization fail closed instead of silently using the wrong model.
+    Objects without `coeffs` (legacy intrinsics, RoboDK) are treated as ideal pinhole.
+    """
+    if isinstance(intrinsics, dict):
+        coeffs = [float(c) for c in intrinsics.get("coeffs") or []]
+        model = str(intrinsics.get("distortion_model") or "")
+    else:
+        coeffs = [float(c) for c in (getattr(intrinsics, "coeffs", None) or [])]
+        model = str(getattr(intrinsics, "model", "") or "")
+    if not any(abs(c) > 1e-9 for c in coeffs):
+        return np.zeros(5)
+    if model.lower() not in _OPENCV_COMPATIBLE:
+        raise UnsupportedDistortion(f"distortion model '{model}' with non-zero coefficients {coeffs} is not supported")
+    return np.array((coeffs + [0.0] * 5)[:5], dtype=np.float64)
 
 
 def load_pyrealsense() -> ModuleType:
@@ -109,6 +148,8 @@ class RealSenseReader:
         self.intrinsics: Intrinsics | None = None
         self.depth_scale_mm: float = 1.0   # mm per unità grezza del sensore
         self.device_name: str = ""
+        self.device_serial: str = ""       # serial actually opened (not just the requested one)
+        self.firmware: str = ""
         self.usb_type: str = ""
 
         self._pipe: Any = None
@@ -185,6 +226,8 @@ class RealSenseReader:
         rs = self._rs
         dev = self._find_device()
         serial = dev.get_info(rs.camera_info.serial_number)
+        self.device_serial = str(serial)
+        self.firmware = _info(rs, dev, "firmware_version")
         self.device_name = _info(rs, dev, "name")
         self.usb_type = _info(rs, dev, "usb_type_descriptor")
 
@@ -448,12 +491,16 @@ def _info(rs: ModuleType, dev: Any, field: str) -> str:
 
 def _color_intrinsics(rs: ModuleType, profile: Any) -> Intrinsics:
     i = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
-    if any(abs(float(c)) > 1e-6 for c in getattr(i, "coeffs", []) or []):
-        # ponytail: la deproiezione (segmentation.measure.deproject) è pinhole senza distorsione, giusta per il
-        # colore della D435 (coefficienti a zero). Se si vede questo avviso, passare a rs.rs2_deproject_pixel_to_point.
-        log.warning("RealSense: distorsione del colore non nulla (%s, %s): xyz_cam_m va corretto",
-                    getattr(i, "model", "?"), list(i.coeffs))
-    return Intrinsics(float(i.fx), float(i.fy), float(i.ppx), float(i.ppy), int(i.width), int(i.height))
+    coeffs = tuple(float(c) for c in (getattr(i, "coeffs", []) or []))
+    model = str(getattr(i, "model", "none")).split(".")[-1].lower()
+    intr = Intrinsics(float(i.fx), float(i.fy), float(i.ppx), float(i.ppy), int(i.width), int(i.height),
+                      model=model, coeffs=coeffs or (0.0,) * 5)
+    try:
+        opencv_distortion(intr)
+    except UnsupportedDistortion as exc:
+        # the calibration wizard and /localization/snapshot refuse to run with this; legacy paths stay pinhole
+        log.warning("RealSense: %s - calibration/localization will fail closed", exc)
+    return intr
 
 
 def _depth_scale_mm(profile: Any) -> float:

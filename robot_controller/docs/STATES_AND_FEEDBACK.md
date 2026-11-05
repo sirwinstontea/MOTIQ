@@ -10,6 +10,7 @@ IDLE -> VALIDATING -> (per action)
   shake_object    : SHAKING
   place_object    : APPROACH_PLACE -> AT_PLACE -> RELEASING -> RETREATING
   release_object  : RELEASING
+  push_object     : PUSHING
   move_to_target / perform_motion : MOVING
 -> COMPLETED
 

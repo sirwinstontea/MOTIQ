@@ -1,7 +1,7 @@
 // The MOTIQ skill format (schema 1.1.0). Mirrors src/skills/templates/pick_place_ur5e.json.
-// Two small app extensions: robot.device ("arm" | "dog") and a top-level "app" block (icon, builtin).
+// Two small app extensions: robot.device ("arm", the UR5e) and a top-level "app" block (icon, builtin).
 
-export type Device = 'arm' | 'dog';
+export type Device = 'arm';
 
 export type ParamSpec = {
   type: 'number' | 'enum' | 'array' | 'object_id' | 'string';
@@ -100,7 +100,16 @@ export type PrimitiveCall = { primitive: string; parameters?: Record<string, unk
 export type FailurePolicy =
   'STOP_AND_REOBSERVE' | 'RETRY_WITH_REOBSERVATION' | 'STOP_AND_REPLAN' | 'REPORT_FAILURE' | (string & {});
 
-export type StepAction = 'DETECT' | 'PICK' | 'PLACE' | 'VISIT' | 'VERIFY' | 'SEQUENCE' | (string & {});
+export type StepAction =
+  | 'OVERVIEW'
+  | 'DETECT'
+  | 'PICK'
+  | 'PLACE'
+  | 'VISIT'
+  | 'PUSH'
+  | 'VERIFY'
+  | 'SEQUENCE'
+  | (string & {});
 
 export type SkillStep = {
   id: string;

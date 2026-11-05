@@ -59,7 +59,7 @@ function Card({ id, lines }: { id: DeviceId; lines: Line[] }) {
   return (
     <View style={s.card}>
       <View style={s.cardHead}>
-        <IconChip icon={id === 'dog' ? 'paw-outline' : 'construct-outline'} />
+        <IconChip icon="construct-outline" />
         <Text style={s.name}>{d.label}</Text>
         <Pill label={badge} tone={badgeTone} dot={st.state !== 'sim'} style={{ height: 22 }} />
         <View style={{ flex: 1 }} />

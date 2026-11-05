@@ -1,7 +1,7 @@
 import env from './config';
 
 const SYSTEM =
-  'You are the eyes of a robot crew (a robot dog and a robot arm). Describe what matters for the robots: objects, colours, ' +
+  'You are the eyes of a UR5e robot arm working on a table. Describe what matters for the arm: objects, colours, ' +
   'rough positions (left/right/near/far), people, obstacles. Max 3 short sentences. If asked a yes/no question, start with yes or no.';
 
 function outputText(j: any): string {
