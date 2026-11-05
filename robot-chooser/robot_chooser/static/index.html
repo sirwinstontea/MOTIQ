@@ -31,6 +31,21 @@ ul{margin:4px 0 8px;padding-left:18px}li{margin:2px 0}.b li{color:var(--bad)}.w 
     <div class="chips" id="brands"></div><div class="chips" id="dofs"></div>
     <div id="list"></div>
   </section>
+  <section><h2>Add a robot</h2>
+    <div class="grid">
+      <label>Id</label><input id="n_id" placeholder="kuka_kr3_r540 (lowercase, _)">
+      <label>Brand</label><input id="n_brand" placeholder="KUKA">
+      <label>Model</label><input id="n_model" placeholder="KR 3 R540">
+      <label>Axes (DOF)</label><input id="n_dof" type="number" min="1" max="12" value="6">
+      <label>Nominal reach m</label><input id="n_reach" type="number" step="0.001">
+      <label>Nominal payload kg</label><input id="n_payload" type="number" step="0.1">
+      <label>Library page</label><input id="n_url" placeholder="https://robodk.com/robot/...">
+      <label>.robot file</label><input id="n_file" placeholder="optional, in robot_controller/stations/">
+    </div>
+    <p class="mut">Any arm from the RoboDK library (or a manufacturer page). It stays blocked until you add its limits,
+      scene and workspace below after selecting it.</p>
+    <button class="primary" onclick="addRobot()">Add robot</button>
+  </section>
 </div>
 <div>
   <section><h2>Requirements</h2><div id="report"></div></section>
@@ -62,14 +77,14 @@ function chips(el,vals,cur,set){el.innerHTML="";["All",...vals].forEach(v=>{cons
 function render(){
   const cat=S.catalog, q=$("q").value.toLowerCase();
   chips($("brands"),[...new Set(cat.map(r=>r.brand))],brand,v=>brand=v);
-  chips($("dofs"),[...new Set(cat.map(r=>r.dof))].sort(),dof,v=>dof=v);
+  chips($("dofs"),[...new Set(cat.map(r=>r.dof))].sort((a,b)=>a-b),dof,v=>dof=v);
   $("list").innerHTML=cat.filter(r=>(!q||`${r.brand} ${r.model} ${r.id}`.toLowerCase().includes(q))&&(!brand||r.brand===brand)&&(dof===null||r.dof===dof))
    .map(r=>`<div class="robot ${r.active?"active":""}"><div class="row"><b>${esc(r.brand)} ${esc(r.model)}</b>
     <span class="badge ${esc(r.status)}">${r.active?"Active · ":""}${esc(r.status)}</span></div>
     <div class="mut">${r.dof} DOF · reach ${r.nominal_reach_m} m · payload ${r.nominal_payload_kg} kg (nominal) ·
      model file ${r.model_file_available?"present":"missing"} · limits ${r.limits_verified?"verified":"not verified"}</div>
     <div class="row" style="margin-top:6px"><a href="${esc(r.library_url)}" target="_blank" rel="noopener noreferrer">View in RoboDK Library</a>
-    <button ${r.active?"disabled":""} onclick="api('/api/select',{robot_id:'${esc(r.id)}'})">${r.active?"Selected":"Select"}</button></div></div>`).join("");
+    <span>${r.active?"":`<button onclick="removeRobot('${esc(r.id)}')">Remove</button> `}<button ${r.active?"disabled":""} onclick="api('/api/select',{robot_id:'${esc(r.id)}'})">${r.active?"Selected":"Select"}</button></span></div></div>`).join("");
   const p=S.report, li=(a,c)=>a.length?`<ul class="${c}">${a.map(i=>`<li><b>${esc(i.code)}</b> ${esc(i.message)}</li>`).join("")}</ul>`:"";
   $("report").innerHTML=`<div class="row" style="display:flex;justify-content:space-between"><b>Selected: ${esc(p.robot||p.robot_id)} · ${esc(p.backend)} · ${p.dof??"?"} DOF</b>
    <span class="badge ${p.status}">${p.status}</span></div>
@@ -109,5 +124,11 @@ async function saveRobot(){
   const empty=Object.entries(lim).some(([k,v])=>v===null||(Array.isArray(v)&&v.includes(null))||(k==="source"&&!v));
   if(!(empty&&!r.limits))body.limits=lim;
   if(await api(`/api/robots/${encodeURIComponent(r.id)}`,body))msg("catalog.yaml saved")}
+async function addRobot(){
+  const v=id=>$(id).value.trim(), model=v("n_model");
+  const body={id:v("n_id"),brand:v("n_brand"),model,robodk_item_name:model,dof:Number(v("n_dof")),
+    nominal_reach_m:Number(v("n_reach")),nominal_payload_kg:Number(v("n_payload")),library_url:v("n_url"),library_file:v("n_file")||null};
+  if(await api("/api/robots",body)){msg(`${body.id} added`);["n_id","n_brand","n_model","n_reach","n_payload","n_url","n_file"].forEach(i=>$(i).value="")}}
+async function removeRobot(id){if(confirm(`Remove ${id} from catalog.yaml?`)&&await api(`/api/robots/${encodeURIComponent(id)}/delete`,{}))msg(`${id} removed`)}
 $("q").oninput=render; api("/api/state");
 </script></body></html>

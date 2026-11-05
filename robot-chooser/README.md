@@ -7,11 +7,11 @@ backend, never a physical one.
 
 ```
 robot-chooser/
-  catalog.yaml     robot FACTS: the 5 supported arms, DOF, limits (+source, verified), RoboDK file, scene, workspace
+  catalog.yaml     robot FACTS: any number of arms (5 to start), DOF, limits (+source, verified), RoboDK file, scene, workspace
   hardware.yaml    CELL SETUP: active robot, backend, speed, tool, mounting, cameras
                    + generated `requirements:` block (READY/BLOCKED, blockers, warnings, payload budget)
   robot_chooser/   core.py (checks + generation), cli.py, server.py + static/index.html (local UI)
-  tests/           pytest (23 tests, offline)
+  tests/           pytest (27 tests, offline)
 ```
 
 ## Use it
@@ -51,7 +51,21 @@ The controller reads the generated files through its normal defaults (`config/ro
 bridge loads `config/scene.yaml` when present. Restart the controller/bridge after a change; there is no
 live switching inside a running controller yet.
 
-## Status of the five robots
+## Adding any other robot
+
+The catalog is not limited to five arms: any serial arm with 1-12 axes can be added (UI "Add a robot", or):
+
+```bash
+python -m robot_chooser add-robot --id kuka_kr3_r540 --brand KUKA --model "KR 3 R540" --dof 6 \
+    --reach 0.541 --payload 3 --url https://robodk.com/robot/KUKA/KR-3-R540 --robot-file "KR 3 R540.robot"
+python -m robot_chooser remove-robot kuka_kr3_r540        # not allowed for the active robot
+```
+A new robot starts **Config incomplete**. To make it selectable as READY give it, like any robot: verified
+limits with a source (`set-robot <id> limits ...` or the UI's limits box), its own scene in
+`robot_controller/config/scenes/<id>.yaml`, a workspace, and for `robodk_sim` the `.robot` file from its
+RoboDK library page in `robot_controller/stations/`. `library_url` can be a RoboDK or manufacturer `https://` page.
+
+## Status of the five starting robots
 
 | id | model | state today | what is missing |
 |---|---|---|---|

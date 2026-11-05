@@ -49,6 +49,16 @@ def _parser() -> argparse.ArgumentParser:
     sr = sub.add_parser("set-robot")
     for a in ("robot_id", "key", "value"):
         sr.add_argument(a)
+    ar = sub.add_parser("add-robot", help="add any arm to the catalog (starts blocked until configured)")
+    ar.add_argument("--id", required=True, help="lowercase id, e.g. kuka_kr3_r540")
+    ar.add_argument("--brand", required=True)
+    ar.add_argument("--model", required=True)
+    ar.add_argument("--dof", type=int, required=True)
+    ar.add_argument("--reach", type=float, required=True, help="nominal reach in m")
+    ar.add_argument("--payload", type=float, required=True, help="nominal payload in kg")
+    ar.add_argument("--url", required=True, help="https:// RoboDK library or manufacturer page")
+    ar.add_argument("--robot-file", default=None, help="<name>.robot in robot_controller/stations/")
+    sub.add_parser("remove-robot").add_argument("robot_id")
     sv = sub.add_parser("serve")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8770)
@@ -81,6 +91,13 @@ def main(argv=None) -> int:
             state = ch.update_hardware(_nested(args.key, yaml.safe_load(args.value)))
         elif args.cmd == "set-robot":
             state = ch.update_robot(args.robot_id, _nested(args.key, yaml.safe_load(args.value)))
+        elif args.cmd == "add-robot":
+            state = ch.add_robot({"id": args.id, "brand": args.brand, "model": args.model, "dof": args.dof,
+                                  "nominal_reach_m": args.reach, "nominal_payload_kg": args.payload,
+                                  "library_url": args.url, "library_file": args.robot_file})
+            print(f"added {args.id} (blocked until limits, scene and workspace are set)")
+        elif args.cmd == "remove-robot":
+            state = ch.remove_robot(args.robot_id)
         elif args.cmd == "apply":
             state = ch.apply()
         else:
