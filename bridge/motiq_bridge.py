@@ -7,6 +7,12 @@ The app (EXPO_PUBLIC_ARM_URL) speaks the "bridge" protocol:
     GET  /speed           -> current arm speed (% of the UR5e maximums)
     POST /speed           -> {"percent": 25}: change it (refused while a task runs)
     POST /tools/{name}    -> run one tool, wait for it, return {ok, did, error, ...}
+    POST /tools/ur_down_up -> {"mm": 50}: PHYSICAL UR motion (down + up, <= 50 mm). /tools/stop stops it too.
+    POST /tools/move_up|down|left|right|forward|backward {"distance_m": 0.05}, /tools/move_joint, /tools/rotate_yaw
+                          -> small PHYSICAL UR steps (<= 10 cm, <= 30 deg, 50 mm/s), one at a time, stoppable.
+    POST /tools/find {"object"}       -> camera on the arm head: look for one object from the scene's look poses
+    POST /tools/scan                  -> look at the whole table: which of the known objects are there
+    POST /tools/check_placed {"object","destination"} -> look at the destination after a place
 
 The controller only accepts allowlisted high-level tasks (AI_ACTION_CONTRACT.md) and only on
 127.0.0.1, so this bridge runs on the same PC, translates tool calls into task JSON and is the
@@ -17,12 +23,17 @@ tracked objects to the controller's *registered* object IDs (scene `class_labels
 to --vision-file, which the controller reads with `--detector vision_file`. If the object isn't
 visible the bridge refuses up front, so a missing object never latches a controller FAULT.
 Camera coordinates (coords_mm) are not forwarded: picks use the taught named targets.
+
+Camera on the arm head (scene `search.camera: arm_mounted`): when the object isn't in view, a pick first searches
+for it: straight down at the object's taught spot, then the scene's scan poses, stopping as soon as it is seen.
+Every look pose is a named target moved to with an ordinary controller task (same safety checks).
 """
 from __future__ import annotations
 
 import argparse
 import json
 import logging
+import math
 import os
 import secrets
 import tempfile
@@ -45,24 +56,207 @@ DEFAULT_VISION_FILE = HERE.parent / "robot_controller" / "runs" / "vision_bridge
 
 TERMINAL = {"SUCCEEDED", "FAILED", "REJECTED", "CANCELLED"}
 
-# Italian colour names the vision server reports -> English, so "red cube" matches "cube" + "rosso"
+# Italian colour names the vision server reports -> English, so "orange screw" matches "vite" + "arancione"
 COLORS_IT_EN = {"rosso": "red", "blu": "blue", "verde": "green", "giallo": "yellow", "nero": "black",
                 "bianco": "white", "arancione": "orange", "viola": "purple", "grigio": "gray", "rosa": "pink",
                 "marrone": "brown", "azzurro": "light blue"}
 
-# ids used in the app's skill template (environment.objects) -> controller scene ids
-APP_ALIASES = {"object_cube": "red_cube", "object_box": "delivery_zone", "blue box": "delivery_zone",
-               "box": "delivery_zone", "the box": "delivery_zone", "delivery": "delivery_zone"}
+# The app uses the controller's scene ids directly (blue_bucket_01, ..., delivery_zone); these are spoken names.
+APP_ALIASES = {"delivery": "delivery_zone", "delivery pad": "delivery_zone", "pad": "delivery_zone",
+               "drop zone": "delivery_zone", "box": "delivery_zone"}
 
-# app primitives with no safe equivalent in the controller (it only moves between taught targets)
-REFUSED_PRIMITIVES = {
-    "move_left", "move_right", "move_forward", "move_backward", "move_up", "move_down",
-    "rotate_roll", "rotate_pitch", "rotate_yaw", "move_joint", "move_joints", "move_to_pose", "close_gripper",
-}
+# app primitives with no safe equivalent (absolute poses could go anywhere; roll/pitch tilt the tool)
+REFUSED_PRIMITIVES = {"rotate_roll", "rotate_pitch", "move_joints", "move_to_pose", "close_gripper"}
+
+# small relative step moves the app sends ("move the arm 5 cm up"): run on the PHYSICAL arm via ur_jog
+STEP_MOVES = {"move_left", "move_right", "move_forward", "move_backward", "move_up", "move_down"}
+UR_JOINTS = ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint", "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
+TEMPLATE = HERE.parent / "groky-app" / "src" / "skills" / "templates" / "pick_place_ur5e.json"
+
+
+def load_direction_mapping() -> dict[str, tuple[int, int]]:
+    """direction -> (base axis index, sign). Same table the app uses (skill template robot.direction_mapping)."""
+    axes = {"x": 0, "y": 1, "z": 2}
+    out = {"forward": (0, 1), "backward": (0, -1), "left": (1, 1), "right": (1, -1), "up": (2, 1), "down": (2, -1)}
+    try:
+        m = json.loads(TEMPLATE.read_text(encoding="utf-8"))["robot"]["direction_mapping"]
+        for d in out:
+            if isinstance(m.get(d), dict):
+                out[d] = (axes[m[d]["axis"]], int(m[d]["sign"]))
+    except Exception as e:  # keep the defaults, they match the template
+        log.warning("direction mapping not read from %s (%s); using defaults", TEMPLATE, e)
+    return out
 
 
 class Refused(Exception):
     """A request the bridge won't forward. Nothing was sent to the robot."""
+
+
+# ---------------------------------------------------------------------- physical UR arm (one fixed motion)
+# The ONLY thing the bridge does on real hardware: TCP straight down N mm (<= 50) and back up, then stop.
+# Uses ../../ur_manual/ur_jog.py (URScript on the robot's port 30002). No homing, no other motion.
+PHYSICAL_MAX_MM = 50.0
+PHYSICAL_STEP_MAX_MM = 100.0   # one voice step move ("5 cm up"); same cap as ur_jog.MAX_STEP_MM
+PHYSICAL_STEP_TIMEOUT_S = 15.0
+_STOP_SCRIPT = b"def stop_jog():\n  stopl(1.0)\nend\nstop_jog()\n"
+
+
+class PhysicalArm:
+    def __init__(self):
+        import sys
+        import threading
+        sys.path.insert(0, str(HERE.parent.parent / "ur_manual"))
+        import ur_jog  # noqa: E402  (robot IP lives in ur_jog.ROBOT_IP)
+        self.jog, self.ip = ur_jog, ur_jog.ROBOT_IP
+        self.lock = threading.Lock()
+        self.cancel = threading.Event()
+
+    def status(self) -> dict:
+        """Quick probe for /health: is the UR reachable (ethernet plugged in) and ready? Never raises."""
+        import socket
+        try:
+            with socket.create_connection((self.ip, 29999), timeout=0.5) as s:
+                s.settimeout(0.5)
+                s.recv(1024)
+                s.sendall(b"robotmode\n")
+                mode = s.recv(1024).decode().strip().removeprefix("Robotmode: ")
+                s.sendall(b"safetystatus\n")
+                safety = s.recv(1024).decode().strip().removeprefix("Safetystatus: ")
+        except OSError:
+            return {"reachable": False, "ready": False, "note": f"no answer from {self.ip}: ethernet unplugged?"}
+        return {"reachable": True, "ready": "RUNNING" in mode and "NORMAL" in safety,
+                "mode": mode, "safety": safety, "busy": self.lock.locked()}
+
+    def stop(self) -> bool:
+        """Best effort, quick: stopl on the physical arm. Never raises."""
+        self.cancel.set()
+        import socket
+        try:
+            with socket.create_connection((self.ip, 30002), timeout=0.5) as s:
+                s.sendall(_STOP_SCRIPT)
+            return True
+        except OSError:
+            return False
+
+    def _preflight(self) -> list:
+        """Refuse unless the arm is reachable, RUNNING and NORMAL. Returns the start TCP pose."""
+        try:
+            mode = self.jog.dashboard("robotmode", self.ip)
+            safety = self.jog.dashboard("safetystatus", self.ip)
+            start, _ = self.jog.read_state(self.ip)
+        except OSError as e:
+            raise Refused(f"physical arm not reachable at {self.ip} ({e.__class__.__name__}); check the ethernet cable")
+        if "RUNNING" not in mode:
+            raise Refused(f"physical arm not ready ({mode}): power on + brake release on the pendant")
+        if "NORMAL" not in safety:
+            raise Refused(f"physical arm safety is not NORMAL ({safety})")
+        return start
+
+    def _wait(self, reached) -> Optional[dict]:
+        """Poll until reached(tcp, joints) is true. None = reached, else an error result."""
+        t0 = time.monotonic()
+        while True:
+            if self.cancel.is_set():
+                return {"ok": False, "error": "stopped"}
+            tcp, q = self.jog.read_state(self.ip)
+            if reached(tcp, q):
+                return None
+            if time.monotonic() - t0 > PHYSICAL_STEP_TIMEOUT_S:
+                return {"ok": False, "error": "did not reach the target; arm stopped. Check the pendant ("
+                        + self.jog.dashboard("safetystatus", self.ip) + ")"}
+            time.sleep(0.1)
+
+    def _locked(self, fn) -> dict:
+        # calls from one voice turn arrive back to back ("up 5 cm, then down"): wait for the previous one
+        if not self.lock.acquire(timeout=PHYSICAL_STEP_TIMEOUT_S * 2):
+            raise Refused("the physical arm is still busy with the previous move")
+        try:
+            self.cancel.clear()
+            self._preflight()
+            return fn()
+        except OSError as e:
+            return {"ok": False, "error": f"lost connection to the physical arm ({e.__class__.__name__}); arm stopped"}
+        finally:
+            self.stop()
+            self.lock.release()
+
+    def _result(self, did: str) -> dict:
+        tcp, q = self.jog.read_state(self.ip)
+        # joints_deg lets the app sync its arm model to the real pose
+        return {"ok": True, "did": did, "physical": True, "joints_deg": [round(math.degrees(v), 2) for v in q],
+                "tcp_mm": [round(v * 1000, 1) for v in tcp[:3]]}
+
+    def step(self, direction: str, distance_m: Any, axis_sign: tuple[int, int]) -> dict:
+        """Straight-line TCP move in the base frame, e.g. 5 cm up. ur_jog speed (50 mm/s)."""
+        try:
+            mm = float(distance_m if distance_m is not None else 0.05) * 1000
+        except (TypeError, ValueError):
+            raise Refused("distance_m must be a number")
+        if not 1 <= mm <= PHYSICAL_STEP_MAX_MM:
+            raise Refused(f"on the physical arm a step must be 1..{PHYSICAL_STEP_MAX_MM / 10:g} cm")
+        axis, sign = axis_sign
+        d = [0.0, 0.0, 0.0]
+        d[axis] = sign * mm
+
+        def run():
+            log.info("physical step %s %.0f mm", direction, mm)
+            target = self.jog.move_rel(*d)
+            err = self._wait(lambda tcp, q: all(abs(tcp[i] - target[i]) < 0.0005 for i in range(3)))
+            return err or self._result(f"moved {mm / 10:g} cm {direction} on the physical arm")
+        return self._locked(run)
+
+    def joint(self, index: int, label: str, delta_deg: float) -> dict:
+        """Rotate one joint by delta_deg (capped by ur_jog.MAX_JOINT_DEG), slowly."""
+        if not 0.5 <= abs(delta_deg) <= self.jog.MAX_JOINT_DEG:
+            raise Refused(f"on the physical arm a joint step must be 0.5..{self.jog.MAX_JOINT_DEG} degrees")
+
+        def run():
+            log.info("physical joint %s %+.1f deg", label, delta_deg)
+            target = self.jog.move_joint_rel(index + 1, delta_deg)
+            err = self._wait(lambda tcp, q: all(abs(q[i] - target[i]) < 0.002 for i in range(6)))
+            return err or self._result(f"turned the {label} {delta_deg:+g}° on the physical arm")
+        return self._locked(run)
+
+    def joints_now_deg(self) -> list[float]:
+        _, q = self.jog.read_state(self.ip)
+        return [math.degrees(v) for v in q]
+
+    def down_up(self, mm: Any) -> dict:
+        try:
+            mm = float(mm if mm is not None else PHYSICAL_MAX_MM)
+        except (TypeError, ValueError):
+            raise Refused("mm must be a number")
+        if not 1 <= mm <= PHYSICAL_MAX_MM:
+            raise Refused(f"down/up distance must be 1..{PHYSICAL_MAX_MM:.0f} mm")
+        if not self.lock.acquire(blocking=False):
+            raise Refused("the physical arm is already moving")
+        try:
+            self.cancel.clear()
+            start = self._preflight()
+            log.info("physical down_up %.0f mm, start z=%.1f mm", mm, start[2] * 1000)
+            for dz in (-mm, +mm):
+                if self.cancel.is_set():
+                    return {"ok": False, "error": "stopped"}
+                target = self.jog.move_rel(0, 0, dz)
+                t0 = time.monotonic()
+                while True:
+                    if self.cancel.is_set():
+                        return {"ok": False, "error": "stopped"}
+                    tcp, _ = self.jog.read_state(self.ip)
+                    if all(abs(tcp[i] - target[i]) < 0.0005 for i in range(3)):
+                        break
+                    if time.monotonic() - t0 > PHYSICAL_STEP_TIMEOUT_S:
+                        return {"ok": False, "error": "did not reach the target; arm stopped. Check the pendant ("
+                                + self.jog.dashboard("safetystatus", self.ip) + ")"}
+                    time.sleep(0.1)
+            end, _ = self.jog.read_state(self.ip)
+            return {"ok": True, "did": f"moved {mm / 10:g} cm down and back up on the physical arm, then stopped",
+                    "start_z_mm": round(start[2] * 1000, 1), "end_z_mm": round(end[2] * 1000, 1)}
+        except OSError as e:
+            return {"ok": False, "error": f"lost connection to the physical arm ({e.__class__.__name__}); arm stopped"}
+        finally:
+            self.stop()
+            self.lock.release()
 
 
 class Bridge:
@@ -76,6 +270,11 @@ class Bridge:
         self.scene = yaml.safe_load(scene_path.read_text(encoding="utf-8"))
         self.http = httpx.Client(timeout=10.0)
         self.active_task: Optional[str] = None
+        self.physical = PhysicalArm()
+        self.directions = load_direction_mapping()
+        import threading
+        self.search_cancel = threading.Event()   # set by stop: ends an arm-camera search between poses
+        self.seen: dict[str, dict] = {}          # last confident sighting per object id (arm camera search)
 
     # ------------------------------------------------------------------ scene helpers
     @property
@@ -91,10 +290,10 @@ class Bridge:
             str(s).lower() for s in self.objects[oid].get("class_labels") or []}
 
     def resolve_object(self, q: Any) -> str:
-        """Registered object id from an id, a spoken name ("red cube") or a vision track number."""
+        """Registered object id from an id, a spoken name ("orange screw") or a vision track number."""
         s = str(q or "").strip().lower()
         if not s:
-            raise Refused("which object? say e.g. 'the red cube'")
+            raise Refused("which object? say e.g. 'the orange screw'")
         s = s.removeprefix("the ").strip()
         s = APP_ALIASES.get(s, s)
         if s in self.objects:
@@ -104,9 +303,10 @@ class Bridge:
         for oid in self.objects:
             if s in self._labels(oid):
                 return oid
-        for oid in self.objects:                          # loose: "the red cube please"
-            if any(lbl in s for lbl in self._labels(oid) if len(lbl) > 3):
-                return oid
+        # loose: "the orange screw please". Longest label wins, so "white bucket lid" -> the lid, not the bucket
+        hits = [(len(lbl), oid) for oid in self.objects for lbl in self._labels(oid) if len(lbl) > 2 and lbl in s]
+        if hits:
+            return max(hits)[1]
         raise Refused(f"'{q}' isn't an object the arm knows. Known: {', '.join(self.objects)}")
 
     def resolve_destination(self, q: Any) -> str:
@@ -118,6 +318,13 @@ class Bridge:
         s = APP_ALIASES.get(s, s)
         if s in self.destinations:
             return s
+        s = s.removeprefix("into ").removeprefix("in ").removeprefix("the ").strip()
+        try:                                   # "blue bucket" / "blue_bucket_01" -> into the bucket
+            inside = f"{self.resolve_object(s)}_inside"
+            if inside in self.destinations:
+                return inside
+        except Refused:
+            pass
         for d in self.destinations:
             if s in (d, d.replace("_", " ")) or d.replace("_", " ") in s:
                 return d
@@ -204,6 +411,137 @@ class Bridge:
             raise Refused(f"the camera can't see the {need.replace('_', ' ')} right now")
         return seen
 
+    # ------------------------------------------------------------------ camera on the arm head: search
+    # The camera moves with the arm, so "not in view" usually means "not in view from here". Before giving up on a
+    # pick the bridge moves the camera through named look poses (scene `search`), all as ordinary controller
+    # move_to_target tasks, so every pose goes through the same safety checks as any other move.
+    def _search_cfg(self) -> dict:
+        s = self.scene.get("search") or {}
+        return {"scan_targets": list(s.get("scan_targets") or []), "look_first": s.get("look_first", "object_approach"),
+                "settle_s": float(s.get("settle_s", 0.6)), "look_s": float(s.get("look_s", 1.5))}
+
+    @property
+    def eye_in_hand(self) -> bool:
+        s = self.scene.get("search") or {}
+        return bool(self.vision) and s.get("camera") == "arm_mounted" and bool(s.get("scan_targets"))
+
+    def _look(self, target: Optional[str], seconds: float) -> dict[str, dict]:
+        """Move the camera to `target` (None = stay where it is), let it settle, then watch for `seconds`.
+        Returns the best confident detection per registered object id, from frames taken after arriving."""
+        cfg = self._search_cfg()
+        if target:
+            r = self.run_task([("move_to_target", {"target_id": target})], f"camera at {target}")
+            if not r.get("ok"):
+                raise Refused(f"couldn't move the camera to {target.replace('_', ' ')}: {r.get('error')}")
+            if self.search_cancel.wait(cfg["settle_s"]):
+                raise Refused("stopped")
+        arrived = time.time()
+        best: dict[str, dict] = {}
+        last_fid = None
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            if self.search_cancel.is_set():
+                raise Refused("stopped")
+            try:
+                frame = self.vision_frame()
+            except Exception as e:
+                raise Refused(f"can't reach the vision server ({e.__class__.__name__}); not moving without it")
+            if frame.get("safety_stop"):
+                raise Refused(f"vision safety stop: {frame.get('safety_reason') or 'something in the workspace'}")
+            fid = frame.get("frame_id")
+            if fid != last_fid and float(frame.get("ts") or 0) >= arrived - 0.05:
+                last_fid = fid
+                for v in frame.get("objects") or []:
+                    oid = self.match_vision(v)
+                    conf = float(v.get("conf") or 0)
+                    if oid and conf >= self.min_conf and conf > best.get(oid, {}).get("conf", 0):
+                        best[oid] = {"conf": round(conf, 3), "vision_id": v.get("id"), "bbox": v.get("bbox"),
+                                     "color": v.get("color"), "label": v.get("label"),
+                                     "seen_from": target or "current pose", "ts": time.time()}
+            time.sleep(0.08)
+        self.seen.update(best)
+        return best
+
+    def _look_plan(self, oid: Optional[str]) -> list[str]:
+        cfg = self._search_cfg()
+        plan = []
+        if oid and cfg["look_first"] == "object_approach" and oid in self.objects:
+            plan.append(self.objects[oid]["approach_target"])      # straight down at the object's taught spot
+        return plan + [t for t in cfg["scan_targets"] if t not in plan]
+
+    def find(self, oid: str) -> dict:
+        """Search for one object with the arm camera. Stops at the first pose where it's seen."""
+        if not self.vision:
+            raise Refused("no vision server configured, so the arm can't look for anything")
+        self.search_cancel.clear()
+        name = oid.replace("_", " ")
+        if not self.active_task and (hit := self._look(None, 0.5).get(oid)):
+            return {"ok": True, "did": f"the camera already sees the {name}", "object": oid, "found": hit}
+        if not self.eye_in_hand:
+            return {"ok": False, "object": oid, "error": f"the camera can't see the {name}, and it isn't on the arm "
+                    "(scene search.camera), so the arm can't look around for it"}
+        tried = []
+        for t in self._look_plan(oid):
+            tried.append(t)
+            hit = self._look(t, self._search_cfg()["look_s"]).get(oid)
+            if hit:
+                log.info("found %s from %s (conf %.2f)", oid, t, hit["conf"])
+                return {"ok": True, "did": f"found the {name} (looked from {len(tried)} pose(s))", "object": oid,
+                        "found": hit, "searched": tried}
+        return {"ok": False, "object": oid, "searched": tried,
+                "error": f"searched the table from {len(tried)} poses and the camera never saw the {name} "
+                         f"(needs {self.min_conf:.0%} confidence). Put it in view and try again."}
+
+    def scan(self) -> dict:
+        """Look at the whole table from every scan pose: which of the known objects are there."""
+        if not self.vision:
+            raise Refused("no vision server configured")
+        self.search_cancel.clear()
+        found: dict[str, dict] = {}
+        plan = self._look_plan(None) if self.eye_in_hand else [None]
+        for t in plan:
+            for oid, d in self._look(t, self._search_cfg()["look_s"]).items():
+                if d["conf"] > found.get(oid, {}).get("conf", 0):
+                    found[oid] = d
+        missing = [o for o in self.objects if o not in found]
+        seen_txt = ", ".join(o.replace("_", " ") for o in found) or "none of the known objects"
+        did = f"scanned the table from {len(plan)} pose(s): saw {seen_txt}"
+        if missing:
+            did += f"; didn't see {', '.join(o.replace('_', ' ') for o in missing)}"
+        return {"ok": True, "did": did, "objects": found, "missing": missing}
+
+    def ensure_visible(self, oid: str) -> Optional[dict]:
+        """sync_vision for a pick, but with the camera on the arm: if it's not in view, go look for it first."""
+        try:
+            return self.sync_vision(need=oid)
+        except Refused as e:
+            msg = str(e)
+            if not self.eye_in_hand or "safety stop" in msg or "can't reach the vision" in msg:
+                raise
+        r = self.find(oid)
+        if not r["ok"]:
+            raise Refused(r["error"])
+        return self.sync_vision(need=oid)   # the arm is now where the camera sees it: write it for the controller
+
+    def check_placed(self, oid: str, dest: str) -> dict:
+        """After a place: look at the destination with the arm camera. Inside a container the object can be hidden,
+        so there it also counts if the object is gone from its own spot and the gripper is empty."""
+        if not self.vision:
+            raise Refused("no vision server configured, so the arm can't check")
+        self.search_cancel.clear()
+        name, where = oid.replace("_", " "), dest.replace("_", " ")
+        look_at = "scan_delivery" if dest == "delivery_zone" and "scan_delivery" in (self._search_cfg()["scan_targets"]) \
+            else self.destinations[dest]["approach_target"]
+        if self._look(look_at if self.eye_in_hand else None, self._search_cfg()["look_s"]).get(oid):
+            return {"ok": True, "did": f"checked with the camera: the {name} is at the {where}"}
+        if dest.endswith("_inside") and self.eye_in_hand:
+            robot = (self._get("/status").get("robot") or {})
+            gone = not self._look(self.objects[oid]["approach_target"], self._search_cfg()["look_s"]).get(oid)
+            if gone and not robot.get("holding"):
+                return {"ok": True, "did": f"the {name} isn't visible inside the {where.removesuffix(' inside')}, but "
+                        "it's gone from its spot and the gripper is empty"}
+        return {"ok": False, "error": f"the camera doesn't see the {name} at the {where}"}
+
     # ------------------------------------------------------------------ controller
     def _get(self, path: str) -> dict:
         r = self.http.get(f"{self.controller}{path}")
@@ -274,6 +612,8 @@ class Bridge:
 
     def stop(self) -> dict:
         res: dict[str, Any] = {"ok": True}
+        self.search_cancel.set()
+        res["physical_stop_sent"] = self.physical.stop()
         if self.active_task:
             try:
                 self.http.post(f"{self.controller}/tasks/{self.active_task}/cancel", timeout=2.0)
@@ -291,7 +631,7 @@ class Bridge:
         name = name.lower()
         if name in ("pick", "pick_object"):
             oid = self.resolve_object(a.get("object") or a.get("target"))
-            self.sync_vision(need=oid)
+            self.ensure_visible(oid)
             return self.run_task([("identify_object", {"object_id": oid}), ("pick_object", {"object_id": oid})],
                                  f"picked up the {oid.replace('_', ' ')}")
         if name in ("place", "place_object"):
@@ -302,12 +642,19 @@ class Bridge:
         if name == "pick_and_place":
             oid = self.resolve_object(a.get("object") or a.get("target"))
             dest = self.resolve_destination(a.get("destination"))
-            self.sync_vision(need=oid)
+            self.ensure_visible(oid)
             steps = [("identify_object", {"object_id": oid}), ("pick_object", {"object_id": oid})]
             if int(a.get("shake_cycles") or 0) > 0:
                 steps.append(("shake_object", self._shake({"cycles": a["shake_cycles"]})))
             steps.append(("place_object", {"destination_id": dest}))
             return self.run_task(steps, f"moved the {oid.replace('_', ' ')} to {dest.replace('_', ' ')}")
+        if name in ("find", "find_object", "detect"):
+            return self.find(self.resolve_object(a.get("object") or a.get("target")))
+        if name in ("scan", "look_around"):
+            return self.scan()
+        if name == "check_placed":
+            oid = self.resolve_object(a.get("object") or a.get("target"))
+            return self.check_placed(oid, self.resolve_destination(a.get("destination")))
         if name == "home":
             return self.run_task([("perform_motion", {"motion_id": "go_home"})], "went home")
         if name in ("open_gripper", "release"):
@@ -320,11 +667,33 @@ class Bridge:
                 t = self.resolve_destination(tgt)
             return self.run_task([("move_to_target", {"target_id": self.approach_target(t)})],
                                  f"moved above the {t.replace('_', ' ')}")
+        if name == "ur_down_up":
+            if self.active_task:
+                raise Refused("a controller task is running; wait for it to finish")
+            return self.physical.down_up(a.get("mm"))
+        if name in STEP_MOVES or name in ("move_joint", "rotate_yaw"):
+            if self.active_task:
+                raise Refused("a controller task is running; wait for it to finish")
+            if name in STEP_MOVES:
+                d = name.removeprefix("move_")
+                return self.physical.step(d, a.get("distance_m"), self.directions[d])
+            if name == "rotate_yaw":      # spin the gripper = wrist 3 (it turns about the tool flange Z)
+                return self.physical.joint(5, "gripper (wrist 3)", float(a.get("angle_deg") or 15))
+            j = str(a.get("joint") or "")
+            if j not in UR_JOINTS:
+                raise Refused(f"unknown joint '{j}'. Joints: {', '.join(UR_JOINTS)}")
+            i = UR_JOINTS.index(j)
+            if a.get("target_deg") is not None:
+                delta = float(a["target_deg"]) - self.physical.joints_now_deg()[i]
+            else:
+                delta = float(a.get("delta_deg") or 10)
+            return self.physical.joint(i, j.replace("_", " "), round(delta, 2))
         if name == "status":
             return {"ok": True, **self._get("/status")}
         if name in REFUSED_PRIMITIVES:
-            raise Refused(f"the arm controller only moves between taught positions, so '{name}' isn't available "
-                          "on the real arm. Use pick, place, shake, pick_and_place, move_above or home.")
+            raise Refused(f"'{name}' isn't available on the real arm. Small steps (move_up/down/left/right/"
+                          "forward/backward), move_joint, rotate_yaw, pick, place, shake, pick_and_place, move_above "
+                          "and home are.")
         raise Refused(f"unknown tool '{name}'")
 
     def _shake(self, a: dict) -> dict:
@@ -333,7 +702,8 @@ class Bridge:
         return {"pattern_id": pid, "cycles": max(1, min(10, int(a.get("cycles") or 2)))}
 
     def health(self) -> dict:
-        out: dict[str, Any] = {"ok": True, "bridge": "motiq", "model": "UR5e (robot_controller)"}
+        out: dict[str, Any] = {"ok": True, "bridge": "motiq", "model": "UR5e (robot_controller)",
+                               "physical_arm": self.physical.status()}
         try:
             h = self._get("/health")
             st = self._get("/robot/state")
@@ -351,6 +721,10 @@ class Bridge:
                 out["vision"] = {"ok": False, "error": e.__class__.__name__}
         else:
             out["vision"] = "not configured"
+        out["eye_in_hand"] = self.eye_in_hand
+        now = time.time()
+        out["seen"] = {oid: {"from": d["seen_from"], "conf": d["conf"], "age_s": round(now - d["ts"], 1)}
+                       for oid, d in self.seen.items()}
         return out
 
 
@@ -422,6 +796,8 @@ def create_app(bridge: Bridge, key: str) -> FastAPI:
             res = await run_in_threadpool(bridge.tool, name, args)
         except Refused as e:
             return JSONResponse({"ok": False, "refused": True, "error": str(e)}, status_code=400)
+        except (ValueError, TypeError) as e:
+            return JSONResponse({"ok": False, "refused": True, "error": f"bad arguments: {e}"}, status_code=400)
         except httpx.HTTPError as e:
             return JSONResponse({"ok": False, "error": f"controller unreachable: {e.__class__.__name__}"},
                                 status_code=502)

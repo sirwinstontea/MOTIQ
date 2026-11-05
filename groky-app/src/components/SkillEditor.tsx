@@ -346,7 +346,7 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
                     placeholder={
                       doc.steps.length
                         ? 'e.g. shake it twice before placing, and go slower'
-                        : 'e.g. pick up the red cube, put it in the blue box and go home'
+                        : 'e.g. pick up the orange screw, put it in the delivery zone and go home'
                     }
                     placeholderTextColor={c.faint}
                     style={[s.input, s.multi]}
@@ -376,7 +376,7 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
                 <TextInput
                   value={doc.skill.name}
                   onChangeText={(v) => patch((x) => (x.skill.name = v))}
-                  placeholder="e.g. Pick red cube and place in blue box"
+                  placeholder="e.g. Pick orange screw and place in delivery zone"
                   placeholderTextColor={c.faint}
                   style={s.input}
                 />
@@ -395,7 +395,7 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
                 <TextInput
                   value={doc.intent.goal}
                   onChangeText={(v) => patch((x) => (x.intent.goal = v))}
-                  placeholder="e.g. Place the red cube inside the blue box."
+                  placeholder="e.g. Place the orange screw in the delivery zone."
                   placeholderTextColor={c.faint}
                   style={s.input}
                 />
@@ -404,7 +404,7 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
                 <TextInput
                   value={doc.intent.success_conditions.join('\n')}
                   onChangeText={(v) => patch((x) => (x.intent.success_conditions = v.split('\n')))}
-                  placeholder={'The red cube is inside the blue box.\nThe cube remains upright.'}
+                  placeholder={'The orange screw is in the delivery zone.\nThe screw remains upright.'}
                   placeholderTextColor={c.faint}
                   style={[s.input, s.multi]}
                   multiline
@@ -451,7 +451,7 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
                           x.environment.objects.push({
                             id: `object_${x.environment.objects.length + 1}`,
                             name: '',
-                            category: 'cube',
+                            category: 'object',
                             attributes: {},
                             initial_state: { location: { x: 0.4, y: 0, z: 0.02 }, orientation: { type: 'upright' } },
                             detection: { required: true, reidentify_before_pick: true },
@@ -862,7 +862,7 @@ function ObjectRow({
         <TextInput
           value={obj.name}
           onChangeText={(name) => onChange({ ...obj, name })}
-          placeholder="name, e.g. red cube"
+          placeholder="name, e.g. orange screw"
           placeholderTextColor={c.faint}
           style={[s.input, s.argInput, { flex: 1 }]}
         />
@@ -874,7 +874,7 @@ function ObjectRow({
           on={!container}
           small
           onPress={() =>
-            onChange({ ...obj, category: 'cube', detection: { required: true, reidentify_before_pick: true } })
+            onChange({ ...obj, category: 'object', detection: { required: true, reidentify_before_pick: true } })
           }
         />
         <Chip

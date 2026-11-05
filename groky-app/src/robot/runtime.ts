@@ -33,7 +33,7 @@ export type Send = (name: string, body: Record<string, unknown>) => Promise<{ ok
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // sim: wait a shortened version of the predicted time so the demo feels real but stays quick
-// object by id, or by a name Grok heard ("red cube", "the box")
+// object by id, or by a name Grok heard ("orange screw", "the delivery zone")
 export function resolveObject(q: string): string | undefined {
   if (world[q]) return q;
   const l = q.toLowerCase().replace(/^the /, '').trim();
@@ -111,7 +111,10 @@ export async function detect(objectId: string, real: boolean): Promise<Detection
       const match = (frame.objects ?? []).find((v) => {
         const label = `${v.label} ${v.name ?? ''}`.toLowerCase();
         const colorOk = words.some((w) => IT_COLORS[w] && v.color?.toLowerCase().startsWith(IT_COLORS[w].slice(0, 4)));
-        const shapeOk = words.some((w) => label.includes(w)) || label.includes(o.category);
+        const shapeOk =
+          words.some((w) => label.includes(w)) ||
+          label.includes(o.category) ||
+          (o.labels ?? []).some((l) => label.includes(l.toLowerCase()));
         return shapeOk && (colorOk || !words.some((w) => IT_COLORS[w]));
       });
       if (match) {

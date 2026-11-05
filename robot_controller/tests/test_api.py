@@ -12,7 +12,7 @@ def test_api_flow(make_executor):
     client = TestClient(create_app(ex))
     assert client.get("/health").json()["process"] == "ok"
     assert client.get("/robot/state").json()["mode"] == "simulation"
-    assert "red_cube" in client.get("/scene").json()["objects"]
+    assert "test_cube" in client.get("/scene").json()["objects"]
     r = client.post("/tasks", content=json.dumps(demo_task("api1")))
     assert r.status_code == 202
     for _ in range(100):

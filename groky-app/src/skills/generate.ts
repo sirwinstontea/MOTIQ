@@ -9,6 +9,8 @@ import {
   makeSkill,
   newSkillId,
   realArmConnected,
+  CELL_DESTINATIONS,
+  CELL_OBJECTS,
   realArmProblems,
   REAL_ARM_PRIMITIVES,
   skillIcons,
@@ -181,6 +183,13 @@ Rules:
 const REAL_ARM_RULES = `
 
 THE REAL ARM IS CONNECTED. Arm skills must run on it, so for the arm:
+- It only knows these objects (its camera, mounted on the arm head, searches the table for them): ${CELL_OBJECTS.join(', ')}.
+  Map whatever the person used or said to the closest one (a screw/bolt -> orange_screw_03, a cup/bucket/pot ->
+  blue_bucket_01, a ring/hoop -> green_ring_02, a lid/cap/disc -> white_bucket_lid_04) and say so in "uncertainties".
+- PICK targets: one of those object ids. PLACE targets: exactly one of ${CELL_DESTINATIONS.join(', ')}
+  (blue_bucket_01 = drop it INTO the blue bucket; <object>_slot = put it back where it was; delivery_zone = the pad).
+- DETECT before each PICK makes the arm look around with its camera until it sees the object. End with VERIFY
+  (target = the object) after the last PLACE, then a SEQUENCE with HOME.
 - Allowed steps: DETECT, VERIFY, PICK (with target), PLACE (with target), and SEQUENCE steps that use ONLY
   these primitives: ${REAL_ARM_PRIMITIVES.filter((p) => p !== 'STOP').join(', ')}.
 - PICK and PLACE run as one controller task each (the controller does the approach, grasp and release itself),
@@ -322,6 +331,18 @@ function build(d: Draft, prompt: string, id: string, keep?: SkillDoc): SkillDoc 
     for (const oid of used) {
       const k = known.find((x) => x.id === oid);
       if (k && !objects.some((o) => o.id === oid)) objects.push(JSON.parse(JSON.stringify(k)));
+      // "<object>_slot" = put it back where that object was: a flat spot at the object's taught place, so the
+      // simulator can place there too (the real arm uses the controller destination of the same name)
+      const base = oid.endsWith('_slot') ? known.find((x) => x.id === oid.slice(0, -5)) : undefined;
+      if (base && !objects.some((o) => o.id === oid))
+        objects.push({
+          id: oid,
+          name: `${base.name} spot`,
+          category: 'container',
+          attributes: { size_m: 0.16 },
+          initial_state: { location: { ...(base.initial_state?.location ?? { x: 0.4, y: 0, z: 0 }), z: 0 } },
+          detection: { required: false },
+        });
     }
   }
 

@@ -38,7 +38,7 @@ function schemaFor(p: Primitive, device: DeviceId) {
     else if (spec.type === 'array')
       props[key] = { type: 'array', items: { type: 'number' }, minItems: spec.length, maxItems: spec.length };
     else if (spec.type === 'object_id')
-      props[key] = { type: 'string', description: 'object id or name from the scene, e.g. object_cube or "red cube"' };
+      props[key] = { type: 'string', description: 'object id or name from the scene: blue_bucket_01 ("blue bucket"), green_ring_02 ("green ring"), orange_screw_03 ("orange screw"), white_bucket_lid_04 ("white bucket lid"), delivery_zone' };
     else props[key] = { type: 'string' };
     if (isRequired(spec)) required.push(key);
   }
@@ -63,13 +63,16 @@ const fromPrimitives = (list: Primitive[], device: DeviceId): Tool[] =>
 const dogTools: Tool[] = fromPrimitives(DOG_PRIMITIVES, 'dog');
 
 // High-level tasks run by robot_controller through the arm bridge (../bridge). The real arm only moves between
-// taught positions, so these are the tools that work on hardware; small step moves are simulator-only.
-export const ARM_TASK_TOOLS = new Set(['pick_and_place', 'pick', 'place', 'shake']);
+// taught positions. Small step moves (move_up/down/..., move_joint, rotate_yaw) go to the physical arm via ur_jog.
+export const ARM_TASK_TOOLS = new Set(['pick_and_place', 'pick', 'place', 'shake', 'find', 'scan', 'check_placed']);
 const objectParam = {
   type: 'string',
-  description: 'object name ("red cube") or the number the vision server shows on it',
+  description: 'object name ("orange screw", "blue bucket", "green ring", "white bucket lid") or the number the vision server shows on it',
 };
-const destParam = { type: 'string', description: 'where to put it, e.g. "delivery zone" or "blue box"' };
+const destParam = {
+  type: 'string',
+  description: 'where to put it: "delivery zone", "blue bucket" (drops it into the bucket), or the spot an object came from like "orange_screw_03_slot"',
+};
 
 const armTools: Tool[] = [
   {
@@ -96,6 +99,22 @@ const armTools: Tool[] = [
     parameters: params({ destination: destParam }),
   },
   {
+    name: 'find',
+    description:
+      'The camera is on the arm head: move the arm through its look poses until the camera sees this object. Picks already do this by themselves; use it when asked to look for / find something.',
+    parameters: params({ object: objectParam }, ['object']),
+  },
+  {
+    name: 'scan',
+    description: 'Look over the whole table with the arm camera and report which of the four known objects are there.',
+    parameters: params({}),
+  },
+  {
+    name: 'check_placed',
+    description: 'After placing: look at the destination with the arm camera and confirm the object is there.',
+    parameters: params({ object: objectParam, destination: destParam }, ['object', 'destination']),
+  },
+  {
     name: 'shake',
     description: 'Gently shake the held object side to side.',
     parameters: params({ cycles: { type: 'integer', minimum: 1, maximum: 3, description: 'default 2' } }),
@@ -104,12 +123,12 @@ const armTools: Tool[] = [
   {
     name: 'detect',
     description: 'Look for an object in the arm workspace before moving to it.',
-    parameters: params({ target: { type: 'string', description: 'object id or name, e.g. "red cube"' } }, ['target']),
+    parameters: params({ target: { type: 'string', description: 'object id or name, e.g. "orange screw"' } }, ['target']),
   },
   {
     name: 'verify',
     description: 'Check with the camera that something is true, e.g. after placing an object.',
-    parameters: params({ expect: { type: 'string', description: 'e.g. "the red cube is inside the blue box"' } }, [
+    parameters: params({ expect: { type: 'string', description: 'e.g. "the orange screw is in the delivery zone"' } }, [
       'expect',
     ]),
   },

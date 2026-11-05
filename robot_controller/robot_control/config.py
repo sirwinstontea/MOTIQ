@@ -206,6 +206,20 @@ class BoxDef(_Cfg):
     no_collision_with: list[str] = Field(default_factory=list)
 
 
+class SearchDef(_Cfg):
+    """Camera mounted on the arm head: named look poses the arm visits to find objects.
+
+    Only named targets (same safety checks as any move_to_target). The bridge uses this; the
+    controller itself never moves on its own.
+    """
+    camera: str = "arm_mounted"                       # arm_mounted | fixed
+    scan_targets: list[str] = Field(min_length=1)      # visited in this order by a full scan
+    look_first: str = "object_approach"                # object_approach = first look straight down at the object's slot
+    settle_s: float = Field(default=0.6, ge=0, le=5)   # wait after arriving, so frames aren't motion-blurred
+    look_s: float = Field(default=1.5, gt=0, le=10)    # how long to watch at each pose
+    description: str = ""
+
+
 class SceneConfig(_Cfg):
     home_target: str
     targets: dict[str, TargetDef]
@@ -214,6 +228,7 @@ class SceneConfig(_Cfg):
     patterns: dict[str, PatternDef]
     motions: dict[str, MotionDef] = Field(default_factory=dict)
     station_geometry: dict[str, BoxDef] = Field(default_factory=dict)
+    search: Optional[SearchDef] = None
 
     @model_validator(mode="after")
     def _refs(self):
@@ -227,6 +242,8 @@ class SceneConfig(_Cfg):
             refs += [(f"patterns.{pid}", t) for t in [p.start_target, *p.cycle_targets, p.end_target]]
         for mid, m in self.motions.items():
             refs += [(f"motions.{mid}", t) for t in m.targets]
+        if self.search:
+            refs += [("search.scan_targets", t) for t in self.search.scan_targets]
         missing = [f"{where} -> '{t}'" for where, t in refs if t not in known]
         if missing:
             raise ValueError("scene references unknown targets: " + ", ".join(missing))

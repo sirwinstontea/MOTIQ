@@ -10,13 +10,16 @@ addresses, scripts or code. `python -m robot_control.cli tools` prints the machi
   "task_id": "demo_001",
   "idempotency_key": "optional-client-key",
   "actions": [
-    {"action_id": "a1", "action": "identify_object", "parameters": {"object_id": "red_cube"}},
-    {"action_id": "a2", "action": "pick_object",     "parameters": {"object_id": "red_cube"}},
+    {"action_id": "a1", "action": "identify_object", "parameters": {"object_id": "orange_screw_03"}},
+    {"action_id": "a2", "action": "pick_object",     "parameters": {"object_id": "orange_screw_03"}},
     {"action_id": "a3", "action": "shake_object",    "parameters": {"pattern_id": "gentle_shake", "cycles": 2}},
     {"action_id": "a4", "action": "place_object",    "parameters": {"destination_id": "delivery_zone"}}
   ]
 }
 ```
+
+Note: in the current scene this exact task is refused at `shake_object`, because none of the 4 demo objects has a
+measured `mass_kg` yet. Drop the shake step (see `examples/pick_place.json`) or add the mass to the scene first.
 
 | Tool | Parameters | Task step? | Semantics |
 |---|---|---|---|

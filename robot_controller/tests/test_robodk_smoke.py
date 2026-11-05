@@ -51,7 +51,7 @@ def test_reads_selected_robot_in_simulate_mode(rdk_executor):
 
 def test_move_between_named_targets(rdk_executor):
     task = {"schema_version": "1.0", "task_id": "it_move", "actions": [
-        {"action_id": "m1", "action": "move_to_target", "parameters": {"target_id": "pick_approach"}},
+        {"action_id": "m1", "action": "move_to_target", "parameters": {"target_id": "orange_screw_03_approach"}},
         {"action_id": "m2", "action": "move_to_target", "parameters": {"target_id": "home"}}]}
     st = rdk_executor.submit(task, wait=True)
     assert st.status == ActionStatus.SUCCEEDED, st.error

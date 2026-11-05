@@ -28,9 +28,26 @@ def safety_dict():
     return copy.deepcopy(_yaml("safety.example.yaml"))
 
 
+# Test-only object with a known mass, so the shake/payload logic stays covered. It is NOT in the real scene
+# (the cell has the 4 demo objects only, none with a measured mass yet).
+TEST_CUBE_TARGETS = {
+    "test_cube_approach": {"pose_m_rad": [-0.45, -0.20, 0.150, 3.14159, 0, 0]},
+    "test_cube_grasp": {"pose_m_rad": [-0.45, -0.20, 0.025, 3.14159, 0, 0]},
+    "test_cube_lift": {"pose_m_rad": [-0.45, -0.20, 0.250, 3.14159, 0, 0]},
+}
+TEST_CUBE = {
+    "dimensions_m": [0.05, 0.05, 0.05], "mass_kg": 0.1,
+    "approach_target": "test_cube_approach", "grasp_target": "test_cube_grasp", "lift_target": "test_cube_lift",
+    "class_labels": ["test_cube", "cube"],
+}
+
+
 @pytest.fixture
 def scene_dict():
-    return copy.deepcopy(_yaml("scene.example.yaml"))
+    d = copy.deepcopy(_yaml("scene.example.yaml"))
+    d["targets"].update(copy.deepcopy(TEST_CUBE_TARGETS))
+    d["objects"]["test_cube"] = copy.deepcopy(TEST_CUBE)
+    return d
 
 
 @pytest.fixture
@@ -66,8 +83,8 @@ def demo_task(task_id="t1", cycles=2):
         "schema_version": "1.0",
         "task_id": task_id,
         "actions": [
-            {"action_id": "a1", "action": "identify_object", "parameters": {"object_id": "red_cube"}},
-            {"action_id": "a2", "action": "pick_object", "parameters": {"object_id": "red_cube"}},
+            {"action_id": "a1", "action": "identify_object", "parameters": {"object_id": "test_cube"}},
+            {"action_id": "a2", "action": "pick_object", "parameters": {"object_id": "test_cube"}},
             {"action_id": "a3", "action": "shake_object", "parameters": {"pattern_id": "gentle_shake", "cycles": cycles}},
             {"action_id": "a4", "action": "place_object", "parameters": {"destination_id": "delivery_zone"}},
         ],

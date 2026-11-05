@@ -115,7 +115,7 @@ def test_disconnected_state(robot_cfg, safety_cfg, scene_cfg):
 
 
 def _det(**kw):
-    base = dict(object_id="red_cube", class_label="cube", confidence=0.9, timestamp_utc=utc_now(),
+    base = dict(object_id="test_cube", class_label="cube", confidence=0.9, timestamp_utc=utc_now(),
                 monotonic_s=time.monotonic(), source="mock", is_mock=True)
     base.update(kw)
     return Detection(**base)
@@ -180,7 +180,7 @@ def test_pattern_cycles_above_safety_max(robot_cfg, safety_dict, scene_cfg):
 
 def test_scene_unknown_target_reference(scene_dict):
     from robot_control.config import SceneConfig
-    scene_dict["objects"]["red_cube"]["grasp_target"] = "nowhere"
+    scene_dict["objects"]["test_cube"]["grasp_target"] = "nowhere"
     with pytest.raises(ValueError):
         SceneConfig.model_validate(scene_dict)
 

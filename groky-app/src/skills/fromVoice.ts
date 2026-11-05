@@ -17,8 +17,17 @@ export type VoiceCommand = {
 };
 
 const known = template.environment.objects as unknown as EnvObject[];
-const CUBE = known.find((o) => o.id === 'object_cube')!;
-const BOX = known.find((o) => o.id === 'object_box')!;
+// the cell's 4 demo objects + the delivery zone (same ids as robot_controller's scene)
+const DEST = known.find((o) => o.id === 'delivery_zone')!;
+const PICKABLE = known.filter((o) => o.category !== 'container');
+const TEMPLATE_OBJECT = 'orange_screw_03'; // the object the template's PICK step targets
+// spoken words (English + Italian) -> object; checked in order, so "bucket lid" hits the lid before the bucket
+const WORDS: [RegExp, string][] = [
+  [/\b(lid|cap|tappo|coperchio|white|bianco)\b/, 'white_bucket_lid_04'],
+  [/\b(screw|vite|bolt|orange|arancione)\b/, 'orange_screw_03'],
+  [/\b(ring|anello|green|verde)\b/, 'green_ring_02'],
+  [/\b(bucket|secchio|cup|blue|blu)\b/, 'blue_bucket_01'],
+];
 const tmplStep = (action: string) => template.steps.find((s) => s.action === action) as unknown as SkillStep;
 const clone = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
 
@@ -48,12 +57,12 @@ type Ctx = { objects: EnvObject[]; uncertain: string[] };
 // free-text object / destination -> an object in the skill's environment (reuses the cell's known objects)
 function resolve(ctx: Ctx, raw: unknown, kind: 'object' | 'dest'): string {
   const q = String(raw ?? '').trim().toLowerCase().replace(/^the\s+/, '');
-  const base = kind === 'dest' ? BOX : CUBE;
+  const base = kind === 'dest' ? DEST : PICKABLE.find((o) => o.id === TEMPLATE_OBJECT)!;
+  const word = kind === 'object' ? WORDS.find(([re]) => re.test(q))?.[1] : undefined;
   const hit =
     known.find((o) => o.id === q || o.name.toLowerCase() === q) ??
-    (!q || q === 'delivery zone' || q === 'delivery_zone' || q === 'box' || q === 'delivery' ? (kind === 'dest' ? BOX : undefined) : undefined) ??
-    (/\b(red|cube|cubo)\b/.test(q) && kind === 'object' ? CUBE : undefined) ??
-    (/\b(blue|box|blu|scatola)\b/.test(q) && kind === 'dest' ? BOX : undefined);
+    (kind === 'dest' && (!q || /\b(delivery|zone|pad|box|drop)\b/.test(q)) ? DEST : undefined) ??
+    (word ? known.find((o) => o.id === word) : undefined);
   const use = (o: EnvObject) => {
     if (!ctx.objects.some((x) => x.id === o.id)) ctx.objects.push(clone(o));
     return o.id;
@@ -80,11 +89,11 @@ function armSteps(ctx: Ctx, name: string, a: Record<string, any>): Omit<SkillSte
   const pick = (o: string): Omit<SkillStep, 'id'>[] => [
     { action: 'DETECT', target: o, description: `Locate the ${o.replace(/^object_/, '').replace(/_/g, ' ')}.`, failure_policy: 'STOP_AND_REOBSERVE' },
     { action: 'PICK', target: o, description: `Pick up the ${o.replace(/^object_/, '').replace(/_/g, ' ')}.`,
-      primitive_sequence: retarget(tmplStep('PICK'), 'object_cube', o), failure_policy: 'RETRY_WITH_REOBSERVATION' },
+      primitive_sequence: retarget(tmplStep('PICK'), TEMPLATE_OBJECT, o), failure_policy: 'RETRY_WITH_REOBSERVATION' },
   ];
   const place = (d: string): Omit<SkillStep, 'id'>[] => [
     { action: 'PLACE', target: d, description: `Place it at the ${d.replace(/^dest_/, '').replace(/^object_/, '').replace(/_/g, ' ')}.`,
-      primitive_sequence: retarget(tmplStep('PLACE'), 'object_box', d), failure_policy: 'STOP_AND_REPLAN' },
+      primitive_sequence: retarget(tmplStep('PLACE'), 'delivery_zone', d), failure_policy: 'STOP_AND_REPLAN' },
   ];
   switch (name) {
     case 'pick_and_place': {

@@ -13,7 +13,7 @@ interfaces are:
 ## Adapter (`robot_control/vision.py: VisionEyesFileDetector`)
 
 * Reads either file format. It matches `label` / `name` against the registered object's `class_labels`
-  (e.g. `red_cube: [red_cube, cube, red cube, cubo rosso]`) and records a `Detection` with `source="vision_eyes"`,
+  (e.g. `orange_screw_03: [vite_arancione, vite, orange screw, ...]`) and records a `Detection` with `source="vision_eyes"`,
   the vision `conf`, and an age derived from `ts`.
 * **`coords_mm` is ignored.** It's in the camera/table frame, and there's no verified camera→robot calibration in
   this build, so the controller uses taught named targets. If a detection carries a pose, the safety policy
@@ -32,8 +32,8 @@ interfaces are:
 ## Mapping Grok output to tasks (suggested glue, owned by the Grok team)
 
 Grok's `CommandResult` uses tracker integer IDs and a different action vocabulary. Glue code should map it to
-**registered string IDs**, for example `{action: "pick", target_id: 3}` with track 3 labelled `cube` →
-`identify_object(red_cube)` + `pick_object(red_cube)`. It should refuse when the label doesn't map to a
+**registered string IDs**, for example `{action: "pick", target_id: 3}` with track 3 labelled `vite_arancione` →
+`identify_object(orange_screw_03)` + `pick_object(orange_screw_03)`. It should refuse when the label doesn't map to a
 registered object. Don't change the Grok schemas; do the translation in this adapter layer.
 
 ## Networking
@@ -44,7 +44,7 @@ gateway in front of it. Don't expose the actuator endpoint on the LAN as part of
 ```bash
 curl -s localhost:8765/health
 curl -s localhost:8765/scene
-curl -s -X POST localhost:8765/tasks -H 'content-type: application/json' -d @examples/pick_shake_place.json
+curl -s -X POST localhost:8765/tasks -H 'content-type: application/json' -d @examples/pick_place.json
 curl -s localhost:8765/tasks/demo_001
 curl -s -X POST localhost:8765/tasks/demo_001/cancel
 curl -s -X POST localhost:8765/robot/stop

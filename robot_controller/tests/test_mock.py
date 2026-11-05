@@ -25,7 +25,7 @@ def test_grip_not_confirmed(make_executor):
     ex = make_executor(faults={"verify_grip": ErrorCode.GRIP_NOT_CONFIRMED})
     st = ex.submit(demo_task(), wait=True)
     assert st.status == ActionStatus.FAILED
-    assert "linear:pick_lift" not in ex.c.history         # no lift without verified grip
+    assert "linear:test_cube_lift" not in ex.c.history         # no lift without verified grip
 
 
 def test_stale_sensor_data(make_executor):
@@ -73,7 +73,7 @@ def test_identify_not_available_without_vision(make_executor):
 
 
 def test_mock_detector_missing_object(make_executor):
-    ex = make_executor(detector=MockDetector(missing={"red_cube"}))
+    ex = make_executor(detector=MockDetector(missing={"test_cube"}))
     assert ex.submit(demo_task(), wait=True).status == ActionStatus.REJECTED
 
 
@@ -82,7 +82,7 @@ def test_mock_detector_missing_object(make_executor):
 @pytest.mark.parametrize("method,args", [
     ("plan_segment", ("home", "joint")), ("test_segment", (None,)), ("move_to_named_target", (None, MotionContext())),
     ("move_joints", ([0] * 6, MotionContext())), ("move_linear", (None, MotionContext())),
-    ("open_gripper", ()), ("close_gripper", ("red_cube",)), ("verify_grip", ()), ("get_gripper_state", ()),
+    ("open_gripper", ()), ("close_gripper", ("test_cube",)), ("verify_grip", ()), ("get_gripper_state", ()),
 ])
 def test_physical_backend_refuses_motion_and_gripper(robot_cfg, method, args):
     c = PhysicalDisabledController(robot_cfg)
@@ -167,7 +167,7 @@ def test_vision_eyes_adapter_maps_labels(tmp_path, scene_cfg):
     f.write_text(json.dumps({"source": "arm", "frame_id": 1, "ts": time.time(), "objects": [
         {"id": 3, "label": "cube", "conf": 0.88, "bbox": [0.1, 0.1, 0.2, 0.2], "color": "red",
          "coords_mm": {"x": 999, "y": 999, "angle_deg": 0}}]}))
-    det = VisionEyesFileDetector(f).identify("red_cube", SceneRegistry(scene_cfg))
+    det = VisionEyesFileDetector(f).identify("test_cube", SceneRegistry(scene_cfg))
     assert det.source == "vision_eyes" and det.is_mock is False and det.confidence == 0.88
     assert det.pose is None                                # camera XYZ ignored without calibration
 
@@ -176,5 +176,5 @@ def test_vision_adapter_no_match(tmp_path, scene_cfg):
     f = tmp_path / "sel.json"
     f.write_text(json.dumps({"ts": 0, "target": {"label": "cup", "conf": 0.9}}))
     with pytest.raises(RobotControlError) as ei:
-        VisionEyesFileDetector(f).identify("red_cube", SceneRegistry(scene_cfg))
+        VisionEyesFileDetector(f).identify("test_cube", SceneRegistry(scene_cfg))
     assert ei.value.code == ErrorCode.NOT_AVAILABLE

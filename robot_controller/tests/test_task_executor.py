@@ -20,7 +20,7 @@ def test_happy_path_completes(make_executor):
                 "VERIFYING_GRIP", "LIFTING", "SHAKING", "APPROACH_PLACE", "AT_PLACE", "RELEASING",
                 "RETREATING", "COMPLETED"]
     assert visited == expected
-    assert ex.c.history == ["joint:pick_approach", "linear:pick_grasp", "linear:pick_lift",
+    assert ex.c.history == ["joint:test_cube_approach", "linear:test_cube_grasp", "linear:test_cube_lift",
                             "joint:shake_center", "linear:shake_left", "linear:shake_right",
                             "linear:shake_left", "linear:shake_right", "linear:shake_center",
                             "joint:delivery_approach", "linear:delivery_place", "linear:delivery_retreat"]
@@ -75,9 +75,9 @@ def test_fault_latches_until_operator_reset(make_executor):
 
 
 def test_no_automatic_retry(make_executor):
-    ex = make_executor(faults={"move:pick_grasp": ErrorCode.BACKEND_ERROR})
+    ex = make_executor(faults={"move:test_cube_grasp": ErrorCode.BACKEND_ERROR})
     ex.submit(demo_task(), wait=True)
-    assert ex.c.history == ["joint:pick_approach"]          # failed segment not retried
+    assert ex.c.history == ["joint:test_cube_approach"]          # failed segment not retried
 
 
 def test_plan_errors_rejected_before_motion(make_executor):
@@ -172,7 +172,7 @@ def test_move_object_then_place(make_executor):
     ex = make_executor()
     t = demo_task()
     t["actions"].insert(3, {"action_id": "mv", "action": "move_object",
-                            "parameters": {"object_id": "red_cube", "destination_id": "delivery_zone"}})
+                            "parameters": {"object_id": "test_cube", "destination_id": "delivery_zone"}})
     st = ex.submit(t, wait=True)
     assert st.status == ActionStatus.SUCCEEDED
     mv = next(e for e in st.events if e.action_id == "mv" and e.status == ActionStatus.SUCCEEDED)
@@ -187,14 +187,14 @@ def test_plan_and_live_steps(make_executor):
     ex.on_step = snaps.append
     st = ex.submit(demo_task(), wait=True)
     plan = [(s.kind, s.target_id) for s in st.plan]
-    assert plan[:7] == [("detect", None), ("gripper", None), ("move", "pick_approach"), ("move", "pick_grasp"),
-                        ("gripper", None), ("verify", None), ("move", "pick_lift")]
+    assert plan[:7] == [("detect", None), ("gripper", None), ("move", "test_cube_approach"), ("move", "test_cube_grasp"),
+                        ("gripper", None), ("verify", None), ("move", "test_cube_lift")]
     assert len(st.plan) == 17          # identify 1 + pick 6 + shake 6 (start, 2x2, end) + place 4
     statuses = {s.status for s in st.plan}
     assert statuses <= {"done", "skipped"}
     assert st.plan[1].status == "skipped"              # gripper was already open
     # live snapshots: NOW/NEXT always consistent
-    mid = [s for s in snaps if s["now"] and s["now"]["target_id"] == "pick_grasp"][0]
+    mid = [s for s in snaps if s["now"] and s["now"]["target_id"] == "test_cube_grasp"][0]
     assert mid["next"]["description"].startswith("close gripper")
     assert mid["now"]["target_xyz_m"] == [-0.45, -0.2, 0.025]
 

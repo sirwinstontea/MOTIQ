@@ -13,7 +13,7 @@ groky-app (tablet, Grok Voice)
 * **App → bridge**: `POST /tools/{name}` with the app's existing bridge protocol. The bridge turns each call into a
   controller task (AI_ACTION_CONTRACT.md), waits for it and returns `{ok, did | error, joints_deg, ...}`.
 * **Vision → controller**: before a pick, the bridge reads `/state/arm` and maps tracked objects to registered IDs
-  using the scene's `class_labels` (colour-aware: `cube` + `rosso` → `red cube`). It writes them to the file the
+  using the scene's `class_labels` (colour-aware: `vite` + `arancione` → `orange screw`). It writes them to the file the
   controller's `vision_file` detector reads. If the object isn't visible, the bridge refuses the pick up front, so
   no FAULT gets latched. `coords_mm` isn't used, and picks go to the taught targets.
 * **Vision → app**: Grok gets the vision server's `vision_list_objects`, `vision_select_object`, … tools directly.
@@ -31,11 +31,27 @@ groky-app (tablet, Grok Voice)
 | `arm_home` | perform_motion `go_home` |
 | `arm_open_gripper` | release_object |
 | `arm_move_above {target}` | move_to_target `<object approach>` |
+| `arm_find {object}` | camera on the arm head: move_to_target through look poses until the camera sees it |
+| `arm_scan` | move_to_target through every scan pose; reports which of the 4 objects are on the table |
+| `arm_check_placed {object, destination}` | look at the destination after a place (inside the bucket: gone from its spot + gripper empty also counts) |
 | `stop` / stop button | cancel active task + `/robot/stop` |
 | `arm_move_left`, rotate, move_joint, close_gripper, … | **refused**: the controller only moves between taught targets. These still work in the app's simulator. |
 
-`object` is a scene ID (`red_cube`), a name (`red cube`, `cubo rosso`, `object_cube`), or a vision track number (`3`).
-Destinations can be named `delivery_zone`, `blue box` or `box`.
+`object` is a scene ID (`orange_screw_03`), a name (`orange screw`, `vite arancione`), or a vision track number (`3`).
+Destinations: `delivery_zone` (`box`, `pad`), `blue bucket` / `blue_bucket_01` (= `blue_bucket_01_inside`, drops it
+into the bucket), or `<object>_slot` (back where it was picked).
+
+## Camera on the arm head (eye-in-hand search)
+
+The arm camera moves with the arm, so "not in view" usually means "not in view from here". The scene's `search`
+block (`robot_controller/config/scene.example.yaml`) lists the look poses. Before a pick, if the object isn't in view,
+the bridge looks straight down at the object's taught spot (its approach target), then visits `scan_center`,
+`scan_right`, `scan_left`, `scan_delivery`, stopping as soon as the camera sees the object at >= 60 % confidence (only
+frames taken after the arm has settled count). Every look pose is an ordinary controller `move_to_target`, so it gets
+the same reachability / workspace / speed checks as any move. `/tools/stop` also ends a search between poses.
+`GET /health` shows `eye_in_hand` and the last pose each object was seen from. New scan targets are added to the
+RoboDK station automatically when the controller connects. The scan poses are placeholders for the demo table:
+re-teach them on a real cell.
 
 ## Run (robot PC)
 
