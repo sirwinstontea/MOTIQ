@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import env, { SAMPLE_RATE } from '../lib/config';
 import { devices, grokTools, runTool } from '../devices';
-import { approve, approvedNow, currentPlan, propose, reject, userSaid, waitForAnswer } from '../lib/armApproval';
+import { approvedNow, currentPlan, propose, reject, userSaid, waitForAnswer } from '../lib/armApproval';
 import { fromBase64, toBase64 } from './pcm';
 import { Player } from './player';
 import { editSkillTool, FULL_ACCESS_NOTE, fullAccessTool, lookTool, PROMPT, proposePlanTool, skillTool } from './prompt';
@@ -88,9 +88,11 @@ export class VoiceSession {
         `The video planner understood:\n${d.summary.split('\nWrite a skill')[0]}\n` +
         `It is saved as the skill "${d.skillName}" (id ${d.skillId}). Answer me out loud in one or two short ` +
         `sentences with what you understood I want and exactly what the arm will do, step by step in plain words. ` +
-        `Then call propose_plan for running skill "${d.skillId}" and ask me to approve it. Do NOT call run_skill ` +
-        `(or any arm tool) until I say yes or tap Approve — even if the arm is only simulated. After I approve, ` +
-        `run it with run_skill (skill "${d.skillId}"). If it can't run, tell me why.]`,
+        `Then call propose_plan for running skill "${d.skillId}" and ask me out loud to approve it. Do NOT call ` +
+        `run_skill (or any arm tool) until I say yes (or no to cancel) — even if the arm is only simulated. No ` +
+        `separate on-screen approval card: my spoken yes/no is enough. After I say yes, run it with run_skill ` +
+        `(skill "${d.skillId}"). If it can't run (for example the skill still needs approval in the Skills tab), ` +
+        `tell me why.]`,
       false,
     );
   }
@@ -284,21 +286,6 @@ export class VoiceSession {
     if (r === 'rejected') this.trace({ kind: 'plan', title: 'You said no: the arm stays still', ok: false });
   }
 
-  // Approve / Cancel buttons on the plan card
-  planDecision(ok: boolean) {
-    const p = currentPlan();
-    if (!p || p.state !== 'pending') return;
-    if (ok) approve('tap');
-    else reject();
-    this.trace({ kind: 'plan', title: ok ? 'You approved the plan on screen' : 'You cancelled the plan on screen', detail: p.say, ok });
-    this.sendText(
-      ok
-        ? '[I approved your plan on the screen. Do it now, all steps in order.]'
-        : "[I cancelled your plan on the screen. Don't move the arm; ask me what to change.]",
-      false,
-    );
-  }
-
   async emergencyStop() {
     reject(); // a stop also withdraws any approval
     this.player.stop();
@@ -406,8 +393,9 @@ export class VoiceSession {
         ...(sim ? { simulated: true } : {}),
         note:
           `Now tell the user this plan out loud in one or two short sentences and ask "Shall I do it` +
-          `${sim ? '' : ' on the real arm'}?". Do NOT call arm tools or run_skill until they say yes or tap Approve.` +
-          (sim ? ' The arm is simulated, but approval is still required.' : ''),
+          `${sim ? '' : ' on the real arm'}?". Do NOT call arm tools or run_skill until they say yes or no. ` +
+          `Their spoken (or typed) yes/no is the approval — there is no separate on-screen Approve card.` +
+          (sim ? ' The arm is simulated, but a yes is still required.' : ''),
       };
       this.trace({
         id,

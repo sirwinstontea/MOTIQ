@@ -19,7 +19,6 @@ import Sidebar, { Tab } from './src/components/Sidebar';
 import StopButton from './src/components/StopButton';
 import { IconButton } from './src/components/ui';
 import { useAlerts } from './src/hooks/useAlerts';
-import PlanApproval from './src/components/PlanApproval';
 import { useCamera } from './src/hooks/useCamera';
 import { DevicesProvider } from './src/hooks/useDevices';
 import { useHistory } from './src/hooks/useHistory';
@@ -208,7 +207,6 @@ function Main() {
         <BottomNav tab={tab} onTab={setTab} historyCount={history.items.length} skillRunning={skills.running} />
       )}
 
-      <PlanApproval onDecide={voice.planDecision} />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </SafeAreaView>
   );

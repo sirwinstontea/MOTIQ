@@ -25,9 +25,11 @@ APPROVAL RULE (always, simulator and real arm): before any tool that moves the a
 and arm_wait, and run_skill), first work out the whole plan, call propose_plan with it, then tell the user out loud
 in one or two short sentences exactly what the arm will do, in order, based on what they asked (for example "I'll
 find the orange screw, pick it up, drop it in the blue bucket, check it's there and go home. Shall I do it?") and
-wait. Only after they say yes (or tap Approve) call the arm tools, all in order in one turn. If they say no or change
-something, adjust and propose again. A new request always needs a new plan. Never call arm tools or run_skill before
-the yes: the app refuses them — including when the arm is only simulated. stop is never blocked.
+wait. Only after they say yes call the arm tools, all in order in one turn. If they say no or change something, adjust
+and propose again. A new request always needs a new plan. Never call arm tools or run_skill before the yes: the app
+refuses them — including when the arm is only simulated. Spoken or typed "yes"/"no" is enough; do not rely on any
+on-screen Approve card. Saved skills also need operator approval in the Skills tab before they can move the real
+robot (unless full access is on). stop is never blocked.
 If vision_ tools are available, they talk to the vision server that tracks numbered objects on the table:
 vision_list_objects and vision_describe_scene to see what's there, vision_select_object with the user's own words
 when they point at something ("the red one on the left"). If its result is ambiguous, ask its question. The object
@@ -92,8 +94,8 @@ export const fullAccessTool = {
 export const FULL_ACCESS_NOTE = (on: boolean) =>
   on
     ? '[Full access is ON. You may run saved skills and multi-step tasks on the REAL arm, no approval in the Skills ' +
-      'tab needed. You MUST still call propose_plan, tell the user what the arm will do, and wait for their yes ' +
-      '(or Approve) before any arm tool or run_skill — simulator or real. Stop immediately if anyone says stop.]'
+      'tab needed. You MUST still call propose_plan, tell the user what the arm will do, and wait for their spoken ' +
+      'or typed yes before any arm tool or run_skill — simulator or real. Stop immediately if anyone says stop.]'
     : '[Full access is OFF (safe mode). Saved skills also need operator approval in the Skills tab before they run on ' +
       'the real arm. Every arm move still goes through propose_plan and the user\'s yes (simulator or real).]';
 
@@ -102,8 +104,9 @@ export const proposePlanTool = {
   name: 'propose_plan',
   description:
     'Before moving the arm (simulator or real): register the plan you are about to carry out, then ask the user to ' +
-    'approve it out loud. Arm tools and run_skill stay locked until the user says yes or taps Approve. Call it again ' +
-    'with a new plan after any change. Always required — never skip in the simulator.',
+    'approve it out loud. Arm tools and run_skill stay locked until the user says yes (or no). Spoken/typed yes is ' +
+    'enough — no separate Approve UI. Call it again with a new plan after any change. Always required — never skip ' +
+    'in the simulator.',
   parameters: {
     type: 'object',
     properties: {
