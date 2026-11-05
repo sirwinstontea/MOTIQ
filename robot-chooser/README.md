@@ -1,134 +1,290 @@
 # robot-chooser
 
-Choose the MOTIQ arm model, adjust the cell hardware (tool, mounting, cameras, speed, workspace), and get
-the **hardware requirements document** (`hardware.yaml`) plus the matching `robot_controller` config files,
-regenerated and validated on every change. Simulation only: the chooser can pick the `mock` or `robodk_sim`
-backend, never a physical one.
+Developer guide. robot-chooser lets you pick the MOTIQ arm model and describe **every piece of hardware in the
+cell** (tool, cameras, sensors, tool changer, robot dog, conveyor, ...). On every change it rewrites
+`hardware.yaml`, which doubles as the **hardware requirements document**: a generated `requirements:` block
+says READY or BLOCKED and why. It also writes the matching `robot_controller` config files and validates them
+with the controller's own models.
 
-```
-robot-chooser/
-  catalog.yaml     robot FACTS: any number of arms (5 to start), DOF, limits (+source, verified), RoboDK file, scene, workspace
-  hardware.yaml    CELL SETUP: active robot, backend, speed, tool, mounting, cameras
-                   + generated `requirements:` block (READY/BLOCKED, blockers, warnings, payload budget)
-  robot_chooser/   core.py (checks + generation), cli.py, server.py + static/index.html (local UI)
-  hardware_types/  one YAML per kind of hardware (gripper, camera, F/T sensor, tool changer, mobile base, generic)
-  tests/           pytest (47 tests, offline)
-```
+Design goal: **scalability without code changes**.
+* New arm: one catalog entry.
+* New device: one component entry.
+* New *kind* of hardware: one type file.
 
-## Use it
+**Simulation only:** the chooser can select the `mock` or `robodk_sim` backend, never a physical one, and it
+never enables a physical actuator.
 
-Uses the controller's venv (pydantic + pyyaml; the generated files are validated with `robot_control`):
+---
+
+## 1. Quick start
+
+Use the controller's venv. You need pydantic + pyyaml, and the generated files are validated with `robot_control`.
 
 ```bash
 cd robot_controller && python -m venv .venv && .venv/bin/pip install -e '.[dev]' && cd ..
 cd robot-chooser
-../robot_controller/.venv/bin/python -m robot_chooser serve        # UI on http://127.0.0.1:8770/
-../robot_controller/.venv/bin/python -m robot_chooser list --brand Elite
-../robot_controller/.venv/bin/python -m robot_chooser select ur_ur3e
-../robot_controller/.venv/bin/python -m robot_chooser set tool.mass_kg 0.35
-../robot_controller/.venv/bin/python -m robot_chooser set tool.mass_status measured
-../robot_controller/.venv/bin/python -m robot_chooser set-robot ur_ur3e scene_file ur_ur3e.yaml
-../robot_controller/.venv/bin/python -m robot_chooser apply        # after editing the YAML by hand
-../robot_controller/.venv/bin/python -m pytest -q                  # tests
+PY=../robot_controller/.venv/bin/python          # Windows: ..\robot_controller\.venv\Scripts\python.exe
+$PY -m robot_chooser serve                        # UI + JSON API on http://127.0.0.1:8770/
+$PY -m robot_chooser status                       # requirements of the current setup
+$PY -m pytest -q                                  # 47 offline tests (no RoboDK needed)
 ```
-(Windows: `..\robot_controller\.venv\Scripts\python.exe`.) Exit code: 0 = READY, 2 = BLOCKED, 1 = bad input.
+CLI exit codes: `0` = READY, `2` = BLOCKED, `1` = invalid input (message on stderr as `error [CODE]: ...`).
 
-## What one change does
+## 2. Files and modules
 
-1. Validates the input (finite numbers, 0 < speed <= 100, known robot id, `.robot` file name only, no physical backend).
-2. Checks the active robot against the setup: model file present (required for `robodk_sim`), limits filled in
-   **and verified**, a scene of its own, a workspace of its own, tool mass vs payload, placeholder tool data,
-   workspace/targets vs nominal reach (+TCP, orientative only), joint targets with the wrong number of joints,
-   uncalibrated cameras, DOF < 6 notes.
-3. If nothing blocks: builds `robot_controller/config/robot.yaml`, `safety.yaml` (workspace + speed on top of
-   `safety.example.yaml`), `scene.yaml`, validates them with the controller's `RobotConfig` / `SafetyConfig` /
-   `SceneConfig` / `cross_validate`, and writes them (a hand-written file is moved to `*.bak` once).
-   Every robot with verified limits also gets `config/robots/<id>.yaml`.
-4. If something blocks: removes the previously generated active files. `config/selection.yaml` records
-   `status: BLOCKED` and `robot_control.cli` then **refuses to start** (no silent fallback to the UR5e examples).
-5. Rewrites `hardware.yaml` with the `requirements:` block.
+```
+robot-chooser/
+  catalog.yaml          robot FACTS: arms, DOF, nominal reach/payload, limits (+source, verified flag),
+                        RoboDK .robot file, per-robot scene + workspace. Editable by hand or via UI/CLI.
+  hardware.yaml         CELL SETUP (input): active_robot, backend, speed_percent, mounting, components,
+                        workspace_overrides  +  `requirements:` block (OUTPUT, regenerated on every change)
+  hardware_types/       one YAML per kind of hardware: gripper, camera, force_torque_sensor, tool_changer,
+                        mobile_base, generic. Defines fields, attach rules, roles, drivers.
+  robot_chooser/
+    core.py             Chooser: load/validate, evaluate() (checks -> report), config generation, _commit()
+                        (writes every file atomically under one lock), hardware.yaml renderer
+    components.py       TypeDef / FieldDef / DriverDef / Component models, TypeRegistry (loads hardware_types/,
+                        validates specs, attachments, cycles), on_arm() chain helper
+    tooling.py          analyse_components(): mass carried by the arm, end effector -> TCP / gripper kind,
+                        connection status per device; migrate_v1() for old hardware.yaml files
+    cli.py              argparse CLI (python -m robot_chooser ...)
+    server.py           stdlib ThreadingHTTPServer: UI + JSON API (loopback by default, no auth)
+    static/index.html   UI shell: robot catalog, requirements panel, cell settings, robot specs editor
+    static/components.js  generic component editor; every form is built from the type definitions
+  tests/                conftest copies the YAML + controller example configs into tmp_path per test
+```
 
-The controller reads the generated files through its normal defaults (`config/robot.yaml` etc.), and the
-bridge loads `config/scene.yaml` when present. Restart the controller/bridge after a change; there is no
-live switching inside a running controller yet.
+Data flow of every mutation (`select`, `update_hardware`, `add/update/remove_component`, `add/update/remove_robot`, `apply`):
 
-## Any hardware: components + type files
+```
+input -> pydantic validation (+ TypeRegistry for components) -> evaluate(catalog, hardware)
+      -> READY:   generate robot/safety/scene dicts -> validate with robot_control (RobotConfig, SafetyConfig,
+                  SceneConfig, cross_validate) -> write robot_controller/config/{robot,safety,scene}.yaml
+      -> BLOCKED: delete previously GENERATED active files (never hand-written ones)
+      -> always:  write config/selection.yaml (+version), config/robots/<id>.yaml, hardware.yaml (requirements)
+```
+Writes are atomic (`.tmp` then rename), all under one `RLock`, so the UI, CLI and tests never see half a change.
+Invalid input raises `ChooserError` before anything is written.
 
-Every device in the cell is a **component** in `hardware.yaml` (gripper, cameras, sensors, tool changer, robot
-dog, conveyor, ...). What a device *is* comes from a **type file** in `hardware_types/`:
+## 3. Files written outside robot-chooser/
+
+| File (under `robot_controller/config/`) | When | Read by |
+|---|---|---|
+| `robot.yaml`, `safety.yaml`, `scene.yaml` | READY only | `robot_control.cli` defaults; the bridge reads `scene.yaml` |
+| `selection.yaml` | every change | `robot_control.cli`: if `status != READY` it **refuses to start** (`CONFIG_ERROR` with the blockers) |
+| `robots/<id>.yaml` | each robot with verified limits, unless a mass on the arm is unknown | future multi-robot selection; reference profiles |
+| `robot.yaml.bak` etc. | once, if a hand-written file was there | you |
+
+Generated files start with `# GENERATED by robot-chooser` and are gitignored. `safety.yaml` is
+`safety.example.yaml` plus the robot's workspace and `speed_percent`, with the allowed backends cut down to
+`mock` / `robodk_sim`.
+
+### Changes in other parts of the repo
+* `robot_controller/robot_control/cli.py`: `_default_config()` reads `selection.yaml`. A BLOCKED selection makes
+  the controller refuse to start instead of silently falling back to the UR5e `*.example.yaml` files.
+  Passing `--config/--scene/--safety` explicitly bypasses it.
+* `robot_controller/robot_control/api/app.py`: `GET /health` also returns `model`, `dof`, `simulation`.
+* `bridge/motiq_bridge.py`: loads `config/scene.yaml` when present (same order as the CLI). `/health` reports the
+  controller's real model/dof instead of a fixed "UR5e" label. `ur_down_up` is untouched.
+
+Restart the controller and bridge after a change. A running controller doesn't switch robots live yet (see section 10).
+
+## 4. Robots (catalog.yaml)
+
+Any serial arm with 1-12 axes. Entry fields: `id` (lowercase_with_underscores), `brand`, `model`, `dof`,
+`nominal_reach_m`, `nominal_payload_kg`, `library_url` (https RoboDK or manufacturer page), `robodk_item_name`,
+`station_name`, `library_file` (a plain `<name>.robot` **file name**, looked up only in
+`robot_controller/stations/`), `scene_file` (a plain file name, looked up in `config/scenes/` and then `config/`),
+`default_workspace`, `limits`, `notes`.
+
+```bash
+$PY -m robot_chooser list [--brand Elite] [--dof 6] [--text ur]
+$PY -m robot_chooser add-robot --id kuka_kr3_r540 --brand KUKA --model "KR 3 R540" --dof 6 \
+    --reach 0.541 --payload 3 --url https://robodk.com/robot/KUKA/KR-3-R540 --robot-file "KR 3 R540.robot"
+$PY -m robot_chooser set-robot kuka_kr3_r540 scene_file kuka_kr3_r540.yaml
+$PY -m robot_chooser select kuka_kr3_r540
+$PY -m robot_chooser remove-robot kuka_kr3_r540     # refused for the active robot (409)
+```
+
+A robot is READY only when it has all of these:
+1. `limits` complete, with a `source` and `verified: true`. Never invent numbers; take them from the datasheet
+   or the RoboDK model (`robot.JointLimits()`, converted to rad).
+2. Its own scene (taught targets), with joint targets of exactly `dof` values. Never reuse or scale another
+   robot's targets.
+3. Its own workspace (`default_workspace` in the catalog, or `workspace_overrides.<id>` in hardware.yaml).
+4. For `robodk_sim`: the `.robot` file in `robot_controller/stations/`.
+5. Payload budget > 0 after everything the arm carries.
+
+Nominal reach and payload are used for filtering and for orientation-only warnings. Feasibility is decided by
+the controller's IK, path and payload checks.
+
+| id | state today | missing |
+|---|---|---|
+| `ur_ur5e` | READY (repo reference cell) | measured tool mass / TCP (placeholders) |
+| `ur_ur3e` | Config incomplete | own scene + workspace; `stations/UR3e.robot` for robodk_sim |
+| `ufactory_xarm5` (5 DOF) | Config incomplete | limits, scene, workspace, `.robot` file |
+| `elite_cs63`, `elite_cs66` | Config incomplete | limits, scene, workspace, `.robot` file |
+
+## 5. Hardware components (hardware.yaml)
+
+Every device is one component:
 
 ```yaml
-# hardware_types/camera.yaml (excerpt)
-type: camera
-attach_to: [cell, arm, gripper, tool_changer, mobile_base]   # where it can be mounted
-roles: [camera, sensor]                                      # end_effector sets the TCP
-payload_field: mass_kg                                       # counted against payload when on the arm
+components:
+- id: main_tool                 # unique, lowercase_with_underscores; 'cell' and 'arm' are reserved
+  type: gripper                 # a file in hardware_types/
+  name: Custom 3D-printed plastic gripper (fixed, non-actuated)
+  attached_to: arm              # cell | arm | <component id>  -> chains
+  driver: controller_symbolic   # one of the type's drivers, or null = documented only
+  status: placeholder           # placeholder | datasheet | measured (placeholder -> warning)
+  spec: {kind: rigid, actuated: false, mass_kg: 1.0, tcp_offset_m_rad: [0, 0, 0.15, 0, 0, 0], sim_gripper: symbolic}
+```
+
+Rules applied by `TypeRegistry.validate_all()` and `tooling.analyse_components()`:
+* **Spec validation:** unknown fields are refused (except for types with `allow_extra_fields`). Required fields
+  must be present. Numbers must be finite and within `min`/`max`. Enums, vectors (with their length) and booleans
+  are type-checked. A driver must be one of the type's drivers.
+* **Attachment:** the parent must be `cell`, `arm` or an existing component, and must be allowed by the type's
+  `attach_to`. Cycles are refused. A component that still carries others can't be removed (409).
+* **Payload:** every component carried by the arm, directly or through a chain, adds its `payload_field` mass.
+  The sum becomes the controller's `tool_mass_kg` and is checked against the arm's payload. An unknown mass on
+  the arm **blocks**; masses are never understated.
+* **TCP:** the single `end_effector`-role component on the arm sets `tcp_offset_m_rad` and `gripper_kind`.
+  With no end effector the TCP is the flange (`gripper_kind: none`). Two end effectors on the arm block.
+* **Connection status** (per device, in `requirements.components`):
+  - `documented only`: no driver.
+  - `simulated via ...`: `physical: false`.
+  - `physical, read-only via ...`: e.g. the RealSense camera through the vision server.
+  - `physical actuator ... never enabled by robot-chooser`: a warning; such drivers are documented only.
+* Cameras with `calibrated: false` give a warning: their detections don't produce executable coordinates.
+
+```bash
+$PY -m robot_chooser types                      # every type, its fields (* = required) and drivers
+$PY -m robot_chooser components                 # every device, parent, status, connection
+$PY -m robot_chooser add-component --id wrist_cam --type camera --name "Wrist D405" \
+    --attached-to main_tool role=vision mass_kg=0.06     # spec as key=value, values parsed as YAML
+$PY -m robot_chooser set-component main_tool spec.mass_kg 0.42
+$PY -m robot_chooser set-component main_tool status measured
+$PY -m robot_chooser set-component realsense_d415 driver realsense
+$PY -m robot_chooser remove-component wrist_cam
+$PY -m robot_chooser set speed_percent 25       # any top-level hardware.yaml key: backend, mounting.*, ...
+$PY -m robot_chooser apply                      # re-check + regenerate after editing YAML by hand
+```
+
+An old v1 `hardware.yaml` (fixed `tool:` / `cameras:` keys) is migrated to components automatically on load.
+
+## 6. Adding a new kind of hardware (type file)
+
+Drop `hardware_types/<type>.yaml`. Validation, the UI form, the CLI and the payload/TCP logic pick it up with
+no code change. Example:
+
+```yaml
+type: conveyor                    # = file's identity; lowercase_with_underscores, unique
+label: Conveyor belt
+description: Infeed belt
+attach_to: [cell]                 # roots (cell, arm), other type names, or "*"
+roles: [other]                    # end_effector | sensor | camera | mobility | other
+payload_field: null               # field holding the mass counted when carried by the arm (null = never)
+allow_extra_fields: false         # true = free-form fields (see generic.yaml)
 fields:
-  role: {type: enum, values: [vision, skill_recording, monitoring, other], required: true}
-  mass_kg: {type: number, min: 0, max: 10, unit: kg}
-drivers:                                                     # how it is connected
-  - {id: realsense, connects_via: computer-vision server, physical: true, actuates: false}
+  length_m:  {type: number, min: 0, unit: m, required: true}
+  speed_m_s: {type: number, min: 0, max: 2, unit: m/s}
+  # field types: number | integer | string | bool | enum (values: [...]) | vector (length: n)
+  # optional keys: required, unit, min, max, default, description
+drivers:
+  - id: plc_modbus
+    description: PLC over Modbus TCP
+    connects_via: plc bridge      # the service/code that talks to the device
+    physical: true                # real device (false = simulation)
+    actuates: true                # can make it move -> documented only, never enabled here
 ```
+Quote YAML strings that contain `:`, `,`, `?` or `#` inside flow maps (`{...}`).
+Until a type exists, use `generic` (requires `category`, accepts any `lowercase_field`).
 
-* **New device of a known kind**: `add-component` (CLI/UI). **New kind of hardware**: drop one type file in
-  `hardware_types/`; validation, the UI form and the payload/TCP logic pick it up with no code change.
-  `generic` accepts anything right away (free fields) until a proper type file exists.
-* `attached_to: cell | arm | <component id>` builds chains (arm -> changer -> F/T sensor -> gripper -> wrist camera).
-  The sum of all masses carried by the arm is the controller's `tool_mass_kg` and is checked against payload;
-  an unknown mass on the arm blocks. Exactly one end effector on the arm sets the TCP (none = flange).
-* `driver` says how the device is connected: simulated, physical read-only (e.g. RealSense via the vision
-  server), or physical actuator. Physical actuators are only **documented** here; robot-chooser never enables
-  physical motion (simulation-only build).
+Shipped types: `gripper` (end effector, can be parked in the `cell`), `camera` (drivers `realsense`,
+`video_file`, `robodk_camera`), `force_torque_sensor`, `tool_changer`, `mobile_base` (driver `groky_dog`,
+physical actuator, documented only), `generic`.
 
-```bash
-python -m robot_chooser types
-python -m robot_chooser components
-python -m robot_chooser add-component --id wrist_cam --type camera --name "Wrist D405" --attached-to main_tool role=vision mass_kg=0.06
-python -m robot_chooser set-component realsense_d415 driver realsense
-python -m robot_chooser remove-component wrist_cam
-```
-API: `POST /api/components`, `POST /api/components/<id>`, `POST /api/components/<id>/delete`; `GET /api/state` includes `types`.
-An old v1 `hardware.yaml` (fixed `tool:` / `cameras:`) is migrated to components automatically.
+## 7. Adding a driver (connecting a device)
 
-What is still one-of-a-kind: one active arm per controller (the controller has a single kinematic chain);
-multi-arm cells need a controller per arm.
+A driver entry in a type file only **declares** how a device is connected. The code that talks to the device
+lives in the service named in `connects_via` (e.g. `computer-vision/vision/eyes/capture/realsense.py` for
+`realsense`). To connect a new device:
+1. Implement it in the owning service: the vision server for sensors, `robot_controller/robot_control/backends/`
+   for the arm, groky-app for the dog.
+2. Add the driver to the type file, with an honest `physical` / `actuates`.
+3. Set `driver:` on the component.
 
-## Adding any other robot
+Physical actuators stay documentation-only in this build (repo-wide simulation-only boundary,
+`robot_controller/docs/SAFETY_BOUNDARIES.md`). Enabling one is a separate, reviewed change outside robot-chooser.
 
-The catalog is not limited to five arms: any serial arm with 1-12 axes can be added (UI "Add a robot", or):
+## 8. HTTP API
 
-```bash
-python -m robot_chooser add-robot --id kuka_kr3_r540 --brand KUKA --model "KR 3 R540" --dof 6 \
-    --reach 0.541 --payload 3 --url https://robodk.com/robot/KUKA/KR-3-R540 --robot-file "KR 3 R540.robot"
-python -m robot_chooser remove-robot kuka_kr3_r540        # not allowed for the active robot
-```
-A new robot starts **Config incomplete**. To make it selectable as READY give it, like any robot: verified
-limits with a source (`set-robot <id> limits ...` or the UI's limits box), its own scene in
-`robot_controller/config/scenes/<id>.yaml`, a workspace, and for `robodk_sim` the `.robot` file from its
-RoboDK library page in `robot_controller/stations/`. `library_url` can be a RoboDK or manufacturer `https://` page.
+Loopback by default and **no auth**: don't bind it to a LAN address (`serve --host` warns). JSON in and out.
+Every mutation returns the full state.
 
-## Status of the five starting robots
+| Method + path | Body | Notes |
+|---|---|---|
+| `GET /api/state` | | `catalog` (with per-robot status), `hardware`, `report`, `selection`, `types` |
+| `POST /api/select` | `{"robot_id"}` | exact id; 404 if unknown |
+| `POST /api/hardware` | partial hardware.yaml | top-level keys; `components` (if given) replaces the list |
+| `POST /api/components` | component | 409 on a duplicate id |
+| `POST /api/components/<id>` | partial component | deep-merged; the id can't change |
+| `POST /api/components/<id>/delete` | `{}` | 409 if it still carries other components |
+| `POST /api/robots` | catalog entry | 409 on a duplicate id |
+| `POST /api/robots/<id>` | `library_file`, `scene_file`, `default_workspace`, `limits`, `station_name`, `notes` | brand/model/dof only in catalog.yaml |
+| `POST /api/robots/<id>/delete` | `{}` | 409 for the active robot |
+| `POST /api/apply` | `{}` | re-check after hand edits |
+| `GET /robots/catalog`, `GET /robots/active`, `POST /robots/select` | | aliases matching the multi-robot contract |
 
-| id | model | state today | what is missing |
-|---|---|---|---|
-| `ur_ur5e` | UR5e | Ready (repo reference cell) | real tool mass / TCP (placeholders) |
-| `ur_ur3e` | UR3e | Config incomplete | its own scene (`config/scenes/ur_ur3e.yaml`), workspace, `stations/UR3e.robot` for robodk_sim |
-| `ufactory_xarm5` | xArm5 (5 DOF) | Config incomplete | limits (datasheet / RoboDK model), scene, workspace, `.robot` file |
-| `elite_cs63` | CS63 | Config incomplete | same as xArm5 |
-| `elite_cs66` | CS66 | Config incomplete | same as xArm5 |
+Errors: `{"ok": false, "error": {"code", "message"}}`. Status codes: 400 bad JSON, 404 unknown, 409 conflict,
+413 body > 64 KB, 422 validation.
 
-Joint limits and speeds for xArm5 / CS63 / CS66 are deliberately **not** filled in: copy them from the
-manufacturer datasheet or the RoboDK model (`robot.JointLimits()`), add the source, then tick *verified*.
-Catalogue reach/payload are for filtering only; the controller's IK, path and payload checks decide feasibility.
+## 9. Report codes (`requirements:` / `report`)
 
-## API (UI uses it; loopback, no auth)
+Each code is listed with the level it can appear at.
 
-`GET /api/state` · `POST /api/select {"robot_id"}` · `POST /api/hardware {partial hardware.yaml}` ·
-`POST /api/robots/<id> {library_file|scene_file|default_workspace|limits|station_name|notes}` · `POST /api/apply`.
-Aliases following the multi-robot contract: `GET /robots/catalog`, `GET /robots/active`, `POST /robots/select`.
-Errors: `{"ok": false, "error": {"code": "UNKNOWN_ROBOT|VALIDATION_ERROR|...", "message"}}` with 404/422.
+| Code | Level | Meaning |
+|---|---|---|
+| `UNKNOWN_ROBOT` | blocker | `active_robot` not in the catalog |
+| `MODEL_FILE_MISSING` | blocker (robodk_sim) / warning (mock) | no `.robot` file in `stations/` |
+| `CONFIG_INCOMPLETE` | blocker | limits missing or unverified, no scene or workspace, or the controller rejected the generated config |
+| `MODEL_MISMATCH` | blocker | joint target with the wrong number of joints |
+| `PAYLOAD` | blocker | budget <= 0, or unknown mass on the arm |
+| `TOOLING` | blocker | more than one end effector on the arm |
+| `TOOLING` | info | no end effector (flange TCP) |
+| `WORKSPACE` | warning | workspace corner or target beyond nominal reach + TCP (orientation only) |
+| `PLACEHOLDER` | warning | component values not measured |
+| `GRIPPER` | warning | real tool not actuated |
+| `GRIPPER` | info | symbolic grasp |
+| `CAMERA` | warning | camera not calibrated |
+| `CONNECTION` | warning | physical actuator driver (documented only) |
+| `MOUNTING` | warning (non-upright) / info (assumed) | base mounting |
+| `ORIENTATION` | info | DOF < 6 |
 
-## Not done here (next steps of the multi-robot plan)
+Validation errors from the API/CLI use: `VALIDATION_ERROR`, `UNKNOWN_ROBOT`, `UNKNOWN_COMPONENT`,
+`DUPLICATE_ROBOT`, `DUPLICATE_COMPONENT`, `ROBOT_ACTIVE`, `COMPONENT_IN_USE`.
 
-Live `RobotSelectionManager` inside the controller (select without restart, 409 while busy), per-skill
-preflight with RoboDK IK, and the app's Robots screen calling these endpoints through the bridge.
+## 10. Limits and next steps
+
+* **One active arm per controller.** The controller has one kinematic chain; multi-arm cells need one
+  controller per arm. Other devices are unlimited.
+* **No live switching.** The choice takes effect when the controller/bridge restart. Next step: a
+  `RobotSelectionManager` in the controller (select without restart, 409 while a task runs).
+* **No per-skill preflight yet.** That is RoboDK IK/path checks of a skill on the selected robot, with
+  `COMPATIBLE` / `REQUIRES_RETEACHING` / `INCOMPATIBLE` results.
+* **The app doesn't call these endpoints yet.** groky-app's Robots screen should reach them through the bridge.
+* **No physical motion.** Physical actuators are documented, never driven, by design.
+* The guidance doc (`MOTIQ_Codex_MultiRobot_RoboDK.md`) was used as direction, not as a spec.
+
+## 11. Tests
+
+`$PY -m pytest -q` runs 47 offline tests:
+* `test_chooser.py`: robot selection, READY/BLOCKED, generated files loading in the controller,
+  no silent fallback, input validation.
+* `test_any_robot.py`: adding, configuring and selecting a 7-axis arm; add/remove rules.
+* `test_components.py`: chains and payload, end-effector rules, a new type file without code, generic type,
+  validation matrix, cycles, the dog as a documented-only actuator, v1 migration.
+* `test_server.py`: HTTP contract and status codes.
+
+Controller suite: `cd robot_controller && .venv/bin/python -m pytest -q`.
