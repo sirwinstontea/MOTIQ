@@ -82,7 +82,7 @@ const SCHEMA = {
       items: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['DETECT', 'PICK', 'PLACE', 'VERIFY', 'SEQUENCE'] },
+          action: { type: 'string', enum: ['DETECT', 'PICK', 'PLACE', 'VISIT', 'VERIFY', 'SEQUENCE'] },
           target: { type: 'string' },
           description: { type: 'string' },
           primitive_sequence: {
@@ -146,7 +146,8 @@ Write ONLY the task-specific parts. Safety, constraints, robot specs and approva
 
 Robots:
 - "arm": UR5e collaborative arm with a gripper, on a table. Units: metres, base frame (x forward, y left, z up). Table at z = 0.
-- "dog": small robot dog on the floor. Pick "dog" only if the user clearly means the dog (walk, sit, patrol, ...).
+- "dog": small robot dog on the floor. Pick "dog" only if the user clearly says the dog (walk, sit, patrol, ...).
+  Visiting / going to / going over an object (e.g. "visit the green object and come back") is an ARM skill.
 
 Arm primitives:
 ${primitiveList('arm')}
@@ -168,7 +169,11 @@ Rules:
    PLACE: ${JSON.stringify(place?.primitive_sequence)}
    PICK and PLACE steps need a "target" object id. Put a DETECT step (target = the object) before the first PICK.
    Open the gripper before descending, lift before moving sideways, finish with a SEQUENCE step containing HOME.
-4. DETECT and VERIFY steps have no primitive_sequence. Dog skills use only SEQUENCE steps and no objects.
+4. VISIT (arm only): go over an object and come back. One VISIT step with "target" = the object id; the real
+   arm's camera guides it over the object and it returns to where it started by itself (no HOME needed).
+   Its primitive_sequence is only for the simulator: [{"primitive":"MOVE_ABOVE","parameters":{"target":"<id>"}},
+   {"primitive":"WAIT","parameters":{"seconds":2}}]. Use VISIT whenever the user says visit / go to / go over.
+   DETECT and VERIFY steps have no primitive_sequence. Dog skills use only SEQUENCE steps and no objects.
 5. Never invent facts. If a position, size or object isn't given and isn't one of the known objects, use a plausible
    placeholder inside the reachable table area (x 0.25-0.6, y -0.3-0.3) AND add a line to "uncertainties" saying so.
    Anything else ambiguous also goes into "uncertainties".
@@ -190,7 +195,7 @@ THE REAL ARM IS CONNECTED. Arm skills must run on it, so for the arm:
   (blue_bucket_01 = drop it INTO the blue bucket; <object>_slot = put it back where it was; delivery_zone = the pad).
 - DETECT before each PICK makes the arm look around with its camera until it sees the object. End with VERIFY
   (target = the object) after the last PLACE, then a SEQUENCE with HOME.
-- Allowed steps: DETECT, VERIFY, PICK (with target), PLACE (with target), and SEQUENCE steps that use ONLY
+- Allowed steps: DETECT, VERIFY, PICK (with target), PLACE (with target), VISIT (with target), and SEQUENCE steps that use ONLY
   these primitives: ${REAL_ARM_PRIMITIVES.filter((p) => p !== 'STOP').join(', ')}.
 - PICK and PLACE run as one controller task each (the controller does the approach, grasp and release itself),
   so keep their primitive_sequence as in the pattern above; that sequence is only used by the simulator.
@@ -269,6 +274,7 @@ function compact(doc: SkillDoc) {
 const POLICY: Record<string, string> = {
   DETECT: 'STOP_AND_REOBSERVE',
   PICK: 'RETRY_WITH_REOBSERVATION',
+  VISIT: 'REPORT_FAILURE',
   PLACE: 'STOP_AND_REPLAN',
 };
 

@@ -155,6 +155,19 @@ function blankStep(action: string, doc: SkillDoc): SkillStep {
           { primitive: 'MOVE_UP', parameters: { distance_m: 0.13 } },
         ],
       };
+    case 'VISIT':
+      return {
+        id,
+        action,
+        target: thing,
+        parameters: { hold_s: 2, come_back: true },
+        failure_policy: 'REPORT_FAILURE',
+        // what the simulator runs; on the real arm the bridge's ur_visit is used instead (camera-guided)
+        primitive_sequence: [
+          { primitive: 'MOVE_ABOVE', parameters: { target: thing, height_m: 0.15 } },
+          { primitive: 'WAIT', parameters: { seconds: 2 } },
+        ],
+      };
     case 'PLACE':
       return {
         id,
@@ -519,7 +532,7 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
 
                     {device === 'arm' && objectIds.length > 0 && (
                       <View style={s.arg}>
-                        <Text style={s.argKey}>target{st.action === 'DETECT' ? '' : ' (optional)'}</Text>
+                        <Text style={s.argKey}>target{st.action === 'DETECT' || st.action === 'VISIT' ? '' : ' (optional)'}</Text>
                         <View style={s.chips}>
                           {objectIds.map((id) => (
                             <Chip
@@ -549,6 +562,13 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
                       </View>
                     </View>
 
+                    {st.action === 'VISIT' && (
+                      <Text style={s.hint}>
+                        Real arm: the arm camera finds the target and guides the arm over it (sideways only, same
+                        height, slow), waits, then goes back to where it started. The moves below are what the
+                        simulator runs.
+                      </Text>
+                    )}
                     {isLookStep(st) ? (
                       <Text style={s.hint}>
                         {st.action === 'DETECT'
