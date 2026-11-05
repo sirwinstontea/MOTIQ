@@ -36,7 +36,7 @@ export async function recordWeb(video: boolean, seconds: number, signal?: AbortS
   if (!MR || !navigator.mediaDevices?.getUserMedia) throw new Error('this browser cannot record');
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { echoCancellation: true, noiseSuppression: true },
-    video: video ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+    video: video ? { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } : false,
   });
   const mime = pickMime(video);
   const rec = new MR(stream, mime ? { mimeType: mime } : undefined);
