@@ -42,7 +42,7 @@ export default function Sidebar({ tab, onTab, onSettings, historyCount, skillRun
 
   return (
     <View style={[s.side, compact && s.sideCompact]}>
-      <Text style={[s.logo, compact && { paddingHorizontal: 0, textAlign: 'center' }]}>
+      <Text style={[s.logo, compact && s.logoCompact]}>
         {compact ? 'm' : 'motiq'}
         <Text style={{ color: c.accent }}>.</Text>
       </Text>
@@ -100,10 +100,19 @@ const makeStyles = (c: Colors) =>
     logo: {
       color: c.text,
       fontFamily: fonts.bold,
-      fontSize: 18,
-      letterSpacing: -0.72,
+      fontSize: 36, // 200% of the previous 18
+      letterSpacing: -1.4,
+      lineHeight: 40,
       paddingHorizontal: 12,
       marginBottom: 22,
+    },
+    logoCompact: {
+      paddingHorizontal: 0,
+      textAlign: 'center',
+      fontSize: 28,
+      lineHeight: 32,
+      letterSpacing: -1.1,
+      marginBottom: 16,
     },
     item: {
       flexDirection: 'row',
