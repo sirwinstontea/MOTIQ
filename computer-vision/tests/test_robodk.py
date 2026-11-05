@@ -169,3 +169,17 @@ def test_robodk_flange_is_read_only_pose(fake):
     assert np.allclose(rdk_mod.item_position_base(fake, fake.robot, "vite_arancione")[:2], SCREW["center"])
     with pytest.raises(RuntimeError):
         rdk_mod.item_position_base(fake, fake.robot, "non_esiste")
+
+
+def test_empty_table_endpoint_enables_depth_masks(fake, monkeypatch):
+    pipe = EyePipeline()
+    node = pipe.add_source("arm", mode="robodk", use_mock_tracker=True,
+                           color_labels={"arancione": "vite_arancione"}, robodk_options={"rdk": fake, "mount": MOUNT})
+    client = TestClient(create_app(pipe))
+    monkeypatch.setitem(SCREW, "size", (0.0, 0.0))                 # tavolo vuoto: la vite non c'è
+    res = client.post("/empty_table/arm").json()
+    assert res["ok"] and res["has_depth"] and node.bg.ready
+    monkeypatch.setitem(SCREW, "size", (0.095, 0.035))             # la vite torna sul tavolo
+    objs = [o for o in pipe.step("arm").objects if o.label == "vite_arancione"]
+    assert objs and objs[0].mask_source == "depth"
+    assert client.post("/empty_table/nessuna").json()["ok"] is False

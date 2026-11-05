@@ -167,6 +167,23 @@ def create_app(pipeline: EyePipeline | None = None) -> FastAPI:
         )
         return {"ok": True} | res.model_dump()
 
+    @app.post("/empty_table/{source}")
+    async def record_empty_table(source: str, timeout_s: float = Query(default=5.0, gt=0, le=30)) -> dict:
+        """Registra il tavolo vuoto (sfondo per le maschere dalla profondità). Va fatto con il braccio nella posa di
+        osservazione e **niente** sul tavolo: vale solo per quella posa. Ripetere se cambia la luce o la posa."""
+        node = pipeline.nodes.get(source)
+        if node is None:
+            return {"ok": False, "reason": f"sorgente '{source}' non registrata"}
+        node.record_empty_table()
+        deadline = time.monotonic() + timeout_s
+        while node.recording_bg and time.monotonic() < deadline:
+            if not pipeline._running:
+                pipeline.step(source)
+            await asyncio.sleep(0.05)
+        ready = bool(node.bg.ready)
+        return {"ok": ready, "has_depth": bool(node.bg.has_depth) if ready else False,
+                "reason": None if ready else f"tavolo vuoto non registrato in {timeout_s} s (camera collegata?)"}
+
     @app.get("/locate/{source}")
     async def locate(source: str, label: str | None = Query(default=None), id: int | None = Query(default=None),
                      n: int = Query(default=10, ge=1, le=60), timeout_s: float = Query(default=3.0, gt=0, le=15),

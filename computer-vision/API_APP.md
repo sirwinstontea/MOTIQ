@@ -34,6 +34,7 @@ run_server.bat
 | `POST` | `/dog/target` | `{target_id?, target_label?}` → il cane insegue quell'oggetto |
 | `POST` | `/action/{source}/start` | `{action, target_id, destination_id?}`: segna lo stato "prima" dell'azione del robot |
 | `POST` | `/action/{source}/verify_local` | Confronta prima/dopo: l'oggetto è sparito / arrivato? |
+| `POST` | `/empty_table/{source}` | Registra il tavolo vuoto dalla posa di osservazione (niente sul tavolo!) |
 | `GET` | `/locate/{source}?label=...&n=10` | Posizione di un oggetto nel frame **base del robot** (camera sul braccio, vedi §7) |
 | `GET` | `/voice/tools` | Strumenti da passare a Grok Voice (`session.tools`) |
 | `POST` | `/voice/dispatch` | `{name, arguments}` → esegue lo strumento chiesto da Grok Voice |
@@ -247,7 +248,9 @@ Calibrazione (una volta, oppure ogni volta che cambiate la posa di osservazione 
    Il risultato va in `data/calibration/fixed_pose.json`.
 5. Per sapere se il braccio è tornato nella stessa posa o se la camera si è spostata:
    `calibrate-look-pose --check`, che confronta e non salva niente.
-6. Registrate lo sfondo del "tavolo vuoto" dalla posa di osservazione: lì le maschere dalla profondità funzionano meglio.
+6. Registrate il "tavolo vuoto" dalla posa di osservazione, con il server avviato e niente sul tavolo:
+   `curl.exe -X POST http://localhost:8000/empty_table/arm`. Senza, le maschere usano GrabCut, che sugli oggetti grandi e
+   uniformi (il secchio) fallisce con `invalid_depth`. Va rifatto a ogni riavvio del server e se cambia la luce.
 
 `run` carica da solo `fixed_pose.json` se c'è. Da quel momento `xyz_base_m` è valido **solo con il braccio nella posa di
 osservazione**: il controller ci va, chiama `/locate`, poi scende.
