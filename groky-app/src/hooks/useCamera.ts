@@ -140,19 +140,66 @@ export function useCamera(voice: Voice, onSkill?: (doc: SkillDoc, problems: stri
 
       step = learnId;
       const t1 = Date.now();
-      setPhase('Learning the skill...');
-      voice.progress({ id: learnId, kind: 'think', title: 'Learning the skill from your video', detail: 'Keyframes, speech and actions, then Grok writes the skill.json', active: true });
-      const out = await skillFromRecording(rec, source);
-      voice.progress({ id: learnId, kind: 'think', title: `Learned "${out.doc.skill.name}"`, detail: out.summary.split('\nWrite a skill')[0], ok: true, ms: Date.now() - t1, active: false });
+      setPhase('Sending video to learn…');
+      voice.progress({
+        id: learnId,
+        kind: 'think',
+        title: 'Learning the skill from your video',
+        detail: 'Uploading the recording, extracting keyframes and speech, then Grok writes the skill.json',
+        active: true,
+      });
+      // show a mid-step so a slow teach server doesn't look stuck after "Recorded"
+      const learnTick = setInterval(() => {
+        const secs = Math.round((Date.now() - t1) / 1000);
+        setPhase(`Learning the skill… ${secs}s`);
+        voice.progress({
+          id: learnId,
+          kind: 'think',
+          title: 'Learning the skill from your video',
+          detail: `Still working (${secs}s): keyframes, speech, actions → skill.json`,
+          active: true,
+        });
+      }, 1000);
+      let out;
+      try {
+        out = await skillFromRecording(rec, source);
+      } finally {
+        clearInterval(learnTick);
+      }
+      voice.progress({
+        id: learnId,
+        kind: 'think',
+        title: `Learned "${out.doc.skill.name}"`,
+        detail: out.summary.split('\nWrite a skill')[0],
+        ok: true,
+        ms: Date.now() - t1,
+        active: false,
+      });
 
       const id = onSkill?.(out.doc, out.problems) ?? out.doc.skill.id;
       const name = out.doc.skill.name;
       // Motion answers out loud and runs it; run failures come back as notifications from useSkills
-      voice.teach({ summary: out.summary, skillId: id, skillName: name, transcript: String((out.doc.skill.source as any)?.transcript ?? '') });
+      voice.teach({
+        summary: out.summary,
+        skillId: id,
+        skillName: name,
+        transcript: String((out.doc.skill.source as any)?.transcript ?? ''),
+      });
     } catch (e: any) {
       const msg = String(e?.message ?? e);
-      voice.progress({ id: step, kind: 'error', title: step === recId ? 'Recording failed' : 'Could not learn a skill', detail: msg, ok: false, active: false });
-      notify({ kind: 'bad', title: step === recId ? 'Show Motion: recording failed' : 'Show Motion: no skill learned', body: msg });
+      voice.progress({
+        id: step,
+        kind: 'error',
+        title: step === recId ? 'Recording failed' : 'Could not learn a skill',
+        detail: msg,
+        ok: false,
+        active: false,
+      });
+      notify({
+        kind: 'bad',
+        title: step === recId ? 'Show Motion: recording failed' : 'Show Motion: no skill learned',
+        body: msg,
+      });
     } finally {
       clearInterval(tick);
       if (voice.mic) voice.setMuted(wasMuted);
