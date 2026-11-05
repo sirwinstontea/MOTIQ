@@ -4,6 +4,9 @@
   GET  /api/state             catalog (with status) + hardware + requirements report + selection
   POST /api/select            {"robot_id": "ur_ur3e"}
   POST /api/hardware          partial hardware.yaml, e.g. {"tool": {"mass_kg": 0.4}}
+  POST /api/components        add any device {"id","type","name","attached_to","driver","status","spec"}
+  POST /api/components/<id>   partial update, e.g. {"spec": {"mass_kg": 0.3}}
+  POST /api/components/<id>/delete
   POST /api/robots            add a robot {"id","brand","model","dof","nominal_reach_m","nominal_payload_kg","library_url"}
   POST /api/robots/<id>/delete remove a robot (not the active one)
   POST /api/robots/<id>       {"limits": {...}} | {"library_file": "UR3e.robot"} | {"scene_file": ...} | ...
@@ -60,6 +63,9 @@ def make_handler(ch: Chooser):
                 p = self.path.split("?", 1)[0]
                 if p in ("/", "/index.html"):
                     return self._send(200, body=INDEX.read_bytes(), ctype="text/html")
+                if p == "/components.js":
+                    return self._send(200, body=INDEX.with_name("components.js").read_bytes(),
+                                      ctype="text/javascript")
                 if p == "/api/state":
                     return self._send(200, {"ok": True, **ch.state()})
                 if p == "/robots/catalog":
@@ -79,6 +85,12 @@ def make_handler(ch: Chooser):
                     s = ch.select(body.get("robot_id"))
                 elif p == "/api/hardware":
                     s = ch.update_hardware(body)
+                elif p == "/api/components":
+                    s = ch.add_component(body)
+                elif p.startswith("/api/components/") and p.endswith("/delete"):
+                    s = ch.remove_component(p.split("/")[3])
+                elif p.startswith("/api/components/"):
+                    s = ch.update_component(p.rsplit("/", 1)[1], body)
                 elif p == "/api/robots":
                     s = ch.add_robot(body)
                 elif p.startswith("/api/robots/") and p.endswith("/delete"):

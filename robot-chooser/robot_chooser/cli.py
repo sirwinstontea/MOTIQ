@@ -59,6 +59,20 @@ def _parser() -> argparse.ArgumentParser:
     ar.add_argument("--url", required=True, help="https:// RoboDK library or manufacturer page")
     ar.add_argument("--robot-file", default=None, help="<name>.robot in robot_controller/stations/")
     sub.add_parser("remove-robot").add_argument("robot_id")
+    sub.add_parser("types", help="hardware types (hardware_types/*.yaml) with their fields and drivers")
+    sub.add_parser("components", help="every device, what it is attached to and how it is connected")
+    ac = sub.add_parser("add-component", help="add any device; spec values as key=value (parsed as YAML)")
+    ac.add_argument("--id", required=True)
+    ac.add_argument("--type", required=True)
+    ac.add_argument("--name", required=True)
+    ac.add_argument("--attached-to", default="cell", help="cell | arm | <component id>")
+    ac.add_argument("--driver", default=None)
+    ac.add_argument("--status", default="placeholder", choices=["placeholder", "datasheet", "measured"])
+    ac.add_argument("spec", nargs="*", help="e.g. role=vision mass_kg=0.07 calibrated=false")
+    sc = sub.add_parser("set-component", help="e.g. set-component main_tool spec.mass_kg 0.35")
+    for a in ("comp_id", "key", "value"):
+        sc.add_argument(a)
+    sub.add_parser("remove-component").add_argument("comp_id")
     sv = sub.add_parser("serve")
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8770)
@@ -82,6 +96,19 @@ def main(argv=None) -> int:
             from .server import serve
             serve(ch, args.host, args.port)
             return 0
+        if args.cmd == "types":
+            for name, t in ch.load_types().types.items():
+                drv = ", ".join(f"{d.id}{' (physical)' if d.physical else ''}" for d in t.drivers) or "none"
+                print(f"{name:<20} {t.label}  | attach to: {', '.join(t.attach_to)} | drivers: {drv}")
+                for fname, f in t.fields.items():
+                    print(f"    {fname:<18} {f.type}{' *' if f.required else ''}{f' [{f.unit}]' if f.unit else ''}"
+                          f"{f' {f.values}' if f.values else ''}")
+            return 0
+        if args.cmd == "components":
+            for c in ch.state()["report"].get("components", []):
+                arm = " (on arm)" if c["carried_by_arm"] else ""
+                print(f"{c['id']:<18} {c['type']:<20} on {c['attached_to']}{arm:<9} {c['status']:<11} {c['connection']}")
+            return 0
         if args.cmd == "json":
             print(json.dumps(ch.state(), indent=2))
             return 0
@@ -98,6 +125,19 @@ def main(argv=None) -> int:
             print(f"added {args.id} (blocked until limits, scene and workspace are set)")
         elif args.cmd == "remove-robot":
             state = ch.remove_robot(args.robot_id)
+        elif args.cmd == "add-component":
+            spec = {}
+            for kv in args.spec:
+                if "=" not in kv:
+                    raise ChooserError("VALIDATION_ERROR", f"spec value '{kv}' must be key=value")
+                k, v = kv.split("=", 1)
+                spec[k] = yaml.safe_load(v)
+            state = ch.add_component({"id": args.id, "type": args.type, "name": args.name, "status": args.status,
+                                      "attached_to": args.attached_to, "driver": args.driver, "spec": spec})
+        elif args.cmd == "set-component":
+            state = ch.update_component(args.comp_id, _nested(args.key, yaml.safe_load(args.value)))
+        elif args.cmd == "remove-component":
+            state = ch.remove_component(args.comp_id)
         elif args.cmd == "apply":
             state = ch.apply()
         else:
