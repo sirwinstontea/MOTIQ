@@ -186,6 +186,21 @@ class ObjectParams(Strict):
     object_id: str = Field(pattern=ID_PATTERN)
 
 
+class PickParams(ObjectParams):
+    """A pick may name the point the simulated camera measured. The controller then moves the named pick targets
+    onto that point and runs the usual IK and safety checks. It is not a free cartesian move."""
+    seen_xyz_m: Optional[list[float]] = None
+
+    @field_validator("seen_xyz_m")
+    @classmethod
+    def _seen_xyz(cls, v):
+        if v is None:
+            return None
+        if len(v) != 3:
+            raise ValueError("seen_xyz_m needs x, y, z in metres")
+        return [float(x) for x in _require_finite(v, "seen_xyz_m")]
+
+
 class MoveObjectParams(Strict):
     object_id: str = Field(pattern=ID_PATTERN)
     destination_id: str = Field(pattern=ID_PATTERN)
@@ -217,7 +232,7 @@ PARAMS_BY_ACTION: dict[ActionName, type[Strict]] = {
     ActionName.GET_ROBOT_STATE: NoParams,
     ActionName.GET_SCENE: NoParams,
     ActionName.IDENTIFY_OBJECT: ObjectParams,
-    ActionName.PICK_OBJECT: ObjectParams,
+    ActionName.PICK_OBJECT: PickParams,
     ActionName.MOVE_OBJECT: MoveObjectParams,
     ActionName.PLACE_OBJECT: DestinationParams,
     ActionName.RELEASE_OBJECT: NoParams,

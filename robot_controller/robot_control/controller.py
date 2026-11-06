@@ -132,10 +132,10 @@ class RobotController(ABC):
     @abstractmethod
     def target_exists(self, target_id: str) -> bool: ...
 
-    def retarget_pick(self, object_id: str) -> Optional[list[float]]:
-        """Simulation only: move the object's approach/grasp/lift targets over where the simulated object really is
-        and return its bottom-centre [x, y, z] (m, base frame). Default (mock / real hardware): no-op, None, so picks
-        keep using the taught targets."""
+    def retarget_pick(self, object_id: str, xyz_m: Optional[list[float]] = None) -> Optional[list[float]]:
+        """Simulation only: move the object's approach/grasp/lift targets over where the object is and return that
+        point (m, base frame). `xyz_m` is a point the camera measured (the visible surface). Without it, a RoboDK
+        backend reads the station item. Default (mock / real hardware): no-op, None, so picks keep the taught targets."""
         return None
 
     @abstractmethod

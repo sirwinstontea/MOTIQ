@@ -4,12 +4,12 @@
 Works on Windows, macOS and Linux. Needs only Python 3.10+ (standard library); it builds the vision environment
 for you. Run from anywhere:
 
-    python computer-vision-to-app/run.py setup     # one time: create computer-vision/.venv and install packages
-    python computer-vision-to-app/run.py serve     # start the vision server (camera picked automatically)
-    python computer-vision-to-app/run.py env       # point groky-app/.env at the server
-    python computer-vision-to-app/run.py teach     # start the teach server (demonstration video -> skill)
-    python computer-vision-to-app/run.py check     # is the server up, and is it producing frames?
-    python computer-vision-to-app/run.py all       # setup if needed + env + teach server + vision server
+    python computer-vision/to-app/run.py setup     # one time: create computer-vision/.venv and install packages
+    python computer-vision/to-app/run.py serve     # start the vision server (camera picked automatically)
+    python computer-vision/to-app/run.py env       # point groky-app/.env at the server
+    python computer-vision/to-app/run.py teach     # start the teach server (demonstration video -> skill)
+    python computer-vision/to-app/run.py check     # is the server up, and is it producing frames?
+    python computer-vision/to-app/run.py all       # setup if needed + env + teach server + vision server
 
 See README.md in this folder.
 """
@@ -27,8 +27,8 @@ import venv
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parent
-CV = ROOT / "computer-vision"
+CV = HERE.parent
+ROOT = CV.parent
 APP = ROOT / "groky-app"
 REQS = [
     CV / "vision" / "grok" / "requirements.txt",
@@ -156,7 +156,7 @@ def cmd_check(a: argparse.Namespace) -> int:
     try:
         health = json.loads(get(f"{base}/health"))
     except (urllib.error.URLError, OSError, ValueError) as e:
-        print(f"Vision server not reachable at {base} ({e}).\nStart it with:  python computer-vision-to-app/run.py serve")
+        print(f"Vision server not reachable at {base} ({e}).\nStart it with:  python computer-vision/to-app/run.py serve")
         return 1
     print(f"Server up: {health}")
     sources = health.get("sources") or ["arm"]

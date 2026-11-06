@@ -2,7 +2,7 @@
 """Build a RoboDK demo cell for every extra arm (UR3e, xArm5, Elite CS63/CS66) from the RoboDK library .rdk files.
 
 For each arm, SIMULATION ONLY:
-  1. extracts the robot model from the library station (MOTIQ/<file>.rdk) to stations/<Model>.robot
+  1. extracts the robot model from the library station (stations/library/<file>.rdk) to stations/<Model>.robot
   2. places the UR5e demo cell (table, delivery pad, the 4 objects, every taught target) within THIS arm's reach:
      the whole cell is shifted along the base X axis and the high poses (approach/lift/scan) are lowered until
      RoboDK's IK reaches every target with the gripper TCP, in the same arm configuration as home
@@ -278,9 +278,9 @@ def main() -> int:
     for rid, model, item, src in ARMS:
         if args.only and rid not in args.only:
             continue
-        src_path = MOTIQ / src
+        src_path = RC / "stations" / "library" / src
         if not src_path.is_file():
-            src_path = RC / "stations" / "library" / src
+            src_path = MOTIQ / src
         robot_file = RC / "stations" / f"{model}.robot"
         home_lib, lo, hi = extract_robot(RDK, rl, src_path, robot_file)
         print(f"[{rid}] robot model -> {robot_file.relative_to(RC)} ({len(lo)} joints)")

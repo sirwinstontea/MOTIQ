@@ -9,7 +9,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 def _make(tmp_path, sim):
     pytest.importorskip("httpx")
-    sys.path.insert(0, str(REPO / "bridge"))
+    sys.path.insert(0, str(REPO / "robot_controller" / "bridge"))
     import motiq_bridge as mb
     b = mb.Bridge("http://127.0.0.1:9", "http://127.0.0.1:9", REPO / "robot_controller/config/scene.example.yaml",
                   tmp_path / "vision.json", sim=sim)

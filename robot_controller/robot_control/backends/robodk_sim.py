@@ -51,6 +51,16 @@ def _import_robodk():
                             "RoboDK Python API not importable: `pip install robodk` or keep ~/RoboDK/Python")
 
 
+def pick_pose_from_vision(taught_pose, grasp_z, surface_xyz):
+    """TCP pose for one pick target, aimed at a point the camera measured.
+
+    `surface_xyz` is the visible surface in the base frame (m). The grasp target lands on that point.
+    Approach and lift keep the height they were taught above the grasp. Orientation stays taught.
+    """
+    vx, vy, vz = (float(surface_xyz[0]), float(surface_xyz[1]), float(surface_xyz[2]))
+    return [vx, vy, vz + (float(taught_pose[2]) - float(grasp_z)), *taught_pose[3:]]
+
+
 def _port_open(host: str, port: int) -> bool:
     try:
         with socket.create_connection((host, port), timeout=0.5):
@@ -296,14 +306,37 @@ class RoboDKSimController(RobotController):
         self._require()
         return self._target_item(target_id) is not None
 
-    def retarget_pick(self, object_id):
-        """No camera in simulation: read the station object's exact pose and put its approach / grasp / lift targets
-        over it. Each target keeps its taught orientation and its taught height above the object's bottom (taught
-        with the object standing on the table, z = 0), so only where the object is changes. Skipped (None) when the
-        object is held or has no station item. The moved targets still go through the normal IK + safety checks."""
+    def _apply_cartesian(self, base_abs, tgt, pose_m_rad):
+        p = pose_m_rad
+        pose_base = self.rm.UR_2_Pose([p[0] * 1000, p[1] * 1000, p[2] * 1000, p[3], p[4], p[5]])
+        tgt.setAsCartesianTarget()
+        tgt.setPoseAbs(base_abs * pose_base)
+
+    def retarget_pick(self, object_id, xyz_m=None):
+        """Move approach / grasp / lift over the object. `xyz_m` is the visible surface from the simulated camera
+        (grasp lands on it; approach and lift keep their taught height above the grasp). Without it, read the station
+        item and keep the taught height above its bottom. Skipped (None) when that source isn't available. The moved
+        targets still go through the normal IK + safety checks."""
         self._require()
         obj = self.scene.objects.get(object_id)
-        if obj is None or not obj.station_item:
+        if obj is None:
+            return None
+        if xyz_m is not None:
+            grasp = self.scene.targets.get(obj.grasp_target)
+            if grasp is None or grasp.pose_m_rad is None:
+                return None
+            surface = [float(v) for v in xyz_m]
+            base_abs = self.base.PoseAbs()
+            wrote = False
+            for tid in (obj.approach_target, obj.grasp_target, obj.lift_target):
+                cfg = self.scene.targets.get(tid)
+                tgt = self._target_item(tid)
+                if cfg is None or cfg.pose_m_rad is None or tgt is None:
+                    continue
+                self._apply_cartesian(base_abs, tgt, pick_pose_from_vision(cfg.pose_m_rad, grasp.pose_m_rad[2], surface))
+                wrote = True
+            return [round(v, 4) for v in surface] if wrote else None
+        if not obj.station_item:
             return None
         item = self.RDK.Item(obj.station_item, self.rl.ITEM_TYPE_OBJECT)
         if not item.Valid() or item.Parent() == self.tool:
@@ -316,9 +349,7 @@ class RoboDKSimController(RobotController):
             if cfg is None or cfg.pose_m_rad is None or tgt is None:
                 continue
             p = [ox, oy, cfg.pose_m_rad[2] + oz, *cfg.pose_m_rad[3:]]
-            pose_base = self.rm.UR_2_Pose([p[0] * 1000, p[1] * 1000, p[2] * 1000, p[3], p[4], p[5]])
-            tgt.setAsCartesianTarget()
-            tgt.setPoseAbs(base_abs * pose_base)
+            self._apply_cartesian(base_abs, tgt, p)
         return [round(ox, 4), round(oy, 4), round(oz, 4)]
 
     def plan_segment(self, target_id, motion: MotionType, start_joints=None):

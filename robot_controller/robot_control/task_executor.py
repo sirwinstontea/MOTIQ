@@ -367,7 +367,12 @@ class TaskExecutor:
                     raise RobotControlError(ErrorCode.PRECONDITION_FAILED, f"{a.action_id}: already holding '{holding}'")
                 if o.mass_kg is not None and o.mass_kg + self.robot_cfg.tool_mass_kg > self.robot_cfg.limits.max_payload_kg:
                     raise RobotControlError(ErrorCode.SAFETY_VETO, f"{a.action_id}: payload exceeds model limit")
-                self.c.retarget_pick(p["object_id"])     # simulation: targets over the object's real pose
+                seen = p.get("seen_xyz_m")
+                if seen and self.c.retarget_pick(p["object_id"], seen) is None:
+                    raise RobotControlError(ErrorCode.PRECONDITION_FAILED,
+                                            f"{a.action_id}: camera point given but the pick targets are not in the station")
+                elif not seen:
+                    self.c.retarget_pick(p["object_id"])     # simulation: targets over the station item
                 targets += [o.approach_target, o.grasp_target, o.lift_target]
                 holding, gripper = p["object_id"], "closed"
             elif n == ActionName.MOVE_OBJECT:
@@ -527,8 +532,12 @@ class TaskExecutor:
         if g.state != "open":
             self._step("gripper")
             self.c.open_gripper()            # make sure fingers are open before approaching
-        # simulation: no camera, so go to the object's exact pose in the station (None = taught targets)
-        at = self.c.retarget_pick(oid)
+        # simulation: camera point when the bridge measured one, otherwise the station item (None = taught targets)
+        seen = p.get("seen_xyz_m")
+        at = self.c.retarget_pick(oid, seen)
+        if seen and at is None:
+            raise RobotControlError(ErrorCode.PRECONDITION_FAILED,
+                                    "camera point given but the pick targets are not in the station")
         self._segments([(obj.approach_target, "joint"), (obj.grasp_target, "linear")], dl,
                        on_move={obj.grasp_target: lambda: self._go(S.AT_PICK)})
         self._go(S.GRIPPING)

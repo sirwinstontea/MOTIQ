@@ -73,7 +73,7 @@ From the app: start the service, then **Skills → Sync Digital Twin → Open**:
 ```bash
 python -m robot_control.digital_twin.cli serve --config config/digital_twin.sim.json
 # or with the whole stack:
-DIGITAL_TWIN_CONFIG=config/digital_twin.sim.json BRIDGE_KEY=... ./bridge/start_stack.sh
+DIGITAL_TWIN_CONFIG=config/digital_twin.sim.json BRIDGE_KEY=... ./robot_controller/bridge/start_stack.sh
 ```
 
 ## Step 2 — simulate with URSim (real RTDE, still no robot)
@@ -85,7 +85,7 @@ real robot.
 ## Step 3 — the physical UR5e (operator present, robot moved only from the pendant)
 
 1. Calibration: **Skills → Calibration** must show *Calibrated* (flange eye-in-hand, validated, activated). Start the
-   vision server with read-only robot telemetry: `VISION_ROBOT_IP=<ur ip> ./bridge/start_stack.sh`.
+   vision server with read-only robot telemetry: `VISION_ROBOT_IP=<ur ip> ./robot_controller/bridge/start_stack.sh`.
 2. Config (git-ignored):
    ```bash
    cp config/digital_twin.example.json config/digital_twin.local.json

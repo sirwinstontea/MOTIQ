@@ -86,7 +86,7 @@ def test_ur3e_becomes_ready_once_model_scene_and_workspace_exist(ch, repo):
     assert robot["model"] == "UR3e" and robot["robot_library_file"] == "stations/UR3e.robot"
     assert robot["limits"]["max_payload_kg"] == 3.0 and robot["tool_mass_kg"] == 0.5
     assert _y(repo / "robot_controller" / "config" / "safety.yaml")["workspace"]["z_m"] == [0.015, 0.40]
-    assert "scene_file: ur_ur3e.yaml" in (repo / "robot-chooser" / "catalog.yaml").read_text(encoding="utf-8")
+    assert "scene_file: ur_ur3e.yaml" in (repo / "robot_controller" / "robot-chooser" / "catalog.yaml").read_text(encoding="utf-8")
 
 
 def test_tool_heavier_than_payload_blocks(ch):  # A10
@@ -95,12 +95,12 @@ def test_tool_heavier_than_payload_blocks(ch):  # A10
 
 
 def test_speed_outside_0_100_is_rejected_and_nothing_changes(ch, repo):  # A11
-    before = (repo / "robot-chooser" / "hardware.yaml").read_text(encoding="utf-8")
+    before = (repo / "robot_controller" / "robot-chooser" / "hardware.yaml").read_text(encoding="utf-8")
     for bad in (0, 150, float("nan")):
         with pytest.raises(ChooserError) as e:
             ch.update_hardware({"speed_percent": bad})
         assert e.value.code == "VALIDATION_ERROR"
-    assert (repo / "robot-chooser" / "hardware.yaml").read_text(encoding="utf-8") == before
+    assert (repo / "robot_controller" / "robot-chooser" / "hardware.yaml").read_text(encoding="utf-8") == before
 
 
 def test_physical_backends_cannot_be_selected(ch):  # safety contract 9.1
@@ -161,7 +161,7 @@ def test_hand_written_controller_file_is_backed_up_not_lost(ch, repo):
 
 def test_hardware_yaml_is_the_requirements_document(ch, repo):
     ch.update_component("main_tool", {"spec": {"mass_kg": 0.42}, "status": "measured"})
-    doc = _y(repo / "robot-chooser" / "hardware.yaml")
+    doc = _y(repo / "robot_controller" / "robot-chooser" / "hardware.yaml")
     assert doc["components"][0]["spec"]["mass_kg"] == 0.42
     req = doc["requirements"]
     assert req["status"] == "READY" and req["payload_budget_kg"] == pytest.approx(4.58)

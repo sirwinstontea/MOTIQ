@@ -295,7 +295,7 @@ def test_api_routes_auth_and_validation():
 
 # ---- bridge proxy -----------------------------------------------------------------------------------------
 def _bridge():
-    sys.path.insert(0, str(REPO / "bridge"))
+    sys.path.insert(0, str(ROOT / "bridge"))
     import motiq_bridge
     return motiq_bridge
 
@@ -367,7 +367,7 @@ def test_no_command_paths_in_digital_twin_code():
 
 
 def test_bridge_twin_proxy_has_no_motion_reference():
-    src = (REPO / "bridge" / "motiq_bridge.py").read_text()
+    src = (ROOT / "bridge" / "motiq_bridge.py").read_text()
     cls = src[src.index("class DigitalTwinProxy"):src.index("def parse_twin_body")]
     for bad in ("PhysicalArm", "self.physical", "self.controller", "Bridge(", "/tools", "jog", "send_script",
                 ".stop("):

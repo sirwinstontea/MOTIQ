@@ -17,8 +17,8 @@ flowchart LR
 **Linux**, whole stack on the robot PC:
 
 ```bash
-BRIDGE_KEY=pick-a-secret ./bridge/start_stack.sh
-BRIDGE_KEY=pick-a-secret BACKEND=mock VISION=0 ./bridge/start_stack.sh     # no RoboDK, no camera
+BRIDGE_KEY=pick-a-secret ./robot_controller/bridge/start_stack.sh
+BRIDGE_KEY=pick-a-secret BACKEND=mock VISION=0 ./robot_controller/bridge/start_stack.sh     # no RoboDK, no camera
 ```
 
 | Variable | Default | Meaning |
@@ -34,7 +34,7 @@ Any backend except `mock` starts RoboDK from `~/RoboDK/RoboDK-Start.sh` if it is
 **Any OS**, bridge alone. It runs in the controller's venv:
 
 ```bash
-BRIDGE_KEY=pick-a-secret robot_controller/.venv/bin/python bridge/motiq_bridge.py --vision http://127.0.0.1:8000
+BRIDGE_KEY=pick-a-secret robot_controller/.venv/bin/python robot_controller/bridge/motiq_bridge.py --vision http://127.0.0.1:8000
 ```
 
 | Flag | Default |

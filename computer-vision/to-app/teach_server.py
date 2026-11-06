@@ -10,7 +10,7 @@ report into a clear task (text only, it never sees the video), and the app write
     POST /skills          body = SkillDoc -> saved as computer-vision/data/skills/learned/<skill id>.json
     DELETE /skills/<id>   -> removes it
 
-Started by `python computer-vision-to-app/run.py teach` (or `all`), with the computer-vision venv Python.
+Started by `python computer-vision/to-app/run.py teach` (or `all`), with the computer-vision venv Python.
 Only standard library plus the planner's own requirements. It never runs a robot: it only reads the video.
 """
 from __future__ import annotations
@@ -27,8 +27,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 HERE = Path(__file__).resolve().parent
-CV = HERE.parent / "computer-vision"
-APP_ENV = HERE.parent / "groky-app" / ".env"
+CV = HERE.parent
+APP_ENV = CV.parent / "groky-app" / ".env"
 sys.path.insert(0, str(CV))
 
 MAX_BYTES = 200 * 1024 * 1024  # 200 MB is plenty for a short demonstration
@@ -57,7 +57,7 @@ use_app_key()
 from vision.planner.grok_client import GrokClient  # noqa: E402
 from vision.planner.schemas import VideoTokens  # noqa: E402
 
-import cv_teach  # noqa: E402  (computer-vision-to-app/cv_teach.py)
+import cv_teach  # noqa: E402  (computer-vision/to-app/cv_teach.py)
 
 GROK = GrokClient.from_env()  # MockGrok when there is no key (GROK_MOCK=1 forces it)
 cv_teach.warm_up(lambda k, m: print(f"[{k}] {m}", flush=True))

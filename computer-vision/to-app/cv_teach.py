@@ -34,7 +34,7 @@ COLORS = {"rosso": "red", "arancione": "orange", "giallo": "yellow", "verde": "g
           "viola": "purple", "bianco": "white", "nero": "black", "grigio": "grey"}
 NOUNS = {"tappo": "bucket lid", "anello": "ring", "vite": "screw", "secchio": "bucket"}
 
-MODEL = Path(__file__).resolve().parent.parent / "computer-vision" / "yolov8s-worldv2.pt"
+MODEL = Path(__file__).resolve().parent.parent / "yolov8s-worldv2.pt"
 # what YOLO-World looks for: the four demo pieces first, then everyday things a person might use instead
 CLASSES = ["orange screw", "blue bucket", "green ring", "white bucket lid", "cup", "bowl", "box", "bottle",
            "pen", "hand"]

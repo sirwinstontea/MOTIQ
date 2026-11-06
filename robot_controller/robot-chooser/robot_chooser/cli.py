@@ -34,7 +34,7 @@ def _print_report(state: dict) -> None:
 
 def _parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="robot_chooser")
-    ap.add_argument("--root", default=None, help="MOTIQ repo root (default: parent of robot-chooser/)")
+    ap.add_argument("--root", default=None, help="MOTIQ repo root (default: the folder that contains robot_controller/)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     ls = sub.add_parser("list")
     ls.add_argument("--brand")

@@ -90,7 +90,7 @@ Each robot sits behind a small HTTP server, so the app doesn't care which SDK dr
 | `POST /tools/stop` | Must always work and return fast |
 | `GET /camera.jpg` | Optional. Shows up as a camera automatically. |
 
-Requests carry `X-Bridge-Key` when one is set. Tool names and arguments are in [`tools.ts`](src/devices/tools.ts). Replies can include `tcp_pose`, `joints_deg` and `object_detected`, so the app tracks the real arm instead of its prediction. The arm implementation is [`bridge/`](../bridge). The dog bridge is not in this repository.
+Requests carry `X-Bridge-Key` when one is set. Tool names and arguments are in [`tools.ts`](src/devices/tools.ts). Replies can include `tcp_pose`, `joints_deg` and `object_detected`, so the app tracks the real arm instead of its prediction. The arm implementation is [`robot_controller/bridge/`](../robot_controller/bridge). The dog bridge is not in this repository.
 
 ## Code map
 

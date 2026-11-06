@@ -200,7 +200,7 @@ export function summarize(obs: Observation): { text: string; problems: string[] 
     obs.hands ? 'A human hand did the moving; the robot should do the same moves with its gripper.' : '',
     order.length > 1 ? 'Keep the same order.' : '',
     'Write a skill that makes the robot arm reproduce this: detect each object first, pick it, place it at the same destination, verify, then go home.',
-    // same rules as the teach server's video summary (computer-vision-to-app/teach_server.py)
+    // same rules as the teach server's video summary (computer-vision/to-app/teach_server.py)
     "The arm's camera is on its head and it knows four objects: orange screw, blue bucket, green ring, white bucket lid; map what the person handled to the closest of these. Putting something in a cup/bucket/container means into the blue bucket; putting it to one side or on a pad means the delivery zone.",
   ]
     .filter(Boolean)
@@ -238,7 +238,7 @@ export type PickedVideo = { uri: string; file?: Blob; mimeType?: string | null; 
 // `fileUri` (phone/tablet): the recorded file is streamed from disk by expo-file-system. React Native's fetch can't
 // send a Blob body on Android (the server got bytes that weren't the video: "video non leggibile").
 async function teach(path: string, init: RequestInit, note: string, source: Record<string, unknown>, fileUri?: string) {
-  if (!env.teachServer) throw new Error('No teach server set (EXPO_PUBLIC_TEACH_SERVER). Run computer-vision-to-app/run.py all.');
+  if (!env.teachServer) throw new Error('No teach server set (EXPO_PUBLIC_TEACH_SERVER). Run computer-vision/to-app/run.py all.');
   const url = `${env.teachServer}${path}`;
   let status: number;
   let text: string;

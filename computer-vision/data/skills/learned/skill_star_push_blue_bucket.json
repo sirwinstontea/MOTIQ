@@ -1,0 +1,926 @@
+{
+  "schema_version": "1.1.0",
+  "skill": {
+    "id": "skill_star_push_blue_bucket",
+    "name": "★ Push the blue bucket 5 cm forward (tested on real arm)",
+    "version": "1.0.0",
+    "status": "validated",
+    "created_at": "2026-11-05T16:49:22Z",
+    "updated_at": "2026-11-05T16:49:22Z",
+    "description": "From the saved start pose: 20 cm down, the arm camera centres on the blue bucket, the gripper tip goes 12 cm behind the bucket centre, 30 cm down (tip below the rim), pushes 10 cm forward (5 cm gap + 5 cm push), lifts and returns to the start pose.",
+    "source": {
+      "type": "manual",
+      "note": "Taught live on the real UR5e 2026-11-05 (operator: 'this is the exact movement I need'). Gripper 11 cm long. The camera looks forward at an angle: from 29 cm flange height the touch offset is 15 cm forward of the camera centre (computer-vision/data/calibration/touch_offset.json). Push depth: flange at -0.006 m (tip about 12 cm below the robot base)."
+    }
+  },
+  "intent": {
+    "goal": "Push the blue bucket 5 cm forward with the gripper tip.",
+    "natural_language_instruction": "Go down behind the blue bucket and push it 5 cm forward.",
+    "success_conditions": [
+      "The blue bucket moved about 5 cm forward.",
+      "The arm is back at its start pose."
+    ]
+  },
+  "robot": {
+    "model": "Universal Robots UR5e",
+    "degrees_of_freedom": 6,
+    "payload_kg": 5.0,
+    "reach_m": 0.85,
+    "pose_repeatability_m": 3e-05,
+    "max_tcp_speed_mps": 1.0,
+    "controller_language": "URScript",
+    "angle_units_in_skill": "degrees (convert to radians for URScript)",
+    "joints": [
+      {
+        "index": 0,
+        "id": "shoulder_pan_joint",
+        "name_it": "base",
+        "motion": "rotates the whole arm around the vertical axis",
+        "range_deg": [
+          -360,
+          360
+        ],
+        "max_speed_dps": 180
+      },
+      {
+        "index": 1,
+        "id": "shoulder_lift_joint",
+        "name_it": "spalla",
+        "motion": "raises / lowers the upper arm",
+        "range_deg": [
+          -360,
+          360
+        ],
+        "max_speed_dps": 180
+      },
+      {
+        "index": 2,
+        "id": "elbow_joint",
+        "name_it": "gomito",
+        "motion": "bends / extends the forearm",
+        "range_deg": [
+          -360,
+          360
+        ],
+        "max_speed_dps": 180,
+        "note": "ROS ur_description limits it to [-180, 180] to avoid self-collision"
+      },
+      {
+        "index": 3,
+        "id": "wrist_1_joint",
+        "name_it": "polso 1",
+        "motion": "tilts the wrist (pitch)",
+        "range_deg": [
+          -360,
+          360
+        ],
+        "max_speed_dps": 180
+      },
+      {
+        "index": 4,
+        "id": "wrist_2_joint",
+        "name_it": "polso 2",
+        "motion": "turns the wrist sideways (yaw)",
+        "range_deg": [
+          -360,
+          360
+        ],
+        "max_speed_dps": 180
+      },
+      {
+        "index": 5,
+        "id": "wrist_3_joint",
+        "name_it": "polso 3",
+        "motion": "spins the flange / gripper (roll)",
+        "range_deg": [
+          -360,
+          360
+        ],
+        "max_speed_dps": 180
+      }
+    ],
+    "cartesian_dof": {
+      "frame": "base",
+      "pose_format": "p[x, y, z, rx, ry, rz] (meters + rotation vector in radians)",
+      "translations": [
+        "x",
+        "y",
+        "z"
+      ],
+      "rotations": [
+        "rx",
+        "ry",
+        "rz"
+      ]
+    },
+    "direction_mapping": {
+      "reference": "Operator standing behind the robot base, looking towards +X. Must be checked on the real cell with the teach pendant: sign and axis depend on how the base is mounted.",
+      "calibrated": false,
+      "forward": {
+        "axis": "x",
+        "sign": 1
+      },
+      "backward": {
+        "axis": "x",
+        "sign": -1
+      },
+      "left": {
+        "axis": "y",
+        "sign": 1
+      },
+      "right": {
+        "axis": "y",
+        "sign": -1
+      },
+      "up": {
+        "axis": "z",
+        "sign": 1
+      },
+      "down": {
+        "axis": "z",
+        "sign": -1
+      }
+    },
+    "gripper": {
+      "model": "TO_BE_CONFIRMED (e.g. Robotiq 2F-85)",
+      "stroke_m": 0.085,
+      "open_command_urscript": "rq_open()  |  I/O gripper: set_tool_digital_out(0, False)",
+      "close_command_urscript": "rq_close()  |  I/O gripper: set_tool_digital_out(0, True)",
+      "object_detection": "Robotiq: rq_is_object_detected()"
+    },
+    "home_joints_deg": [
+      0,
+      -90,
+      90,
+      -90,
+      -90,
+      0
+    ],
+    "operational_limits": {
+      "max_tcp_speed_mps": 0.25,
+      "max_tcp_acceleration_mps2": 0.5,
+      "max_joint_speed_dps": 60,
+      "approach_speed_mps": 0.05,
+      "min_z_above_table_m": 0.01,
+      "safe_travel_height_m": 0.15,
+      "default_step_m": 0.05,
+      "max_step_m": 0.2,
+      "default_rotation_step_deg": 15,
+      "max_rotation_step_deg": 90,
+      "note": "Demo values, tune on the real cell. Hard safety limits stay in the UR safety configuration."
+    }
+  },
+  "action_primitives": [
+    {
+      "id": "OPEN_GRIPPER",
+      "voice_aliases_it": [
+        "apri pinza",
+        "apri la pinza",
+        "rilascia",
+        "lascia"
+      ],
+      "description": "Open the gripper fully (or to a given width).",
+      "parameters": {
+        "width_m": {
+          "type": "number",
+          "default": 0.085,
+          "min": 0.0,
+          "max": 0.085
+        }
+      },
+      "urscript": "rq_open()"
+    },
+    {
+      "id": "CLOSE_GRIPPER",
+      "voice_aliases_it": [
+        "chiudi pinza",
+        "chiudi la pinza",
+        "prendi",
+        "afferra"
+      ],
+      "description": "Close the gripper until contact or until fully closed.",
+      "parameters": {
+        "force_pct": {
+          "type": "number",
+          "default": 70,
+          "min": 0,
+          "max": 100
+        }
+      },
+      "postconditions": [
+        "Gripper reports object detected, otherwise grasp failed."
+      ],
+      "urscript": "rq_close()"
+    },
+    {
+      "id": "MOVE_RIGHT",
+      "voice_aliases_it": [
+        "muovi destra",
+        "vai a destra",
+        "destra"
+      ],
+      "description": "Linear move of the TCP to the right, orientation unchanged.",
+      "direction": "right",
+      "parameters": {
+        "distance_m": {
+          "type": "number",
+          "default": 0.05,
+          "max": 0.2
+        },
+        "speed_mps": {
+          "type": "number",
+          "default": 0.1
+        }
+      },
+      "urscript": "movel(pose_add(get_actual_tcp_pose(), p[0, -d, 0, 0, 0, 0]), a=0.5, v=speed)"
+    },
+    {
+      "id": "MOVE_LEFT",
+      "voice_aliases_it": [
+        "muovi sinistra",
+        "vai a sinistra",
+        "sinistra"
+      ],
+      "description": "Linear move of the TCP to the left, orientation unchanged.",
+      "direction": "left",
+      "parameters": {
+        "distance_m": {
+          "type": "number",
+          "default": 0.05,
+          "max": 0.2
+        },
+        "speed_mps": {
+          "type": "number",
+          "default": 0.1
+        }
+      },
+      "urscript": "movel(pose_add(get_actual_tcp_pose(), p[0, d, 0, 0, 0, 0]), a=0.5, v=speed)"
+    },
+    {
+      "id": "MOVE_FORWARD",
+      "voice_aliases_it": [
+        "muovi avanti",
+        "vai avanti",
+        "avanti"
+      ],
+      "description": "Linear move of the TCP forward (away from the base).",
+      "direction": "forward",
+      "parameters": {
+        "distance_m": {
+          "type": "number",
+          "default": 0.05,
+          "max": 0.2
+        },
+        "speed_mps": {
+          "type": "number",
+          "default": 0.1
+        }
+      },
+      "urscript": "movel(pose_add(get_actual_tcp_pose(), p[d, 0, 0, 0, 0, 0]), a=0.5, v=speed)"
+    },
+    {
+      "id": "MOVE_BACKWARD",
+      "voice_aliases_it": [
+        "muovi indietro",
+        "vai indietro",
+        "indietro"
+      ],
+      "description": "Linear move of the TCP backward (towards the base).",
+      "direction": "backward",
+      "parameters": {
+        "distance_m": {
+          "type": "number",
+          "default": 0.05,
+          "max": 0.2
+        },
+        "speed_mps": {
+          "type": "number",
+          "default": 0.1
+        }
+      },
+      "urscript": "movel(pose_add(get_actual_tcp_pose(), p[-d, 0, 0, 0, 0, 0]), a=0.5, v=speed)"
+    },
+    {
+      "id": "MOVE_UP",
+      "voice_aliases_it": [
+        "muovi su",
+        "sali",
+        "alza",
+        "su"
+      ],
+      "description": "Vertical linear move up.",
+      "direction": "up",
+      "parameters": {
+        "distance_m": {
+          "type": "number",
+          "default": 0.05,
+          "max": 0.2
+        },
+        "speed_mps": {
+          "type": "number",
+          "default": 0.1
+        }
+      },
+      "urscript": "movel(pose_add(get_actual_tcp_pose(), p[0, 0, d, 0, 0, 0]), a=0.5, v=speed)"
+    },
+    {
+      "id": "MOVE_DOWN",
+      "voice_aliases_it": [
+        "muovi giu",
+        "scendi",
+        "abbassa",
+        "giu"
+      ],
+      "description": "Vertical linear move down. Refused if the target z is below min_z_above_table_m.",
+      "direction": "down",
+      "parameters": {
+        "distance_m": {
+          "type": "number",
+          "default": 0.05,
+          "max": 0.2
+        },
+        "speed_mps": {
+          "type": "number",
+          "default": 0.05
+        }
+      },
+      "urscript": "movel(pose_add(get_actual_tcp_pose(), p[0, 0, -d, 0, 0, 0]), a=0.5, v=speed)"
+    },
+    {
+      "id": "ROTATE_ROLL",
+      "voice_aliases_it": [
+        "inclina pinza a destra",
+        "inclina pinza a sinistra"
+      ],
+      "description": "Rotate the tool around its own X axis (TCP frame). Positive = counter-clockwise (right-hand rule).",
+      "parameters": {
+        "angle_deg": {
+          "type": "number",
+          "default": 15,
+          "min": -90,
+          "max": 90
+        }
+      },
+      "urscript": "movel(pose_trans(get_actual_tcp_pose(), p[0, 0, 0, d2r(angle), 0, 0]), a=0.5, v=0.1)"
+    },
+    {
+      "id": "ROTATE_PITCH",
+      "voice_aliases_it": [
+        "inclina pinza avanti",
+        "inclina pinza indietro"
+      ],
+      "description": "Rotate the tool around its own Y axis (TCP frame).",
+      "parameters": {
+        "angle_deg": {
+          "type": "number",
+          "default": 15,
+          "min": -90,
+          "max": 90
+        }
+      },
+      "urscript": "movel(pose_trans(get_actual_tcp_pose(), p[0, 0, 0, 0, d2r(angle), 0]), a=0.5, v=0.1)"
+    },
+    {
+      "id": "ROTATE_YAW",
+      "voice_aliases_it": [
+        "ruota pinza",
+        "ruota pinza orario",
+        "ruota pinza antiorario"
+      ],
+      "description": "Rotate the tool around its own Z axis (spin the gripper). Clockwise = negative angle.",
+      "parameters": {
+        "angle_deg": {
+          "type": "number",
+          "default": 15,
+          "min": -90,
+          "max": 90
+        }
+      },
+      "urscript": "movel(pose_trans(get_actual_tcp_pose(), p[0, 0, 0, 0, 0, d2r(angle)]), a=0.5, v=0.1)"
+    },
+    {
+      "id": "MOVE_JOINT",
+      "voice_aliases_it": [
+        "ruota base",
+        "muovi spalla",
+        "muovi gomito",
+        "muovi polso 1",
+        "muovi polso 2",
+        "muovi polso 3"
+      ],
+      "description": "Move a single joint by a relative angle (or to an absolute angle). Covers all 6 DOF in joint space.",
+      "parameters": {
+        "joint": {
+          "type": "enum",
+          "values": [
+            "shoulder_pan_joint",
+            "shoulder_lift_joint",
+            "elbow_joint",
+            "wrist_1_joint",
+            "wrist_2_joint",
+            "wrist_3_joint"
+          ]
+        },
+        "delta_deg": {
+          "type": "number",
+          "default": 10,
+          "min": -90,
+          "max": 90
+        },
+        "target_deg": {
+          "type": "number",
+          "optional": true,
+          "note": "If set, overrides delta_deg."
+        },
+        "speed_dps": {
+          "type": "number",
+          "default": 30
+        }
+      },
+      "urscript": "q = get_actual_joint_positions()  q[i] = q[i] + d2r(delta)  movej(q, a=1.0, v=d2r(speed))"
+    },
+    {
+      "id": "MOVE_JOINTS",
+      "voice_aliases_it": [],
+      "description": "Move all 6 joints to absolute angles.",
+      "parameters": {
+        "joints_deg": {
+          "type": "array",
+          "items": "number",
+          "length": 6
+        },
+        "speed_dps": {
+          "type": "number",
+          "default": 30
+        }
+      },
+      "urscript": "movej([q0, q1, q2, q3, q4, q5], a=1.0, v=d2r(speed))"
+    },
+    {
+      "id": "MOVE_TO_POSE",
+      "voice_aliases_it": [
+        "vai a"
+      ],
+      "description": "Linear move of the TCP to an absolute Cartesian pose in the base frame (all 6 Cartesian DOF).",
+      "parameters": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "z": {
+          "type": "number"
+        },
+        "rx": {
+          "type": "number",
+          "optional": true
+        },
+        "ry": {
+          "type": "number",
+          "optional": true
+        },
+        "rz": {
+          "type": "number",
+          "optional": true
+        },
+        "speed_mps": {
+          "type": "number",
+          "default": 0.1
+        }
+      },
+      "note": "Missing rx/ry/rz = keep current orientation. Rotation is a rotation vector in radians.",
+      "urscript": "movel(p[x, y, z, rx, ry, rz], a=0.5, v=speed)"
+    },
+    {
+      "id": "MOVE_ABOVE",
+      "voice_aliases_it": [
+        "vai sopra"
+      ],
+      "description": "Move at safe_travel_height_m above a detected object, orientation unchanged. Always lift before traveling horizontally.",
+      "parameters": {
+        "target": {
+          "type": "object_id"
+        },
+        "height_m": {
+          "type": "number",
+          "default": 0.15
+        }
+      },
+      "urscript": "movel(p[obj.x, obj.y, obj.z + h, rx, ry, rz], a=0.5, v=0.2)"
+    },
+    {
+      "id": "HOME",
+      "voice_aliases_it": [
+        "torna a casa",
+        "home",
+        "posizione iniziale"
+      ],
+      "description": "Joint move to robot.home_joints_deg (tool pointing down).",
+      "parameters": {},
+      "urscript": "movej([0, -1.571, 1.571, -1.571, -1.571, 0], a=1.0, v=0.5)"
+    },
+    {
+      "id": "STOP",
+      "voice_aliases_it": [
+        "stop",
+        "fermati",
+        "ferma",
+        "basta"
+      ],
+      "description": "Decelerate and stop the current motion. Highest priority, interrupts any running step.",
+      "parameters": {},
+      "urscript": "stopl(2.0)"
+    },
+    {
+      "id": "WAIT",
+      "voice_aliases_it": [
+        "aspetta"
+      ],
+      "description": "Pause for settling.",
+      "parameters": {
+        "seconds": {
+          "type": "number",
+          "default": 0.5,
+          "max": 10
+        }
+      },
+      "urscript": "sleep(seconds)"
+    }
+  ],
+  "environment": {
+    "coordinate_system": "world",
+    "units": "meters",
+    "workspace": {
+      "type": "tabletop",
+      "surface": "table"
+    },
+    "objects": [
+      {
+        "id": "blue_bucket_01",
+        "name": "blue bucket",
+        "category": "bucket",
+        "attributes": {
+          "color": "blue",
+          "shape": "bucket",
+          "size_m": 0.139,
+          "grip_width_m": 0.017
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.62,
+            "y": 0.24,
+            "z": 0.0575
+          },
+          "orientation": {
+            "type": "upright"
+          }
+        },
+        "detection": {
+          "required": true,
+          "class": "secchio_blu",
+          "reidentify_before_pick": true
+        }
+      },
+      {
+        "id": "green_ring_02",
+        "name": "green ring",
+        "category": "ring",
+        "attributes": {
+          "color": "green",
+          "shape": "ring",
+          "size_m": 0.139,
+          "grip_width_m": 0.0305
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.62,
+            "y": 0.07,
+            "z": 0.015
+          },
+          "orientation": {
+            "type": "upright"
+          }
+        },
+        "detection": {
+          "required": true,
+          "class": "anello_verde",
+          "reidentify_before_pick": true
+        }
+      },
+      {
+        "id": "orange_screw_03",
+        "name": "orange screw",
+        "category": "screw",
+        "attributes": {
+          "color": "orange",
+          "shape": "screw",
+          "size_m": 0.03,
+          "grip_width_m": 0.03
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.62,
+            "y": -0.08,
+            "z": 0.045
+          },
+          "orientation": {
+            "type": "upright"
+          }
+        },
+        "detection": {
+          "required": true,
+          "class": "vite_arancione",
+          "reidentify_before_pick": true
+        }
+      },
+      {
+        "id": "white_bucket_lid_04",
+        "name": "white bucket lid",
+        "category": "lid",
+        "attributes": {
+          "color": "white",
+          "shape": "lid",
+          "size_m": 0.139,
+          "grip_width_m": 0.025
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.62,
+            "y": -0.24,
+            "z": 0.0265
+          },
+          "orientation": {
+            "type": "upright"
+          }
+        },
+        "detection": {
+          "required": true,
+          "class": "tappo_bianco",
+          "reidentify_before_pick": true
+        }
+      },
+      {
+        "id": "delivery_zone",
+        "name": "delivery zone",
+        "category": "container",
+        "attributes": {
+          "color": "green",
+          "shape": "container",
+          "size_m": 0.12
+        },
+        "initial_state": {
+          "location": {
+            "x": 0.45,
+            "y": -0.2,
+            "z": 0.0
+          }
+        },
+        "detection": {
+          "required": false,
+          "class": "delivery_pad",
+          "reidentify_before_place": false
+        }
+      }
+    ]
+  },
+  "constraints": {
+    "object_constraints": [
+      {
+        "type": "orientation",
+        "object": "orange_screw_03",
+        "required_value": "upright"
+      },
+      {
+        "type": "containment",
+        "object": "orange_screw_03",
+        "container": "delivery_zone"
+      }
+    ],
+    "execution_constraints": {
+      "collision_avoidance": true,
+      "require_object_reidentification": true,
+      "require_workspace_validation": true,
+      "require_grasp_validation": true,
+      "allow_adaptive_replanning": true,
+      "open_gripper_before_descending": true,
+      "lift_before_horizontal_travel": true,
+      "respect_operational_limits": true
+    }
+  },
+  "steps": [
+    {
+      "id": "step_000",
+      "action": "SEQUENCE",
+      "physical_tool": "ur_go_to_pose",
+      "parameters": {
+        "name": "tilt_drop_start"
+      },
+      "description": "Go to the saved start pose 'tilt_drop_start' (49 cm high, camera towards the bucket). One joint at a time.",
+      "primitive_sequence": [
+        {
+          "primitive": "WAIT",
+          "parameters": {
+            "seconds": 0.5
+          }
+        }
+      ],
+      "failure_policy": "STOP_AND_REPLAN"
+    },
+    {
+      "id": "step_001",
+      "action": "SEQUENCE",
+      "description": "Go 20 cm down (the height the touch offset was taught at).",
+      "primitive_sequence": [
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.1,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.1,
+            "speed_mps": 0.05
+          }
+        }
+      ],
+      "failure_policy": "STOP_AND_REPLAN"
+    },
+    {
+      "id": "step_002",
+      "action": "VISIT",
+      "target": "blue_bucket_01",
+      "description": "The arm camera centres on the blue bucket (sideways only, same height); the arm stays there.",
+      "parameters": {
+        "hold_s": 1,
+        "come_back": false
+      },
+      "primitive_sequence": [
+        {
+          "primitive": "MOVE_ABOVE",
+          "parameters": {
+            "target": "blue_bucket_01",
+            "height_m": 0.35
+          }
+        },
+        {
+          "primitive": "MOVE_BACKWARD",
+          "parameters": {
+            "distance_m": 0.15,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "WAIT",
+          "parameters": {
+            "seconds": 1
+          }
+        }
+      ],
+      "failure_policy": "RETRY_WITH_REOBSERVATION"
+    },
+    {
+      "id": "step_003",
+      "action": "SEQUENCE",
+      "description": "Gripper tip 12 cm behind the bucket centre (3 cm forward), 30 cm down, push 10 cm forward (5 cm gap + 5 cm push), then 50 cm straight up.",
+      "primitive_sequence": [
+        {
+          "primitive": "MOVE_FORWARD",
+          "parameters": {
+            "distance_m": 0.03,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.1,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.1,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.05,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "MOVE_DOWN",
+          "parameters": {
+            "distance_m": 0.05,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "MOVE_FORWARD",
+          "parameters": {
+            "distance_m": 0.05,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "MOVE_FORWARD",
+          "parameters": {
+            "distance_m": 0.05,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.1,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.1,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.1,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.1,
+            "speed_mps": 0.05
+          }
+        },
+        {
+          "primitive": "MOVE_UP",
+          "parameters": {
+            "distance_m": 0.1,
+            "speed_mps": 0.05
+          }
+        }
+      ],
+      "postconditions": [
+        "The bucket moved about 5 cm forward."
+      ],
+      "failure_policy": "STOP_AND_REPLAN"
+    },
+    {
+      "id": "step_004",
+      "action": "SEQUENCE",
+      "physical_tool": "ur_go_to_pose",
+      "parameters": {
+        "name": "tilt_drop_start"
+      },
+      "description": "Back to the saved start pose 'tilt_drop_start'.",
+      "primitive_sequence": [
+        {
+          "primitive": "WAIT",
+          "parameters": {
+            "seconds": 0.5
+          }
+        }
+      ],
+      "failure_policy": "STOP_AND_REPLAN"
+    }
+  ],
+  "success_criteria": {
+    "all_steps_completed": true,
+    "object_placement_verified": true,
+    "orientation_verified": true,
+    "stability_verified": true
+  },
+  "interpretation": {
+    "model": "grok",
+    "status": "validated",
+    "confidence": 0.95,
+    "human_review_required": true,
+    "uncertainties": [
+      "Depths are taught for this table: if the table or bucket moves up/down, re-teach."
+    ]
+  },
+  "safety": {
+    "physical_execution_allowed": false,
+    "requires_feasibility_check": true,
+    "requires_operator_approval": true,
+    "requires_robot_controller_limits": true,
+    "unknown_parameters_policy": "NEEDS_VALIDATION",
+    "stop_primitive_always_available": true,
+    "reject_moves_outside_operational_limits": true
+  },
+  "app": {
+    "icon": "star-outline"
+  }
+}

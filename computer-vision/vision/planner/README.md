@@ -16,7 +16,7 @@ video ─ffmpeg─┬─ LQ 64×36 grey, every frame ─► motion energy ─►
         └─► expansion ─► validator (physical rules) ─► RoboDK or mock executor ─► run_<id>.json
 ```
 
-The app's Show Motion path uses only the tokenizing half, through the [teach server](../../../computer-vision-to-app). The app then writes the MOTIQ `skill.json`. The full pipeline below is the command-line route.
+The app's Show Motion path uses only the tokenizing half, through the [teach server](../../to-app). The app then writes the MOTIQ `skill.json`. The full pipeline below is the command-line route.
 
 ## Install
 

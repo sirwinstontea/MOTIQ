@@ -1,4 +1,4 @@
-# computer-vision-to-app
+# computer-vision/to-app
 
 Connects the vision stack to the MOTIQ app with one command, and hosts the **teach server** that turns demonstration videos into action tokens. Works on Windows, macOS and Linux. Starting it only needs Python 3.10+. The rest is installed for you.
 
@@ -14,8 +14,8 @@ Show Motion ──▶ teach server :8001 ──▶ vision/planner tokens ──�
 From the repo root:
 
 ```bash
-python computer-vision-to-app/run.py all
-python computer-vision-to-app/run.py all --mode synthetic     # no camera
+python computer-vision/to-app/run.py all
+python computer-vision/to-app/run.py all --mode synthetic     # no camera
 ```
 
 This installs packages into `computer-vision/.venv` the first time, writes the server addresses into `groky-app/.env`, then starts the vision and teach servers. Restart the app with `npx expo start -c` and open **Cameras**.

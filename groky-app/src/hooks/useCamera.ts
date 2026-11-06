@@ -108,7 +108,7 @@ export function useCamera(voice: Voice, onSkill?: (doc: SkillDoc, problems: stri
       notify({
         kind: 'bad',
         title: 'Show Motion needs the teach server',
-        body: 'Run: python computer-vision-to-app/run.py all, then restart the app.',
+        body: 'Run: python computer-vision/to-app/run.py all, then restart the app.',
       });
       return;
     }

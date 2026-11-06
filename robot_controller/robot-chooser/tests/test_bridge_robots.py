@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from robot_chooser.server import make_handler  # noqa: E402
 
-_spec = importlib.util.spec_from_file_location("motiq_bridge", REPO / "bridge" / "motiq_bridge.py")
+_spec = importlib.util.spec_from_file_location("motiq_bridge", REPO / "robot_controller" / "bridge" / "motiq_bridge.py")
 bridge_mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(bridge_mod)
 

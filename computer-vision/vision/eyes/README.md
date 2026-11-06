@@ -133,7 +133,7 @@ python -m pip install -r vision/eyes/requirements.txt ur_rtde pyrealsense2
 PYTHONPATH=. python -m pytest -q tests/test_flange_calibration.py tests/test_hand_eye.py tests/test_eyes.py
 PYTHONPATH=. python -m vision.eyes.cli flange-pose --robot-ip 192.168.7.20      # Phase A check (read-only)
 BRIDGE_KEY=<same as EXPO_PUBLIC_BRIDGE_KEY> PYTHONPATH=. python -m vision.eyes.cli run --mode realsense --robot-ip 192.168.7.20
-# or from the repo root: VISION_ROBOT_IP=192.168.7.20 BRIDGE_KEY=... ./bridge/start_stack.sh
+# or from the repo root: VISION_ROBOT_IP=192.168.7.20 BRIDGE_KEY=... ./robot_controller/bridge/start_stack.sh
 cd ../groky-app && npx tsc --noEmit
 ```
 

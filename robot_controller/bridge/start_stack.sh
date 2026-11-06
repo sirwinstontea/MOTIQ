@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Start vision server + robot controller + arm bridge on the robot PC. Ctrl+C stops all three.
 #
-#   BRIDGE_KEY=some-secret ./bridge/start_stack.sh
+#   BRIDGE_KEY=some-secret ./robot_controller/bridge/start_stack.sh
 #
 # Env (all optional except BRIDGE_KEY):
 #   BACKEND=robodk_sim|mock   controller backend (default: whatever config/robot.yaml says)
 #   VISION=1|0                start computer-vision (default 1 if computer-vision/.venv exists)
-#   VISION_MODE=realsense|webcam|synthetic   passed to the vision server as --mode
+#   VISION_MODE=realsense|webcam|synthetic|robodk   passed to the vision server as --mode.
+#                             With SIM=1 and VISION_MODE unset, the mode is robodk (the simulated flange camera).
 #   VISION_ROBOT_IP=192.168.7.20   read-only UR telemetry (rtde_receive) for Skills -> Calibration; never moves the arm
 #   BRIDGE_PORT=8080
 #   TEACH_PORT=8001           teach server (demonstration video -> skill), started with the vision server
@@ -21,7 +22,7 @@
 #   CHOOSER=1|0               start robot-chooser (arm catalog, 127.0.0.1:8771) for the app's Robots -> Arm catalog
 #                             (default 1). Config files only; with SIM=1 a new selection is applied live, otherwise on restart.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 RC="$ROOT/robot_controller"
 CV="$ROOT/computer-vision"
 PY="$RC/.venv/bin/python"
@@ -37,17 +38,38 @@ cleanup() { kill "${pids[@]}" 2>/dev/null || true; wait 2>/dev/null || true; }
 trap cleanup EXIT INT TERM
 
 VISION="${VISION:-$([ -x "$CV/.venv/bin/python" ] && echo 1 || echo 0)}"
+# SIM=1: look through the simulated flange camera, not a real webcam. SIM_VISION=1 tells the bridge to search from
+# those frames (ONNX + YOLO-World) and to pick at the measured point. SIM_VISION=0 keeps the old mock detector.
+if [ "${SIM:-0}" = "1" ] && [ "$VISION" = "1" ] && [ -z "${VISION_MODE:-}" ]; then
+  VISION_MODE=robodk
+fi
+if [ "${SIM:-0}" = "1" ] && [ "${VISION_MODE:-}" = "robodk" ]; then
+  export SIM_VISION="${SIM_VISION:-1}"
+else
+  export SIM_VISION="${SIM_VISION:-0}"
+fi
 vision_url=""
 if [ "$VISION" = "1" ]; then
   echo "[stack] vision server on :8000"
-  (cd "$CV" && exec .venv/bin/python -m vision.eyes.cli run --port 8000 ${VISION_MODE:+--mode "$VISION_MODE"} ${VISION_ROBOT_IP:+--robot-ip "$VISION_ROBOT_IP"}) &
+  vision_args=(--port 8000)
+  if [ -n "${VISION_MODE:-}" ]; then
+    vision_args+=(--mode "$VISION_MODE")
+    if [ "$VISION_MODE" = "robodk" ]; then
+      vision_args+=(--robot-pose robodk)
+      echo "[stack] vision reads the RoboDK camera (ONNX detector + YOLO-World)"
+    fi
+  fi
+  if [ -n "${VISION_ROBOT_IP:-}" ]; then
+    vision_args+=(--robot-ip "$VISION_ROBOT_IP")
+  fi
+  (cd "$CV" && exec .venv/bin/python -m vision.eyes.cli run "${vision_args[@]}") &
   pids+=($!)
   vision_url="http://127.0.0.1:8000"
   detector=(--detector vision_file --vision-file "$VISION_FILE")
   # teach server: the app's Show Motion / Upload video send demonstrations here; learned skills are kept in
   # computer-vision/data/skills/learned/
   echo "[stack] teach server on :${TEACH_PORT:-8001}"
-  (cd "$CV" && exec .venv/bin/python "$ROOT/computer-vision-to-app/teach_server.py" --port "${TEACH_PORT:-8001}") &
+  (cd "$CV" && exec .venv/bin/python "$CV/to-app/teach_server.py" --port "${TEACH_PORT:-8001}") &
   pids+=($!)
 else
   echo "[stack] no vision (run computer-vision/setup.sh to enable); controller uses the MOCK detector"
@@ -75,7 +97,7 @@ fi
 
 if [ "${CHOOSER:-1}" = "1" ]; then
   echo "[stack] robot-chooser (arm catalog, config files only) on 127.0.0.1:8771"
-  (cd "$ROOT/robot-chooser" && exec "$PY" -m robot_chooser serve --port 8771) &
+  (cd "$RC/robot-chooser" && exec "$PY" -m robot_chooser serve --port 8771) &
   pids+=($!)
 fi
 
@@ -88,7 +110,10 @@ fi
 SEL="$RC/config/selection.yaml"
 sel_field() { awk -v k="$1:" '$1==k {print $2; exit}' "$SEL" 2>/dev/null; }
 sel_key() { echo "$(sel_field robot_id)/$(sel_field status)"; }
-[ "${SIM:-0}" = "1" ] && detector=(--detector mock)   # the objects are RoboDK station items, the real camera can't see them
+# Without the simulated camera, station items are invisible to a real webcam, so the controller pretends.
+if [ "${SIM:-0}" = "1" ] && [ "${SIM_VISION:-0}" != "1" ]; then
+  detector=(--detector mock)
+fi
 
 pick_arm() {   # sets ctrl_cfg, bridge_scene, station, sim_arm
   ctrl_cfg=() bridge_scene=() station="" sim_arm=UR5e
@@ -133,10 +158,10 @@ start_arm() {   # controller + bridge for the current selection; sets ctrl_pid, 
   if [ "$up" != 1 ]; then
     echo "[stack] ERROR: the robot controller did not start (see its error above). If it says robot-chooser selected a" >&2
     echo "        BLOCKED arm: pick a Ready arm in the app (Robots -> Arm catalog) or run" >&2
-    echo "        (cd robot-chooser && ../robot_controller/.venv/bin/python -m robot_chooser select ur_ur5e)" >&2
+    echo "        (cd robot_controller/robot-chooser && ../.venv/bin/python -m robot_chooser select ur_ur5e)" >&2
     return 1
   fi
-  "$PY" "$ROOT/bridge/motiq_bridge.py" --port "$BRIDGE_PORT" --controller "http://127.0.0.1:$CTRL_PORT" \
+  "$PY" "$RC/bridge/motiq_bridge.py" --port "$BRIDGE_PORT" --controller "http://127.0.0.1:$CTRL_PORT" \
     --vision "$vision_url" --vision-file "$VISION_FILE" "${bridge_scene[@]}" --sim-arm "$sim_arm" &
   bridge_pid=$!
 }

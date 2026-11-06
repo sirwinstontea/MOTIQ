@@ -1,5 +1,5 @@
 // Learned skills (from a demonstration video or the camera) are also kept on the robot PC, by the teach server
-// (computer-vision-to-app/teach_server.py -> computer-vision/data/skills/learned/<id>.json). The tablet keeps its own
+// (computer-vision/to-app/teach_server.py -> computer-vision/data/skills/learned/<id>.json). The tablet keeps its own
 // copy in AsyncStorage; this is the durable one that survives a reinstall and shows up on any tablet.
 import env from '../lib/config';
 import type { SkillDoc } from './schema';

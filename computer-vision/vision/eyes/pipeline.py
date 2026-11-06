@@ -173,6 +173,8 @@ class EyePipeline:
         altrimenti da `controller_url` (robot_controller, sola lettura) o, con `robot_pose="robodk"`, dalla flangia in
         RoboDK. L'omografia fissa del tavolo non si usa più: con la camera che si muove darebbe millimetri sbagliati.
         `mode="robodk"`: camera D435 simulata sulla flangia (`capture.robodk`, opzioni in `robodk_options`).
+        Senza un file di hand-eye, il montaggio noto della camera sulla flangia è la calibrazione: le detection
+        (ONNX e YOLO-World) ricevono `xyz_base_m` dalla posa della flangia in RoboDK.
         `color_labels`: con il tracker mock, colore (italiano) -> etichetta, es. {"arancione": "vite_arancione"}.
         """
         calibration_id = None
@@ -230,8 +232,15 @@ class EyePipeline:
             color_labels=color_labels,
         )
         if mode == "robodk":
-            from .capture.robodk import RoboDKCameraReader
+            from .capture.robodk import RoboDKCameraReader, RoboDKFlange
             reader = RoboDKCameraReader(source_name=source, **(robodk_options or {}))
+            if hand_eye is None:
+                # The mount is the true T_flange_camera of this simulated camera, so no taught hand-eye is required.
+                from .calibration.hand_eye import HandEye
+                hand_eye = HandEye(T_tool_cam=reader.T_F_C, method="robodk_mount", n_samples=1, tcp_source="robodk")
+                tcp_fn = RoboDKFlange((robodk_options or {}).get("robot_name"), rdk=reader.rdk)
+                calibration_id = "robodk_mount"
+                print(f"[RoboDK] montaggio noto sulla flangia per '{source}': xyz_base_m senza calibrazione insegnata")
         elif mode == "realsense":
             serial = str(target) if target not in (None, "", 0, "0") else None
             reader = RealSenseReader(source_name=source, serial=serial)

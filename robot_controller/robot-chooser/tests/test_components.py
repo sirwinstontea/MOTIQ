@@ -49,7 +49,7 @@ def test_no_end_effector_means_flange_tcp(ch, repo):
 
 
 def test_new_hardware_type_is_a_file_not_code(ch, repo):
-    (repo / "robot-chooser" / "hardware_types" / "conveyor.yaml").write_text(yaml.safe_dump({
+    (repo / "robot_controller" / "robot-chooser" / "hardware_types" / "conveyor.yaml").write_text(yaml.safe_dump({
         "type": "conveyor", "label": "Conveyor belt", "attach_to": ["cell"], "roles": ["other"], "payload_field": None,
         "fields": {"length_m": {"type": "number", "min": 0, "unit": "m", "required": True},
                    "speed_m_s": {"type": "number", "min": 0, "max": 2, "unit": "m/s"}},
@@ -113,7 +113,7 @@ def test_v1_hardware_yaml_is_migrated(repo):
           "tool": {"name": "Old tool", "gripper_kind": "symbolic", "actuated": False, "mass_kg": 0.8,
                    "mass_status": "measured", "tcp_offset_m_rad": [0, 0, 0.12, 0, 0, 0], "tcp_status": "measured"},
           "cameras": [{"id": "cam1", "name": "Cam 1", "role": "vision", "serial": "123", "calibrated": True}]}
-    (repo / "robot-chooser" / "hardware.yaml").write_text(yaml.safe_dump(v1), encoding="utf-8")
+    (repo / "robot_controller" / "robot-chooser" / "hardware.yaml").write_text(yaml.safe_dump(v1), encoding="utf-8")
     hw = Chooser(repo).load_hardware()
     tool = next(c for c in hw.components if c.id == "main_tool")
     assert tool.attached_to == "arm" and tool.spec["mass_kg"] == 0.8 and tool.status == "measured"

@@ -10,7 +10,7 @@
 | `physical_disabled` | The interface a future hardware adapter plugs into | **Refused** with `PHYSICAL_BACKEND_DISABLED` |
 
 > [!WARNING]
-> **This controller cannot move robot hardware.** Simulation results, including RoboDK collision checks, do **not** show that physical operation is safe. See [docs/SAFETY_BOUNDARIES.md](docs/SAFETY_BOUNDARIES.md). The direct steps in [`bridge/`](../bridge) are a separate path that does not go through this controller.
+> **This controller cannot move robot hardware.** Simulation results, including RoboDK collision checks, do **not** show that physical operation is safe. See [docs/SAFETY_BOUNDARIES.md](docs/SAFETY_BOUNDARIES.md). The direct steps in [`bridge/`](bridge) are a separate path that does not go through this controller.
 
 ## Quick start
 
@@ -49,7 +49,7 @@ Run `setup-station` again to reset the objects. Re-running the demo while the sc
 
 Shared flags: `--config`, `--scene`, `--safety`, `--backend`, `--detector mock|none|vision_file`, `--vision-file`, `--start-robodk`, `--speed-percent`.
 
-Without explicit paths, config comes from `config/robot.yaml`, or `robot.example.yaml` if it's missing, and likewise for `scene` and `safety`. If [`robot-chooser`](../robot-chooser) wrote `config/selection.yaml` with a non-READY status, the CLI refuses to start. Passing `--config`, `--scene` and `--safety` bypasses it.
+Without explicit paths, config comes from `config/robot.yaml`, or `robot.example.yaml` if it's missing, and likewise for `scene` and `safety`. If [`robot-chooser`](robot-chooser) wrote `config/selection.yaml` with a non-READY status, the CLI refuses to start. Passing `--config`, `--scene` and `--safety` bypasses it.
 
 ## HTTP API
 

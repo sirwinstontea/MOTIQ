@@ -62,7 +62,7 @@ const fromPrimitives = (list: Primitive[], device: DeviceId): Tool[] =>
 // Names map 1:1 to POST {bridge}/tools/{name}. Arm names are the UR5e primitives from the skill template.
 const dogTools: Tool[] = fromPrimitives(DOG_PRIMITIVES, 'dog');
 
-// High-level tasks run by robot_controller through the arm bridge (../bridge). The real arm only moves between
+// High-level tasks run by robot_controller through the arm bridge (../robot_controller/bridge). The real arm only moves between
 // taught positions. Small step moves (move_up/down/..., move_joint, rotate_yaw) go to the physical arm via ur_jog.
 export const ARM_TASK_TOOLS = new Set([
   'pick_and_place', 'pick', 'place', 'shake', 'find', 'scan', 'check_placed', 'overview', 'push',
