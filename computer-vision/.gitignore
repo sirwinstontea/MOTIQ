@@ -5,3 +5,4 @@ __pycache__/
 logs/
 *.pt
 .DS_Store
+data/skills/learned/

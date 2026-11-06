@@ -18,7 +18,15 @@ from pathlib import Path
 
 import numpy as np
 
+from .local_resolver import SYNONYMS
+
 ID_OFFSET = 2000  # YOLO di Visione A usa id < 1000, detect_objects da 1000
+
+# Cercati da subito, senza aspettare Grok: le etichette del resolver locale tranne cose che sul tavolo non ci sono.
+# ponytail: lista fissa; più classi = più falsi positivi, si alza WORLD_CONF se disturbano.
+NOT_ON_TABLE = {"person", "bicycle", "car", "motorcycle", "dog", "cat", "bird", "couch", "dining table",
+                "chair", "tv", "potted plant"}
+DESK_CLASSES = sorted(set(SYNONYMS.values()) - NOT_ON_TABLE)
 
 
 def load_vocab(path: Path) -> dict:
@@ -58,24 +66,28 @@ def to_objects(result, max_area: float = 0.5) -> list[dict]:
 
 
 class OpenVocab:
-    def __init__(self, weights: str = "yolov8s-worldv2.pt", imgsz: int = 480, conf: float = 0.15):
+    def __init__(self, weights: str = "yolov8s-worldv2.pt", imgsz: int = 480, conf: float = 0.15,
+                 base=()):
+        """base: classi sempre cercate, anche dopo forget() (es. DESK_CLASSES)."""
         self.weights, self.imgsz, self.conf = weights, imgsz, conf
+        self.base = sorted({str(x).strip().lower() for x in base})
         self.classes: list[str] = []
         self.objects: list[dict] = []
         self.status = "carico YOLO-World..."
-        self._pending: list[str] | None = None
+        self._pending: list[str] | None = self.base or None
         self._frame: np.ndarray | None = None
         threading.Thread(target=self._run, daemon=True).start()
 
     def set_classes(self, labels) -> None:
         """Classi da cercare (in inglese, come le dà Grok). Applicate dal thread del modello."""
-        labels = sorted({str(x).strip().lower() for x in labels if str(x).strip()} | set(self.classes))
+        labels = sorted({str(x).strip().lower() for x in labels if str(x).strip()}
+                        | set(self.classes) | set(self._pending or []) | set(self.base))
         if labels != self.classes:
             self._pending = labels
 
     def forget(self) -> None:
-        """Dimentica tutte le classi: YOLO-World smette di cercare finché non arrivano classi nuove."""
-        self._pending = []
+        """Dimentica le classi imparate: restano solo quelle di base."""
+        self._pending = list(self.base)
 
     def feed(self, frame: np.ndarray) -> None:
         self._frame = frame

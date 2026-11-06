@@ -25,22 +25,22 @@ function visionCameras(): Camera[] {
   return env.visionSources
     .split(',')
     .map((x) => x.trim().toLowerCase())
-    .filter((x) => x === 'arm')
-    .filter(() => !devices.arm.url)
+    .filter((x) => x === 'arm' || x === 'dog' || x === 'webcam')
+    .filter((x) => x === 'webcam' || !devices[x as 'arm' | 'dog']?.url)
     .map((x) => ({
       id: `vision-${x}`,
-      label: `${devices.arm.label} vision`,
+      label: x === 'webcam' ? 'Webcam vision' : `${devices[x as 'arm' | 'dog']?.label ?? x} vision`,
       url: `${env.visionServer}/frame/${x}.jpg?raw=false`,
       open: true,
     }));
 }
 
 export const cameras: Camera[] = [
+  ...visionCameras(),
   { id: 'tablet', label: 'Tablet' },
   ...Object.entries(devices)
     .filter(([, d]) => d.url)
     .map(([id, d]) => ({ id, label: d.label, url: `${d.url}/camera.jpg` })),
-  ...visionCameras(),
   ...parseExtra(env.cameras),
 ];
 

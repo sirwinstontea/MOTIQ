@@ -287,8 +287,8 @@ Validation errors from the API/CLI use: `VALIDATION_ERROR`, `UNKNOWN_ROBOT`, `UN
   `bridge/start_stack.sh` starts (`CHOOSER=0` to skip). The app can set the catalog facts only (id, brand, model,
   dof, reach, payload, link, `.robot` file name); limits, scene and workspace are still filled in here, so a new
   arm stays BLOCKED until a person verifies them. Port 8771 because the digital-twin service uses 8770.
+* **Settings → Hardware** also calls `/api/state`, `/api/select` and `/api/hardware` directly through `EXPO_PUBLIC_CHOOSER_URL`. To reach it from a tablet, run `serve --host 0.0.0.0` on a trusted network: the API has no auth.
 * **No physical motion.** Physical actuators are documented, never driven, by design.
-* The guidance doc (`MOTIQ_Codex_MultiRobot_RoboDK.md`) was used as direction, not as a spec.
 
 ## 11. Tests
 

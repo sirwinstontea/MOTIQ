@@ -114,16 +114,29 @@ def create_app(pipeline: EyePipeline | None = None, calibration_service: Calibra
 
     @app.get("/state/{source}")
     def get_source_state(source: str) -> dict:
-        if source in pipeline.nodes and not pipeline._running:
-            pipeline.step(source)
-        payload = pipeline.state.get_payload(source)
+        resolved = source
+        if resolved not in pipeline.nodes:
+            if resolved in ("webcam", "arm") and ("arm" in pipeline.nodes or "webcam" in pipeline.nodes):
+                resolved = "arm" if "arm" in pipeline.nodes else "webcam"
+            elif pipeline.nodes:
+                resolved = next(iter(pipeline.nodes.keys()))
+        if resolved in pipeline.nodes and not pipeline._running:
+            pipeline.step(resolved)
+        payload = pipeline.state.get_payload(resolved)
         return payload.model_dump()
 
     @app.get("/frame/{source}.jpg")
     def get_marked_jpeg(source: str, raw: bool = Query(default=False)) -> Response:
-        if source in pipeline.nodes and not pipeline._running:
-            pipeline.step(source)
-        img = pipeline.state.get_frame(source) if raw else pipeline.state.get_marked_frame(source)
+        # Se viene richiesta la webcam o arm ma la sorgente attiva ? l'altra, fai fallback su quella disponibile
+        resolved = source
+        if resolved not in pipeline.nodes:
+            if resolved in ("webcam", "arm") and ("arm" in pipeline.nodes or "webcam" in pipeline.nodes):
+                resolved = "arm" if "arm" in pipeline.nodes else "webcam"
+            elif pipeline.nodes:
+                resolved = next(iter(pipeline.nodes.keys()))
+        if resolved in pipeline.nodes and not pipeline._running:
+            pipeline.step(resolved)
+        img = pipeline.state.get_frame(resolved) if raw else pipeline.state.get_marked_frame(resolved)
         return Response(content=encode_jpeg(img), media_type="image/jpeg")
 
     async def _mjpeg_generator(source: str, raw: bool = False, fps: float = 20.0):
@@ -422,6 +435,203 @@ def create_app(pipeline: EyePipeline | None = None, calibration_service: Calibra
     def dispatch_voice_tool(req: VoiceToolRequest) -> dict:
         """Esegue uno strumento di Grok Voice (`vision.grok.voice_tools.dispatch`) sullo stato live."""
         return voice_dispatch(req.name, req.arguments, pipeline.state)
+
+    # --- Endpoints per Modelli Dual (Custom + YOLO-World) e Funzionalità Grok ---
+    @app.get("/models/status")
+    def models_status(source: str = "arm") -> dict:
+        node = pipeline.nodes.get(source) or pipeline.nodes.get("arm") or (next(iter(pipeline.nodes.values())) if pipeline.nodes else None)
+        ov_active = bool(node and getattr(node, "open_vocab", None) is not None)
+        classes = node.open_vocab.classes if (ov_active and hasattr(node.open_vocab, "classes")) else []
+        ov_status = getattr(node.open_vocab, "status", None) if ov_active else None
+        import os
+        grok_ok = bool(os.getenv("XAI_API_KEY") or os.getenv("GROK_MOCK"))
+        return {
+            "ok": True,
+            "source": getattr(node, "source", source) if node else source,
+            "available_sources": list(pipeline.nodes.keys()),
+            "custom_model": "oggetti_mani.onnx (pezzi demo + mani/braccia)",
+            "yolo_world_model": "yolov8s-worldv2.pt (OpenVocab)",
+            "yolo_world_active": ov_active,
+            "yolo_world_status": ov_status,
+            "yolo_classes_count": len(classes),
+            "yolo_classes": classes,
+            "grok_active": grok_ok,
+            "reference_frame_set": bool(node and getattr(node, "ref_frame", None) is not None),
+        }
+
+    @app.post("/frame/process")
+    async def process_external_frame(
+        request: Request,
+        source: str = "arm",
+        return_image: bool = True,
+    ):
+        """Elabora un frame (JPEG/PNG) inviato da client/tablet o webcam con entrambi i modelli."""
+        node = pipeline.nodes.get(source) or pipeline.nodes.get("webcam") or pipeline.nodes.get("arm") or (next(iter(pipeline.nodes.values())) if pipeline.nodes else None)
+        if not node:
+            return JSONResponse({"ok": False, "error": "Nessuna sorgente attiva"}, status_code=503)
+
+        body = await request.body()
+        if not body:
+            return JSONResponse({"ok": False, "error": "Corpo richiesta vuoto"}, status_code=400)
+
+        nparr = np.frombuffer(body, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if frame is None:
+            return JSONResponse({"ok": False, "error": "Immagine non valida"}, status_code=400)
+
+        objects = node.tracker.process_frame(frame, apply_calibration=False)
+
+        if node.open_vocab is not None:
+            node.open_vocab.feed(frame)
+            live = [dict(o) for o in node.open_vocab.objects]
+            seen = {o["label"] for o in live}
+            if seen and node.grok_objects:
+                node.grok_objects = [o for o in node.grok_objects if o.get("label") not in seen]
+            for o in live:
+                o.update(node.label_meta.get(o["label"], {}))
+            core_boxes = [o.bbox for o in objects]
+            from vision.eyes.tracking.tracker import compute_iou
+            from vision.eyes.schemas import EyeObject
+            live = [o for o in live if not any(compute_iou(o["bbox"], b) > 0.45 for b in core_boxes)]
+            for o in live:
+                objects.append(EyeObject(
+                    id=o["id"],
+                    label=o["label"],
+                    name=o.get("name"),
+                    conf=float(o.get("conf", 0.5)),
+                    bbox=tuple(o["bbox"]),
+                    color=o.get("color"),
+                ))
+
+        if node.grok_objects:
+            for g in node.grok_objects:
+                objects.append(EyeObject(
+                    id=g["id"],
+                    label=g["label"],
+                    name=g.get("name"),
+                    conf=float(g.get("conf", 0.9)),
+                    bbox=tuple(g["bbox"]),
+                    color=g.get("color"),
+                ))
+
+        from vision.eyes.marks.som import draw_marks
+        marked = draw_marks(frame.copy(), objects, show_conf=True)
+
+        if return_image:
+            jpg = encode_jpeg(marked)
+            return Response(content=jpg, media_type="image/jpeg")
+
+        return {
+            "ok": True,
+            "count": len(objects),
+            "objects": [o.model_dump() for o in objects],
+        }
+
+    @app.post("/grok/detect")
+    def grok_detect(source: str = "arm", focus: str | None = None) -> dict:
+        node = pipeline.nodes.get(source)
+        if not node:
+            return {"ok": False, "error": f"sorgente {source} non trovata"}
+        raw = pipeline.state.get_frame(source)
+        objs = [o.model_dump() for o in pipeline.state.get_objects(source)]
+        core_objs = [o for o in objs if o["id"] < 1000]
+        from vision.grok.tasks import detect_objects
+        res = detect_objects(raw, known=core_objs, focus=focus, max_objects=4 if focus else 15)
+        if not res.ok:
+            return {"ok": False, "error": res.error}
+        if node.open_vocab:
+            node.open_vocab.set_classes([o.label for o in res.objects])
+        for o in res.objects:
+            node.label_meta[o.label] = {
+                "name": o.name,
+                "color": o.color,
+                "tags": o.tags,
+                "size_cm": o.size_cm,
+            }
+        node.grok_objects = [
+            o.model_dump() for o in res.objects
+            if not (node.open_vocab and o.label in getattr(node.open_vocab, "classes", []))
+        ]
+        return {
+            "ok": True,
+            "count": len(res.objects),
+            "objects": [o.model_dump() for o in res.objects],
+        }
+
+    @app.post("/grok/describe")
+    def grok_describe(source: str = "arm") -> dict:
+        node = pipeline.nodes.get(source)
+        if not node:
+            return {"ok": False, "error": f"sorgente {source} non trovata"}
+        raw = pipeline.state.get_frame(source)
+        objs = [o.model_dump() for o in pipeline.state.get_objects(source)]
+        from vision.grok.tasks import describe_scene
+        res = describe_scene(raw, objs)
+        return {"ok": res.ok, "description": res.text, "error": res.error if not res.ok else None}
+
+    @app.post("/grok/name")
+    def grok_name(source: str = "arm") -> dict:
+        node = pipeline.nodes.get(source)
+        if not node:
+            return {"ok": False, "error": f"sorgente {source} non trovata"}
+        marked = pipeline.state.get_marked_frame(source)
+        objs = [o.model_dump() for o in pipeline.state.get_objects(source)]
+        from vision.grok.tasks import name_objects
+        res = name_objects(marked, objs)
+        if not res.ok:
+            return {"ok": False, "error": res.error}
+        for n in res.objects:
+            node.meta[n.id] = {"name": n.name}
+        return {
+            "ok": True,
+            "named": [{"id": n.id, "name": n.name, "description": n.description} for n in res.objects]
+        }
+
+    @app.post("/grok/changes/reference")
+    def grok_ref_frame(source: str = "arm") -> dict:
+        node = pipeline.nodes.get(source)
+        if not node:
+            return {"ok": False, "error": f"sorgente {source} non trovata"}
+        raw = pipeline.state.get_frame(source)
+        node.ref_frame = raw.copy()
+        node.changes = []
+        return {"ok": True, "message": "Scena di riferimento salvata."}
+
+    @app.post("/grok/changes/diff")
+    def grok_changes_diff(source: str = "arm") -> dict:
+        node = pipeline.nodes.get(source)
+        if not node or getattr(node, "ref_frame", None) is None:
+            return {"ok": False, "error": "Nessuna scena di riferimento salvata in precedenza."}
+        raw = pipeline.state.get_frame(source)
+        objs = [o.model_dump() for o in pipeline.state.get_objects(source)]
+        hands = [o["bbox"] for o in objs if str(o.get("label", "")).lower() in ("mano", "polso", "braccio")]
+        from vision.grok.changes import find_changes, draw_changes
+        from vision.grok.tasks import explain_changes
+        changes, problem = find_changes(node.ref_frame, raw, ignore=hands)
+        node.changes = changes
+        if problem:
+            return {"ok": False, "error": problem}
+        if not changes:
+            return {"ok": True, "explanation": "Non è cambiato niente rispetto alla scena di riferimento.", "changes": []}
+        res = explain_changes(draw_changes(node.ref_frame, changes), draw_changes(raw, changes), changes)
+        if not res.ok:
+            return {"ok": True, "explanation": f"{len(changes)} cambiamenti rilevati (Grok non disponibile: {res.error})", "changes": changes}
+        names = {c.n: c for c in res.changes}
+        node.changes = [dict(c, name=names[c["n"]].name) for c in changes if c["n"] not in names or names[c["n"]].real]
+        return {"ok": True, "explanation": res.text, "changes": node.changes, "discarded": len(changes) - len(node.changes)}
+
+    @app.post("/grok/reset")
+    def grok_reset(source: str = "arm") -> dict:
+        node = pipeline.nodes.get(source)
+        if not node:
+            return {"ok": False}
+        node.grok_objects = []
+        node.label_meta = {}
+        node.meta = {}
+        node.changes = []
+        if getattr(node, "open_vocab", None):
+            node.open_vocab.forget()
+        return {"ok": True, "message": "Memoria oggetti resettata."}
 
     @app.websocket("/ws/objects")
     @app.websocket("/ws/objects/{source}")

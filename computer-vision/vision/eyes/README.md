@@ -1,80 +1,105 @@
-# Visione A ("Occhi"): Percezione Locale
+# vision/eyes
 
-Modulo di percezione veloce, interamente locale, per il **Grok Hackathon at the Museum** (Pavia, 4–5 Novembre 2026).
+Fast local perception, known in the team as Vision A ("the eyes"). It captures frames, detects and tracks objects, measures them, and publishes the result over HTTP and WebSocket. Grok is never called per frame.
 
-Si occupa di:
-1. **Acquisizione sorgenti** (`vision/eyes/capture/`): webcam del braccio, stream HTTP/RTSP del cane/telefono, modalità `replay` da video registrati (`.mp4`) e modalità `synthetic` per test senza telecamera.
-2. **YOLO + Tracciamento ByteTrack** (`vision/eyes/tracking/`): ID stabili nel tempo, classi YOLO, `bbox` normalizzati `[x, y, w, h]` in `[0.0, 1.0]` e stima locale del colore dominante in italiano (`rosso`, `blu`, `verde`, `giallo`, ...) per abilitare istantaneamente la scorciatoia locale di Visione B (`vision/grok/local_resolver.py`). Include anche un tracker leggero OpenCV (`--mock-tracker` / `EYES_MOCK=1`) per lavorare su qualsiasi PC senza GPU.
-3. **Set-of-Mark** (`vision/eyes/marks/`): disegna i riquadri e i badge numerici ad alto contrasto coerenti con `vision/grok/marks.py` senza alterare il frame originale.
-4. **Calibrazione Braccio** (`vision/eyes/calibration/`): rilevamento 4 marker ArUco (`DICT_4X4_50`), calcolo omografia 2D pixel $\to$ millimetri (`X_mm, Y_mm`), salvataggio su `calibration_arm.json` e stima dell'angolo di presa (`angle_deg` in `[-90°, +90°]`).
-5. **Telemetria Cane & Safety Stop** (`vision/eyes/dog/`): calcola `target_visible`, errore orizzontale `error_x` in `[-1.0, +1.0]`, altezza del riquadro `bbox_height` e attiva lo stop di sicurezza immediato (`safety_stop=True`) se una persona è troppo vicina.
-6. **Stato Condiviso `LiveVisionState`** (`vision/eyes/state/`): implementa l'interfaccia astratta `VisionState` di `vision/grok/voice_tools.py` in modo thread-safe.
-7. **Verifica Oggettiva Locale** (`vision/eyes/verification/`): controlla in modo deterministico se l'oggetto è sparito dalla zona di partenza (`check_disappearance`) ed è arrivato nella destinazione (`check_appearance`).
-8. **Server Streaming MJPEG + WebSocket** (`vision/eyes/server/`): espone il video MJPEG Set-of-Mark e il WebSocket con il JSON degli oggetti per l'App mobile e la Robotica.
-
----
-
-## 🚀 Avvio Rapido e CLI
-
-Tutti i comandi si lanciano dalla cartella radice del progetto (`Grok_Hackaton`):
-
-### 1. Generare tavola ArUco e calibrare il braccio
-```bash
-# 1. Stampa il foglio A4 (al 100%) con i marker 0-3 e appoggialo sul tavolo
-python -m vision.eyes.cli calibrate-arm --generate-board logs/aruco_a4.png
-
-# 2. Misura dove sono i centri dei marker nel sistema del braccio (mm) e scrivili in
-#    data/calibration/markers_mm.json
-
-# 3. Calibra dalla camera (RealSense USB-C se c'è, se no webcam 0) -> data/calibration/calibration_arm.json
-python -m vision.eyes.cli calibrate-arm
-#    oppure, a demo aperto, inquadra i 4 marker e premi [A]
+```mermaid
+flowchart LR
+    cap["capture/<br/>webcam, RealSense, RoboDK,<br/>stream, replay, synthetic"] --> track["tracking/<br/>YOLO + ByteTrack"]
+    track --> seg["segmentation/<br/>masks, size, angle"]
+    seg --> cal["calibration/<br/>camera to base"]
+    cal --> state["state/<br/>LiveVisionState"]
+    state --> marks["marks/<br/>Set-of-Mark"]
+    state --> server["server/<br/>FastAPI :8000"]
+    state --> ver["verification/"]
+    track --> dog["dog/<br/>telemetry, safety stop"]
+    dog --> state
 ```
-La calibrazione vale per la risoluzione con cui è fatta (es. 640x480 in USB 2, 848x480 in USB 3):
-se cambia, le coordinate in mm si spengono finché non ricalibri. Controllo visivo: `logs/calibration_check.jpg`.
 
-### 2. Generare un video MP4 per la modalità Replay
+## Modules
+
+| Folder | Purpose |
+|---|---|
+| [`capture/`](capture) | Interchangeable frame sources with one reader interface |
+| [`tracking/`](tracking) | Detection, stable IDs, normalised boxes, dominant colour |
+| [`segmentation/`](segmentation) | Object masks from an empty-table reference or GrabCut, plus measurements |
+| [`depth/`](depth) | Monocular distance estimate when there is no depth camera |
+| [`calibration/`](calibration) | ArUco homography, fixed look pose, hand-eye |
+| [`marks/`](marks) | Numbered object overlays for video and Grok |
+| [`dog/`](dog) | Visual following telemetry and the person or hand safety stop |
+| [`state/`](state) | Thread-safe `VisionState` shared with `vision/grok` |
+| [`verification/`](verification) | Deterministic checks of whether an object left or arrived |
+| [`zoom/`](zoom) | Smooth digital zoom for the desktop demo |
+| [`server/`](server) | MJPEG, WebSocket and REST server |
+
+| File | Purpose |
+|---|---|
+| [`cli.py`](cli.py) | Command line |
+| [`pipeline.py`](pipeline.py) | `SourceNode` per camera and the `EyePipeline` loop |
+| [`schemas.py`](schemas.py) | `EyeObject`, `FramePayload`, `DogTelemetry`, `CoordsMM` |
+
+## Command line
+
+Run from `computer-vision/`.
+
 ```bash
+# Live server
+python -m vision.eyes.cli run --mode auto --port 8000
+python -m vision.eyes.cli run --mode synthetic
+python -m vision.eyes.cli run --mode replay --file data/replays/sample_arm.mp4
+
+# One perception cycle, printed as JSON
+python -m vision.eyes.cli inspect --mode replay --file data/replays/sample_arm.mp4 --save-marked data/sample_marked.jpg
+
+# Make a replay video
 python -m vision.eyes.cli generate-replay --output data/replays/sample_arm.mp4
 ```
 
-### 3. Ispezionare un singolo frame e stampare il JSON
+Key options for `run`: `--mode auto|realsense|robodk|webcam|replay|stream|synthetic`, `--device`, `--file`, `--dog-target`, `--fps`, `--host`, `--port`, `--mock-tracker`, `--color-labels`, `--no-webcam`, `--webcam-device`, `--fixed-pose`, `--hand-eye`, `--controller`, `--look-pose`, `--robot-ip`, `--robot-pose controller|robodk`.
+
+In RealSense mode the PC webcam is added as a `webcam` source unless you pass `--no-webcam`.
+
+### Calibration commands
+
 ```bash
-python -m vision.eyes.cli inspect --source arm --mode replay --file data/replays/sample_arm.mp4 --calibration data/calibration/calibration_arm.json --save-marked data/sample_marked.jpg
+# Print the A4 ArUco sheet at 100%
+python -m vision.eyes.cli calibrate-arm --generate-board logs/aruco_a4.png
+
+# Table homography, needs marker centres in data/calibration/markers_mm.json
+python -m vision.eyes.cli calibrate-arm
+
+# Fixed observation pose (recommended)
+python -m vision.eyes.cli calibrate-look-pose --table-z-mm 0
+python -m vision.eyes.cli calibrate-look-pose --check
+
+# Eye-in-hand
+python -m vision.eyes.cli calibrate-hand-eye --tcp controller|manual|robodk|rtde
+
+# Simulation check of what the camera sees and how far off it is
+python -m vision.eyes.cli robodk-check
 ```
 
-### 4. Avviare il Server Live (MJPEG + WebSocket)
-```bash
-# In modalità sintetica o replay (senza hardware collegato)
-python -m vision.eyes.cli run --mode replay --file data/replays/sample_arm.mp4 --port 8000
+A homography holds for the resolution it was made at. Fixed-pose positions are valid only at the observation pose. With a table-empty reference (`POST /empty_table/arm`, from the observation pose), masks work on large uniform objects such as the bucket. Without one they use GrabCut, which can fail there with `invalid_depth`.
 
-# Dal vivo con webcam USB sul braccio
-python -m vision.eyes.cli run --mode webcam --device 0 --port 8000
+## Data format
+
+`bbox` is always `[x, y, w, h]` normalised to 0–1, with `(x, y)` at the top left. `conf` is 0–1. `color` is an Italian colour name. `coords_mm`, `xyz_cam_m`, `xyz_base_m` and `yaw_base_deg` stay `null` until calibration makes them valid.
+
+```json
+{"source": "arm", "frame_id": 3, "ts": 1793787986.08,
+ "objects": [{"id": 1, "label": "box", "name": null, "conf": 0.87,
+              "bbox": [0.7188, 0.5208, 0.1266, 0.1479], "color": "verde",
+              "coords_mm": null, "distance_m": 1.2}],
+ "dog_telemetry": null, "safety_stop": false, "safety_reason": null}
 ```
 
----
+## Server
 
-## 🌐 Endpoint del Server (`http://localhost:8000`)
+See [`server/`](server) for routes and [`../../API_APP.md`](../../API_APP.md) for the full contract. IDs from 1000 are Grok detections and IDs from 2000 are YOLO-World tracks.
 
-| Metodo | Endpoint | Descrizione |
-|--------|----------|-------------|
-| `GET` | `/health` | Stato del server e sorgenti attive (`arm`, `dog`) |
-| `GET` | `/stream/{source}` | Stream video **MJPEG** con riquadri e numeri **Set-of-Mark** |
-| `GET` | `/stream/{source}/raw` | Stream video **MJPEG** del frame originale pulito |
-| `GET` | `/frame/{source}.jpg` | Singolo snapshot JPEG Set-of-Mark |
-| `GET` | `/state/{source}` | Ultimo JSON completo (`objects`, `coords_mm`, `dog_telemetry`, `safety_stop`) |
-| `WS` | `/ws/objects/{source}` | **WebSocket** continuo (default 15 Hz) con il JSON degli oggetti |
-| `POST` | `/dog/target` | Imposta l'oggetto che il cane deve seguire (`{"target_id": 2}`) |
-| `POST` | `/action/{source}/start` | Fotografa `frame_before` e `objects_before` prima di un'azione |
-| `POST` | `/action/{source}/verify_local` | Esegue la verifica oggettiva locale sull'ultima azione |
-| `POST` | `/voice/dispatch` | Esegue i tool di Grok Voice (`list_objects`, `select_object`, ecc.) sullo stato live |
-
----
-
-## 🧪 Eseguire i Test
+## Test
 
 ```bash
-python -m pytest -v
+python -m pytest -q tests/test_eyes.py tests/test_segmentation.py tests/test_hand_eye.py tests/test_robodk.py
 ```
 
 ## 🎯 Skills → Calibration (D435 on the UR5e flange, read-only)

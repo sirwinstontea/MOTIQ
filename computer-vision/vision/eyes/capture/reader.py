@@ -178,7 +178,13 @@ class VideoReader:
 
         if self.mode == "webcam":
             dev = int(self.target) if str(self.target).isdigit() else 0
-            self._cap = cv2.VideoCapture(dev)
+            import sys
+            if sys.platform.startswith("win"):
+                self._cap = cv2.VideoCapture(dev, cv2.CAP_DSHOW)
+                if not (self._cap and self._cap.isOpened()):
+                    self._cap = cv2.VideoCapture(dev)
+            else:
+                self._cap = cv2.VideoCapture(dev)
             if self._cap and self._cap.isOpened():
                 self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
                 self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)

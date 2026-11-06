@@ -70,11 +70,7 @@ export default function History({ items, onRun, onPin, onRemove }: Props) {
               <Text style={s.text} numberOfLines={2}>
                 {item.text}
               </Text>
-              <Text style={s.meta}>
-                {ago(item.at)}
-                {item.count > 1 && `  ·  asked ${item.count}x`}
-                {item.via === 'voice' ? '  ·  voice' : '  ·  typed'}
-              </Text>
+              <Text style={s.meta}>{ago(item.at)}</Text>
             </View>
             <IconButton
               icon={item.pinned ? 'star' : 'star-outline'}

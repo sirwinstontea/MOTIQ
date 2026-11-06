@@ -167,7 +167,6 @@ export function useVoice({ onLevel, onAsked, onCommand, onToolError }: Options =
       setSkills: (runner: SkillRunner | null) => session.setSkills(runner),
       refreshTools: () => session.refreshTools(),
       emergencyStop: () => session.emergencyStop(),
-      planDecision: (ok: boolean, target?: 'sim' | 'real') => session.planDecision(ok, target),
       clear: () => {
         setLines([]);
         setTraces([]);

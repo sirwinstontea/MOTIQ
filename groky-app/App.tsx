@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, KeyboardAvoidingView, Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Animated, KeyboardAvoidingView, Platform, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Haptics from 'expo-haptics';
@@ -19,7 +19,6 @@ import Sidebar, { Tab } from './src/components/Sidebar';
 import StopButton from './src/components/StopButton';
 import { IconButton } from './src/components/ui';
 import { useAlerts } from './src/hooks/useAlerts';
-import PlanApproval from './src/components/PlanApproval';
 import { useCamera } from './src/hooks/useCamera';
 import { DevicesProvider } from './src/hooks/useDevices';
 import { useHistory } from './src/hooks/useHistory';
@@ -35,7 +34,7 @@ import History from './src/screens/History';
 import Robots from './src/screens/Robots';
 import Skills from './src/screens/Skills';
 import Talk from './src/screens/Talk';
-import { Colors, ThemeProvider, useStyles, useTheme } from './src/theme';
+import { Colors, fonts, ThemeProvider, useStyles, useTheme } from './src/theme';
 
 export default function App() {
   const [fontsLoaded, fontError] = useFonts({
@@ -69,7 +68,7 @@ function useLayout() {
 }
 
 function Main() {
-  const { isDark } = useTheme();
+  const { isDark, c } = useTheme();
   const s = useStyles(makeStyles);
   const { layout, wide } = useLayout();
   const mobile = layout === 'mobile';
@@ -175,6 +174,13 @@ function Main() {
 
         <View style={{ flex: 1 }}>
           <View style={[s.top, mobile && s.topMobile]}>
+            {mobile ? (
+              <Text style={s.brand} accessibilityRole="header">
+                motiq<Text style={{ color: c.accent }}>.</Text>
+              </Text>
+            ) : (
+              <View style={{ flex: 1 }} />
+            )}
             <View style={{ flex: 1 }} />
             <Notifications size={mobile ? 34 : 40} />
             {mobile && (
@@ -208,7 +214,6 @@ function Main() {
         <BottomNav tab={tab} onTab={setTab} historyCount={history.items.length} skillRunning={skills.running} />
       )}
 
-      <PlanApproval onDecide={voice.planDecision} />
       <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </SafeAreaView>
   );
@@ -219,5 +224,12 @@ const makeStyles = (c: Colors) =>
     root: { flex: 1, backgroundColor: c.bg },
     shell: { flex: 1, flexDirection: 'row' },
     top: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 24, paddingTop: 14, minHeight: 54 },
-    topMobile: { paddingHorizontal: 16, paddingTop: 8, minHeight: 46 },
+    topMobile: { paddingHorizontal: 16, paddingTop: 8, minHeight: 52 },
+    brand: {
+      color: c.text,
+      fontFamily: fonts.bold,
+      fontSize: 36, // 200% of the previous sidebar mark (18)
+      letterSpacing: -1.4,
+      lineHeight: 40,
+    },
   });

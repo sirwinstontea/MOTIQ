@@ -16,8 +16,8 @@ from . import prompts
 from .client import ask_json
 from .geometry import center, iou, refine_box
 from .local_resolver import action_of, candidates, display, resolve_local
-from .schemas import (CommandResult, DetectResult, NamesResult, SceneResult, TrackedObject, VerifyResult,
-                      parse_objects)
+from .schemas import (ChangesResult, CommandResult, DetectResult, NamesResult, SceneResult, TrackedObject,
+                      VerifyResult, parse_objects)
 
 
 def _never_raise(result_cls):
@@ -128,18 +128,19 @@ def verify_action(img_before, img_after, objects_before: list, objects_after: li
 
 @_never_raise(DetectResult)
 def detect_objects(img, known: list | None = None, start_id: int = 1000, max_objects: int = 15,
-                   min_conf: float = 0.5) -> DetectResult:
+                   min_conf: float = 0.5, focus: str | None = None) -> DetectResult:
     """Grok trova gli oggetti nell'immagine con il loro riquadro, anche quelli fuori dalle classi di YOLO.
 
     known:    oggetti già trovati (es. da YOLO) che Grok non deve ripetere.
     start_id: gli id li assegniamo noi, consecutivi da qui (lontani da quelli del tracker).
+    focus:    la richiesta dell'utente ("trova la spillatrice"): Grok cerca prima quell'oggetto.
     Gli oggetti hanno il formato del gruppo più `tags` e `size_cm` (misura reale stimata).
     I riquadri di Grok sono approssimativi e fermi: valgono per il frame inviato.
     La conf di un LLM non è calibrata, quindi i riquadri sospetti li scartiamo noi;
     il motivo di ogni scarto finisce in meta["discard_reasons"].
     """
     known = parse_objects(known or [])
-    res, meta = ask_json([img], prompts.detect_objects(known, max_objects), DetectResult,
+    res, meta = ask_json([img], prompts.detect_objects(known, max_objects, focus), DetectResult,
                          task="detect_objects", mock=_mock_detect)
     if res is None:
         return DetectResult(ok=False, error=meta["error"], meta=meta)
@@ -165,8 +166,30 @@ def detect_objects(img, known: list | None = None, start_id: int = 1000, max_obj
 
 
 # ---------------------------------------------------------------------------
+# 6. Cosa è cambiato (i cambiamenti li trova changes.find_changes, Grok li nomina e scarta le ombre)
+# ---------------------------------------------------------------------------
+
+@_never_raise(ChangesResult)
+def explain_changes(ref_marked, cur_marked, changes: list[dict]) -> ChangesResult:
+    """ref_marked/cur_marked: le due scene con i cambiamenti disegnati (changes.draw_changes)."""
+    if not changes:
+        return ChangesResult(text="Non è cambiato niente.")
+    res, meta = ask_json([ref_marked, cur_marked], prompts.explain_changes(changes), ChangesResult,
+                         task="explain_changes", mock=lambda: _mock_changes(changes))
+    if res is None:
+        return ChangesResult(ok=False, error=meta["error"], meta=meta)
+    ns = {c["n"] for c in changes}
+    return res.model_copy(update={"changes": [c for c in res.changes if c.n in ns], "meta": meta})
+
+
+# ---------------------------------------------------------------------------
 # Risposte finte (GROK_MOCK=1)
 # ---------------------------------------------------------------------------
+
+def _mock_changes(changes: list[dict]) -> dict:
+    kinds = {"added": "aggiunto", "removed": "tolto", "moved": "spostato"}
+    return {"changes": [{"n": c["n"], "name": "oggetto", "real": True} for c in changes],
+            "text": "; ".join(f"{c['n']}: oggetto {kinds[c['kind']]}" for c in changes)}
 
 def _mock_names(objs: list[TrackedObject]) -> dict:
     return {"objects": [{"id": o.id, "name": display(o), "color": o.color} for o in objs]}

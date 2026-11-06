@@ -1,5 +1,5 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
-import { TextStyle, useColorScheme } from 'react-native';
+import { Platform, TextStyle, useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // MOTIQ design system tokens. Dark is the primary theme.
@@ -110,6 +110,79 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       },
     };
   }, [mode, system]);
+
+  // Web only: replace the OS white scrollbar (arrows + bright track) with Motiq chrome.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const id = 'motiq-scroll-chrome';
+    let el = document.getElementById(id) as HTMLStyleElement | null;
+    if (!el) {
+      el = document.createElement('style');
+      el.id = id;
+      document.head.appendChild(el);
+    }
+    const thumb = value.isDark ? '#3a3c41' : '#d3cfca';
+    const thumbHover = value.isDark ? '#7a7c82' : '#85878c';
+    el.textContent = `
+      html, body, #root { background: ${value.c.bg}; }
+      * {
+        scrollbar-width: thin;
+        scrollbar-color: ${thumb} transparent;
+      }
+      *::-webkit-scrollbar { width: 8px; height: 8px; }
+      *::-webkit-scrollbar-button { display: none !important; width: 0; height: 0; }
+      *::-webkit-scrollbar-button:single-button { display: none !important; width: 0; height: 0; }
+      *::-webkit-scrollbar-track { background: transparent; border: none; }
+      *::-webkit-scrollbar-track-piece { background: transparent; }
+      *::-webkit-scrollbar-corner { background: transparent; }
+      *::-webkit-scrollbar-thumb {
+        background-color: ${thumb};
+        border-radius: 999px;
+        border: 2px solid transparent;
+        background-clip: padding-box;
+      }
+      *::-webkit-scrollbar-thumb:hover { background-color: ${thumbHover}; }
+      input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 100%;
+        height: 6px;
+        border-radius: 999px;
+        background: ${value.c.hover};
+        outline: none;
+      }
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: ${value.c.text};
+        border: 2px solid ${value.c.accent};
+        cursor: pointer;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+      }
+      input[type="range"]::-moz-range-thumb {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: ${value.c.text};
+        border: 2px solid ${value.c.accent};
+        cursor: pointer;
+      }
+      input[type="range"]::-moz-range-track {
+        height: 6px;
+        border-radius: 999px;
+        background: ${value.c.hover};
+      }
+      input[type="number"]::-webkit-inner-spin-button,
+      input[type="number"]::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+      }
+      input[type="number"] { -moz-appearance: textfield; }
+    `;
+  }, [value.isDark, value.c]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

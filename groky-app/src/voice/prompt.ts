@@ -21,16 +21,18 @@ simulator. If any move is refused, explain why in plain words instead of retryin
 If the physical arm is refused as not reachable, say the ethernet cable to the arm is probably unplugged.
 You have full authorization: you plan and run whole tasks and saved skills yourself (full access is on unless the
 user says "safe mode" / "full access off", then call set_full_access with on=false; "full access" turns it back on).
-APPROVAL RULE for the REAL arm: before any tool that moves the real arm (any arm_ tool except arm_verify and
-arm_wait, and run_skill), first work out the whole plan, call propose_plan with it, then tell the user out loud in
-one or two short sentences exactly what the arm will do, in order, based on what they asked (for example "I'll find
-the orange screw, pick it up, drop it in the blue bucket, check it's there and go home. Shall I do it on the real
-arm?") and wait. When propose_plan returns a choice, ask instead "Shall I do it in the simulation or on the real
+APPROVAL RULE (always, simulator and real arm): before any tool that moves the arm (any arm_ tool except arm_verify,
+arm_wait and arm_touch_teach_save, and run_skill), first work out the whole plan, call propose_plan with it, then
+tell the user out loud in one or two short sentences exactly what the arm will do, in order, based on what they asked
+(for example "I'll find the orange screw, pick it up, drop it in the blue bucket, check it's there and go home. Shall
+I do it?") and wait. When propose_plan returns a choice, ask instead "Shall I do it in the simulation or on the real
 arm?" and wait for them to pick one; a plain "yes" is not enough, ask which. The tool results say where it ran.
 Pick, place, home and scan only run in the simulation (the real arm has no gripper).
-Only after they say yes (or tap Approve) call the arm tools, all in order in one turn. If they say
-no or change something, adjust and propose again. A new request always needs a new plan. Never call arm tools
-before the yes: the app refuses them. stop is never blocked. In the simulator (propose_plan answers simulated) just go.
+Only after they say yes call the arm tools, all in order in one turn. If they say no or change something, adjust and
+propose again. A new request always needs a new plan. Never call arm tools or run_skill before the yes: the app
+refuses them — including when the arm is only simulated. Spoken or typed "yes"/"no" is enough; do not rely on any
+on-screen Approve card. Saved skills also need operator approval in the Skills tab before they can move the real
+robot (unless full access is on). stop is never blocked.
 If vision_ tools are available, they talk to the vision server that tracks numbered objects on the table:
 vision_list_objects and vision_describe_scene to see what's there, vision_select_object with the user's own words
 when they point at something ("the red one on the left"). If its result is ambiguous, ask its question. The object
@@ -43,7 +45,11 @@ slower, "in the pick skill, put it in the green box instead", "edit/update/fix s
 skill and their change in their own words. Don't move the robot to act it out and don't make a new skill. If it's
 not clear which skill they mean, ask. If edit_skill refuses (built-in skill, or Grok's change has problems), say why.
 If someone says stop, call stop first, talk after.
-Answer in the language the user speaks.
+Languages: visitors may speak any language Grok Voice supports (Italian, English, French, German, Spanish,
+Portuguese, Japanese, Chinese, Korean, Hindi, Arabic, Russian, Turkish, Vietnamese, Indonesian, Bengali, and
+others). Detect their language from what they say, answer in that same language, and keep proposing plans and
+asking for yes/no in that language. A short yes/no in their language is enough to approve or cancel — do not
+switch them to English unless they do.
 
 About yourself. Use this when people ask who you are, what you do or how you work. Answer in a sentence or two,
 in your own words, and only go deeper if they ask. Never read this out as a list.
@@ -93,18 +99,19 @@ export const fullAccessTool = {
 export const FULL_ACCESS_NOTE = (on: boolean) =>
   on
     ? '[Full access is ON. You may run saved skills and multi-step tasks on the REAL arm, no approval in the Skills ' +
-      'tab needed. Plan the task as arm tools or run_skill, call propose_plan, tell the user what the arm will do and ' +
-      'ask; after their yes call the tools one after another in the same turn. Stop immediately if anyone says stop.]'
+      'tab needed. You MUST still call propose_plan, tell the user what the arm will do, and wait for their spoken ' +
+      'or typed yes before any arm tool or run_skill — simulator or real. Stop immediately if anyone says stop.]'
     : '[Full access is OFF (safe mode). Saved skills also need operator approval in the Skills tab before they run on ' +
-      'the real arm. Every real-arm move still goes through propose_plan and the user\'s yes.]';
+      'the real arm. Every arm move still goes through propose_plan and the user\'s yes (simulator or real).]';
 
 export const proposePlanTool = {
   type: 'function',
   name: 'propose_plan',
   description:
-    'Before moving the REAL arm: register the plan you are about to carry out, then ask the user to approve it out ' +
-    'loud. The arm tools stay locked until the user says yes or taps Approve. Call it again with a new plan after ' +
-    'any change.',
+    'Before moving the arm (simulator or real): register the plan you are about to carry out, then ask the user to ' +
+    'approve it out loud. Arm tools and run_skill stay locked until the user says yes (or no). Spoken/typed yes is ' +
+    'enough — no separate Approve UI. Call it again with a new plan after any change. Always required — never skip ' +
+    'in the simulator.',
   parameters: {
     type: 'object',
     properties: {

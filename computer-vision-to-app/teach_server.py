@@ -56,7 +56,6 @@ use_app_key()
 
 from vision.planner.grok_client import GrokClient  # noqa: E402
 from vision.planner.schemas import VideoTokens  # noqa: E402
-from vision.planner.tokenizer import TokenizerConfig, VideoTokenizer  # noqa: E402
 
 import cv_teach  # noqa: E402  (computer-vision-to-app/cv_teach.py)
 
@@ -164,10 +163,58 @@ class Handler(BaseHTTPRequestHandler):
         print(f"[skills] saved {f.name}: {doc['skill'].get('name')}", flush=True)
         self._send(200, {"ok": True, "path": str(f.relative_to(CV))})
 
+    def _as_mp4(self, path: Path, tmp: Path) -> Path:
+        """Remux/transcode browser webm / phone mov into a planner-friendly mp4.
+
+        MediaRecorder webm and some phone containers occasionally fail the planner's
+        ffmpeg probe ("video non leggibile") even when the bytes arrived intact.
+        """
+        import subprocess
+
+        from vision.planner.frames import ffmpeg_exe
+
+        if path.suffix.lower() == ".mp4" and path.stat().st_size > 0:
+            # still normalise odd pixel sizes / missing audio so probe is stable
+            pass
+        out = tmp / "demo_norm.mp4"
+        cmd = [
+            ffmpeg_exe(), "-y", "-loglevel", "error", "-i", str(path),
+            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-shortest",
+            str(out),
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode == 0 and out.exists() and out.stat().st_size > 0:
+            return out
+        # retry without audio (silent demos / broken opus tracks)
+        cmd_no_a = [
+            ffmpeg_exe(), "-y", "-loglevel", "error", "-i", str(path),
+            "-an", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            str(out),
+        ]
+        r2 = subprocess.run(cmd_no_a, capture_output=True, text=True)
+        if r2.returncode == 0 and out.exists() and out.stat().st_size > 0:
+            return out
+        err = (r2.stderr or r.stderr or "").strip()
+        # keep the useful ffmpeg lines, drop dynamic-linker noise
+        lines = [ln for ln in err.splitlines() if ln.strip() and "libcaca" not in ln and "lib" != ln[:3]]
+        tip = " | ".join(lines[-4:])[:280] if lines else "ffmpeg failed"
+        raise RuntimeError(f"could not normalise video for learning: {tip}")
+
     def _learn(self, path: Path, goal: str | None, tmp: str) -> None:
         if not LOCK.acquire(blocking=False):
             return self._send(429, {"ok": False, "error": "already learning another video, try again shortly"})
         try:
+            work = Path(tmp)
+            if path.stat().st_size < 500:
+                return self._send(400, {"ok": False, "error": "video file is empty or too small"})
+            try:
+                path = self._as_mp4(path, work)
+            except Exception as e:
+                traceback.print_exc()
+                return self._send(400, {"ok": False, "error": f"{type(e).__name__}: {e}"})
             # YOLO-World reads the video; Grok only transcribes the speech and rewrites the YOLO report
             log = lambda k, m: print(f"[{k}] {m}", flush=True)  # noqa: E731
             vt = cv_teach.analyze(path, GROK, goal, log=log)
@@ -236,7 +283,10 @@ class Handler(BaseHTTPRequestHandler):
         if n > MAX_BYTES:
             return self._send(413, {"ok": False, "error": "video too large (max 200 MB)"})
         goal = (parse_qs(url.query).get("goal") or [""])[0].strip() or None
-        ext = {"video/quicktime": ".mov", "video/webm": ".webm"}.get(self.headers.get("Content-Type", ""), ".mp4")
+        # browsers often send "video/webm;codecs=vp9,opus" — only the type matters for the extension
+        ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+        ext = {"video/quicktime": ".mov", "video/webm": ".webm", "video/x-matroska": ".webm",
+               "video/mp4": ".mp4", "application/mp4": ".mp4"}.get(ctype, ".mp4")
         with tempfile.TemporaryDirectory(prefix="motiq-teach-") as tmp:
             path = Path(tmp) / f"demo{ext}"
             remaining = n
@@ -249,6 +299,7 @@ class Handler(BaseHTTPRequestHandler):
                     remaining -= len(chunk)
             if remaining:
                 return self._send(400, {"ok": False, "error": "upload was cut off"})
+            print(f"[teach] received {path.name} ({path.stat().st_size} bytes, {ctype or 'no type'})", flush=True)
             self._learn(path, goal, tmp)
 
     def log_message(self, fmt: str, *args) -> None:

@@ -28,6 +28,22 @@ SYNONYMS = {
     "tastiera": "keyboard", "telefono": "cell phone", "cellulare": "cell phone", "smartphone": "cell phone",
     "libro": "book", "orologio": "clock", "vaso": "vase", "forbici": "scissors",
     "peluche": "teddy bear", "orsacchiotto": "teddy bear", "spazzolino": "toothbrush",
+    # Oggetti da scrivania/tavolo: le etichette inglesi sono anche il vocabolario di YOLO-World all'avvio
+    "penna": "pen", "biro": "pen", "matita": "pencil", "gomma": "eraser", "righello": "ruler",
+    "spillatrice": "stapler", "pinzatrice": "stapler", "evidenziatore": "highlighter", "pennarello": "marker",
+    "scotch": "tape", "nastro": "tape", "colla": "glue stick", "quaderno": "notebook", "foglio": "paper",
+    "carta": "paper", "busta": "envelope", "graffetta": "paper clip", "postit": "sticky note",
+    "chiave": "key", "chiavi": "key", "occhiali": "glasses", "portafoglio": "wallet", "cuffie": "headphones",
+    "auricolari": "earphones", "caricabatterie": "charger", "cavo": "cable", "mouse": "mouse",
+    "chiavetta": "usb stick", "calcolatrice": "calculator", "lampada": "lamp", "candela": "candle",
+    "accendino": "lighter", "spugna": "sponge", "guanto": "glove", "cappello": "hat", "scarpa": "shoe",
+    "pallina": "ball", "cubo": "cube", "giocattolo": "toy", "lattina": "can", "barattolo": "jar",
+    "scatola": "box", "tappo": "bottle cap", "vite": "screw", "bullone": "bolt", "cacciavite": "screwdriver",
+    "martello": "hammer", "pinza": "pliers", "metro": "tape measure", "batteria": "battery", "pila": "battery",
+    "moneta": "coin", "tessera": "card", "fazzoletto": "tissue", "piatto": "plate", "limone": "lemon",
+    "pera": "pear", "borraccia": "water bottle", "anello": "ring", "bracciale": "bracelet",
+    "secchio": "bucket", "secchiello": "bucket", "pennello": "brush", "spazzola": "brush", "pettine": "comb",
+    "dentifricio": "toothpaste", "mascherina": "face mask", "lente": "magnifying glass", "dado": "dice",
 }
 
 # Colore canonico (italiano) -> forme accettate (generi, plurali, inglese).
@@ -55,7 +71,7 @@ NUMBERS = {"due": 2, "tre": 3, "quattro": 4, "cinque": 5, "sei": 6, "sette": 7, 
 # Radice del verbo (anche con pronome attaccato: "prendila", "mettilo") -> azione.
 VERBS = {"prend": "pick", "afferr": "pick", "raccogl": "pick", "mett": "place", "pos": "place",
          "appoggi": "place", "indic": "point", "vai": "go_to", "avvicinat": "go_to", "segu": "follow",
-         "guard": "look", "inquadr": "look"}
+         "guard": "look", "inquadr": "look", "trov": "point", "cerc": "point", "mostr": "point"}
 
 _STOP = {"il", "lo", "la", "i", "gli", "le", "l", "un", "uno", "una", "di", "del", "dello", "della", "dei",
          "degli", "delle", "a", "al", "allo", "alla", "ai", "agli", "alle", "da", "in", "nel", "nella", "su",

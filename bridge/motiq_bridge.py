@@ -265,6 +265,27 @@ class URSimLauncher:
                           "Open http://127.0.0.1:6080/vnc.html to check it.")
 
 
+class NullPhysicalArm:
+    """Stand-in when ur_manual/ur_jog.py isn't on this machine (sim / cloud). Controller tools still work.
+    `sim` stays what the bridge asked for, so a SIM=1 stack without ur_jog still takes the simulation paths."""
+
+    def __init__(self, sim: bool = False):
+        self.sim = sim
+        self.ip = ""
+
+    def status(self) -> dict:
+        return {"reachable": False, "ready": False, "sim": self.sim,
+                "note": "no physical UR driver (ur_jog) on this host"}
+
+    def stop(self) -> bool:
+        return False
+
+    def _refuse(self, *_a, **_k):
+        raise Refused("physical UR motion isn't available here (no ur_jog); use controller tools")
+
+    down_up = visit = step = joint = joints_now_deg = touch = push = tcp_now = _refuse
+
+
 import contextvars
 
 _ARM: "contextvars.ContextVar[Optional[PhysicalArm]]" = contextvars.ContextVar("motiq_arm", default=None)
@@ -298,6 +319,14 @@ class PhysicalArm:
         self.name = "the simulated arm (URSim)" if sim else "the physical arm"
         self.lock = threading.Lock()
         self.cancel = threading.Event()
+
+    @classmethod
+    def open(cls, sim: bool = False, sim_arm: str = "UR5e") -> "PhysicalArm | NullPhysicalArm":
+        try:
+            return cls(sim, sim_arm)
+        except Exception as e:  # missing ur_jog / bad robot IP module
+            log.warning("physical arm disabled (%s); bridge will use the controller only", e)
+            return NullPhysicalArm(sim)
 
     def status(self) -> dict:
         """Quick probe for /health: is the UR reachable (ethernet plugged in) and ready? Never raises."""
@@ -728,11 +757,13 @@ class Bridge:
         self.scene = yaml.safe_load(scene_path.read_text(encoding="utf-8"))
         self.http = httpx.Client(timeout=10.0)
         self.active_task: Optional[str] = None
-        self._physical = PhysicalArm(sim, sim_arm)
+        # Missing ur_jog must not stop the bridge: controller tools still run (NullPhysicalArm).
+        self._physical = PhysicalArm.open(sim, sim_arm)
         # SIM=1 on the UR5e: the physical UR5e as well, for "Run on real arm" (requests with X-Arm-Target: real).
         # Only camera/force moves (locate, touch, push, small steps): the controller drives the simulation only.
-        self.real_arm = (PhysicalArm(False) if sim and sim_arm == "UR5e" and os.environ.get("REAL_ARM", "1") == "1"
-                         else None)
+        real = (PhysicalArm.open(False) if sim and sim_arm == "UR5e" and os.environ.get("REAL_ARM", "1") == "1"
+                else None)
+        self.real_arm = real if isinstance(real, PhysicalArm) else None
         # SIM=1 on the UR5e: URSim is started / powered on on demand before every motion (see tool())
         self.ursim = (URSimLauncher(os.environ.get("URSIM_CONTAINER", "ursim-ur5e"),
                                     open_ui=os.environ.get("URSIM_OPEN_UI", "1") == "1")
