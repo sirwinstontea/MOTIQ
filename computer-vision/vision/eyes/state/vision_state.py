@@ -15,7 +15,7 @@ from vision.grok.voice_tools import VisionState
 
 from ..capture.reader import make_disconnected_frame
 from ..marks.som import draw_marks
-from ..schemas import DogTelemetry, EyeObject, FramePayload
+from ..schemas import EyeObject, FramePayload
 
 
 @dataclass
@@ -57,7 +57,6 @@ class LiveVisionState(VisionState):
         frame_id: int | None = None,
         ts: float | None = None,
         marked_frame: np.ndarray | None = None,
-        dog_telemetry: DogTelemetry | None = None,
         safety_stop: bool = False,
         safety_reason: str | None = None,
     ) -> FramePayload:
@@ -82,7 +81,6 @@ class LiveVisionState(VisionState):
                 frame_id=fid,
                 ts=now,
                 objects=parsed_objs,
-                dog_telemetry=dog_telemetry,
                 safety_stop=safety_stop,
                 safety_reason=safety_reason,
             )
@@ -109,7 +107,7 @@ class LiveVisionState(VisionState):
             return [o.model_dump() for o in buf.payload.objects]
 
     def get_payload(self, source: str) -> FramePayload:
-        """Restituisce l'intero `FramePayload` (inclusi `dog_telemetry` e `safety_stop`)."""
+        """Restituisce l'intero `FramePayload`, incluso `safety_stop`."""
         with self._lock:
             return self._ensure_source(source).payload.model_copy(deep=True)
 

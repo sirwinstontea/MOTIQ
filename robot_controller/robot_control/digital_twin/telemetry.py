@@ -2,7 +2,7 @@
 
 `RTDEJointSource` creates only `rtde_receive.RTDEReceiveInterface`: it cannot move, stop, power or configure the robot.
 It works the same against URSim (127.0.0.1) and the physical UR5e. `FakeJointSource` replays a slow scripted motion
-so the RoboDK side can be exercised with no robot and no URSim at all.
+so the PyBullet side can be exercised with no robot and no URSim at all.
 
 A sample is STALE when the controller timestamp has not advanced for `stale_after_ms` (frozen stream) or when no
 sample could be read: callers must then stop advancing the simulation, not show an old pose as live.

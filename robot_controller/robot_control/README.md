@@ -28,8 +28,8 @@ flowchart LR
 | Folder | Purpose |
 |---|---|
 | [`api/`](api) | Optional FastAPI server and dashboard |
-| [`backends/`](backends) | Mock, RoboDK, URSim sync and the disabled physical adapter |
+| [`backends/`](backends) | Mock, PyBullet, URSim sync and the disabled physical adapter |
 | [`safety/`](safety) | The fail-closed software gate |
-| [`sim_objects/`](sim_objects) | Demo object geometry, validation and RoboDK import |
+| [`sim_objects/`](sim_objects) | Demo object geometry, validation and PyBullet import |
 
 `move_joints` and `move_*` on a controller are internal. They are never exposed to the AI.

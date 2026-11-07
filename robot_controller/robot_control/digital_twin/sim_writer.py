@@ -1,9 +1,9 @@
-"""RoboDK writer: SIMULATION ONLY, guarded before every batch (spec section 7, "RoboDK write-side guards").
+"""PyBullet writer: SIMULATION ONLY, guarded before every batch (spec section 7, "PyBullet write-side guards").
 
 Allowed writes: `robot.setJoints()` on the simulated robot item, and `setPose`/`setColor` on `MOTIQ_Detected_*` marker
 objects (created once, never re-imported in the loop). Optionally `setPose` on a registered CAD object when its
 explicit, validated tabletop policy is enabled. Nothing else: no MoveJ/MoveL, no programs, no run-mode change, no
-driver connection. The guard refuses (and writes nothing) when RoboDK is not in simulate mode, the robot item is
+driver connection. The guard refuses (and writes nothing) when PyBullet is not in simulate mode, the robot item is
 connected to a driver, a program is moving it, or the station/robot is not the configured one.
 """
 from __future__ import annotations
@@ -54,9 +54,9 @@ def _port_open(host: str, port: int, timeout: float = 0.5) -> bool:
         return False
 
 
-class RoboDKWriter:
-    def __init__(self, cfg_robodk, link: Any = None, rl: Any = None, rm: Any = None):
-        self.cfg = cfg_robodk
+class PyBulletWriter:
+    def __init__(self, cfg_sim, link: Any = None, rl: Any = None, rm: Any = None):
+        self.cfg = cfg_sim
         self._rdk = link
         self._rl = rl
         self._rm = rm
@@ -73,31 +73,16 @@ class RoboDKWriter:
     # ---- connection ---------------------------------------------------------------------------------------
     def _modules(self):
         if self._rl is None:
-            try:
-                self._rl = importlib.import_module("robodk.robolink")
-                self._rm = importlib.import_module("robodk.robomath")
-            except ImportError as e:
-                raise GuardError("robodk_offline", "robodk package missing: pip install robodk") from e
+            raise GuardError("pybullet", "The cell is the PyBullet world owned by the controller. "
+                             "This writer no longer attaches to a separate station process.")
         return self._rl, self._rm
 
     def connect(self):
-        rl, _ = self._modules()
+        self._modules()
         if self._rdk is not None:
             return self._rdk
-        # never let Robolink auto-launch RoboDK: only attach to one that is already running
-        if not _port_open(self.cfg.host, self.cfg.port):
-            raise GuardError("robodk_offline", f"RoboDK API not reachable on {self.cfg.host}:{self.cfg.port}. "
-                             "Start RoboDK with the station open, then retry.")
-        try:
-            self._rdk = rl.Robolink(robodk_ip=self.cfg.host, port=self.cfg.port)
-            try:
-                self._rdk.COM.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            except Exception:  # noqa: BLE001 - only slower
-                pass
-        except Exception as e:  # noqa: BLE001
-            self._rdk = None
-            raise GuardError("robodk_offline", f"cannot connect to RoboDK: {e}") from e
-        return self._rdk
+        raise GuardError("pybullet", "Open the PyBullet cell by starting the controller. "
+                         "There is no separate station API to connect to.")
 
     def close(self):
         with self.lock:
@@ -108,7 +93,7 @@ class RoboDKWriter:
         return getattr(self._rl, name, default)
 
     # ---- guard --------------------------------------------------------------------------------------------
-    # Measured on RoboDK 6.x with TCP_NODELAY: RunMode 0.1 ms, Busy 3.5 ms, ConnectedState ~30 ms,
+    # Measured on PyBullet 6.x with TCP_NODELAY: RunMode 0.1 ms, Busy 3.5 ms, ConnectedState ~30 ms,
     # ActiveStation().Name ~40 ms, and every scene write (setJoints/setPose/setColor/setVisible) 30-45 ms because it
     # re-renders. So: ONE guard per batch (run mode, driver state, busy, robot item: every batch; the station name at
     # most once per second), and scene writes only when something actually changed.
@@ -124,16 +109,16 @@ class RoboDKWriter:
                     self._station, self._station_at = rdk.ActiveStation().Name(), now
                 station = self._station
                 run_mode = rdk.RunMode()
-            except Exception as e:  # noqa: BLE001 - RoboDK closed meanwhile
+            except Exception as e:  # noqa: BLE001 - PyBullet closed meanwhile
                 self.close()
-                raise GuardError("robodk_offline", f"RoboDK connection lost: {e}") from e
+                raise GuardError("sim_offline", f"PyBullet connection lost: {e}") from e
             info = {"connected": True, "station": station, "run_mode": run_mode}
             self.last_guard = info
             if self.cfg.station_name and station != self.cfg.station_name:
                 raise GuardError("wrong_station", f"active station is {station!r}, config expects "
                                  f"{self.cfg.station_name!r}")
             if run_mode != self._c("RUNMODE_SIMULATE", 1):
-                raise GuardError("robodk_not_simulating", f"RoboDK run mode is {run_mode}, not simulate (1): refusing "
+                raise GuardError("sim_not_running", f"PyBullet run mode is {run_mode}, not simulate (1): refusing "
                                  "to write. The twin never changes the run mode itself.")
             robot = self._robot
             if robot is None or not robot.Valid():
@@ -147,15 +132,15 @@ class RoboDKWriter:
                 busy = robot.Busy()
             except Exception as e:  # noqa: BLE001
                 self.close()
-                raise GuardError("robodk_offline", f"RoboDK connection lost: {e}") from e
+                raise GuardError("sim_offline", f"PyBullet connection lost: {e}") from e
             code = state[0] if isinstance(state, (list, tuple)) else state
             safe = {self._c("ROBOTCOM_NOT_CONNECTED", -1), self._c("ROBOTCOM_DISCONNECTED", -2)}
             info["driver_state"] = code
             if code not in safe:
-                raise GuardError("robot_driver_connected", f"RoboDK robot {self.cfg.robot_item_name!r} has driver "
+                raise GuardError("robot_driver_connected", f"PyBullet robot {self.cfg.robot_item_name!r} has driver "
                                  f"state {code} (connected/connecting to a real controller): refusing all writes")
             if busy:
-                raise GuardError("robodk_robot_busy", "a program or move is running on this RoboDK robot item "
+                raise GuardError("sim_busy", "a program or move is running on this PyBullet robot item "
                                  "(e.g. the MOTIQ controller simulation): refusing to fight it. Use a dedicated "
                                  "twin station/robot item or stop that simulation.")
             info["safe"] = True
@@ -178,20 +163,20 @@ class RoboDKWriter:
 
     # ---- robot --------------------------------------------------------------------------------------------
     def write_joints(self, q_deg: list[float], with_fk: bool = False) -> np.ndarray | None:
-        """Guard, then setJoints on the SIMULATED robot. With `with_fk`, also RoboDK flange FK ^R T_F (m)."""
+        """Guard, then setJoints on the SIMULATED robot. With `with_fk`, also PyBullet flange FK ^R T_F (m)."""
         with self.lock:
             self._guarded()
             self._robot.setJoints(list(q_deg))
             return T_mm_to_m(self._robot.SolveFK(list(q_deg))) if with_fk else None
 
     def flange_fk(self, q_deg: list[float]) -> np.ndarray:
-        """RoboDK flange FK ^R T_F (m) for q. Read-only computation (no joint write)."""
+        """PyBullet flange FK ^R T_F (m) for q. Read-only computation (no joint write)."""
         with self.lock:
             self._guarded()
             return T_mm_to_m(self._robot.SolveFK(list(q_deg)))
 
     def robot_base_abs(self) -> np.ndarray:
-        """^S T_R (m). For a robot item RoboDK documents PoseAbs() as the robot BASE w.r.t. the station."""
+        """^S T_R (m). For a robot item PyBullet documents PoseAbs() as the robot BASE w.r.t. the station."""
         return T_mm_to_m(self._robot.PoseAbs())
 
     # ---- markers ------------------------------------------------------------------------------------------
@@ -233,7 +218,7 @@ class RoboDKWriter:
             rm = self._rm
             it = rdk.AddShape(rm.Mat(sphere_triangles(self.cfg.marker_radius_mm)).tr())
             if not it.Valid():
-                raise GuardError("marker_create_failed", f"RoboDK did not create marker {name!r}")
+                raise GuardError("marker_create_failed", f"PyBullet did not create marker {name!r}")
             it.setName(name)
             it.setParent(self._parent_frame())
             for other in rdk.ItemList(self._c("ITEM_TYPE_OBJECT", 5)):   # markers must never trigger collisions

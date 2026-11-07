@@ -32,10 +32,7 @@ const modes: { id: Mode; label: string }[] = [
   { id: 'dark', label: 'Dark' },
 ];
 
-const backends: { id: string; label: string }[] = [
-  { id: 'mock', label: 'Mock' },
-  { id: 'robodk_sim', label: 'RoboDK' },
-];
+const backends: { id: string; label: string }[] = [{ id: 'pybullet', label: 'Run sim' }];
 
 type Props = { open: boolean; onClose: () => void };
 
@@ -207,7 +204,7 @@ export default function Settings({ open, onClose }: Props) {
                 <Text style={[s.fieldLabel, { marginTop: 14 }]}>Simulation backend</Text>
                 <Segmented
                   options={backends}
-                  value={backends.some((b) => b.id === backend) ? backend : 'mock'}
+                  value="pybullet"
                   onChange={setBackend}
                   stretch
                 />

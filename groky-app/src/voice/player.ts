@@ -8,7 +8,7 @@ import { wav } from './pcm';
 // while it plays the next segment is written and loaded so the switch-over is near gapless. Generation is
 // faster than realtime, so later segments get long and there are only a few joins per reply.
 const BYTES_PER_SEC = SAMPLE_RATE * 2; // 16-bit mono
-const FIRST_BYTES = BYTES_PER_SEC * 0.4;
+const FIRST_BYTES = BYTES_PER_SEC * 0.2;
 const NEXT_BYTES = BYTES_PER_SEC * 0.8;
 
 type Seg = { player: AudioPlayer; file: File };
@@ -77,6 +77,7 @@ export class Player {
       await file.write(data);
       if (gen !== this.gen) return void file.delete();
       const player = createAudioPlayer({ uri: file.uri });
+      player.volume = 1;
       seg = { player, file };
       player.addListener('playbackStatusUpdate', (s) => {
         if (s.didJustFinish && this.current === seg) this.advance();

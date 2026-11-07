@@ -1,5 +1,8 @@
 import copy
+import os
 from pathlib import Path
+
+os.environ.setdefault("PYBULLET_GUI", "0")
 
 import pytest
 import yaml

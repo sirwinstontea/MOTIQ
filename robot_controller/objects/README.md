@@ -1,6 +1,6 @@
-# Demo objects for RoboDK (UR5e simulation)
+# Demo objects for PyBullet (UR5e simulation)
 
-Four watertight, colour-coded meshes for the RoboDK digital twin. All units are **millimetres**.
+Four watertight, colour-coded meshes for the PyBullet digital twin. All units are **millimetres**.
 
 | Name | Shape | Bounds (mm) | RGBA |
 |---|---|---|---|
@@ -22,7 +22,7 @@ objects/
 robot_control/sim_objects/
   core.py                          revolve, ray/containment tests, common mesh checks
   shapes/<id>.py                   per-object profile generator + cavity validator
-  build.py, generate.py, validate.py, robodk_import.py
+  build.py, generate.py, validate.py, pybullet_import.py
 scripts/generate_all.py | validate_all.py | import_all.py   (thin wrappers)
 ```
 
@@ -34,12 +34,12 @@ nominal radius, so no diameter exceeds its specified value.
 
 ```bash
 source .venv/bin/activate                      # or: python3 -m venv .venv && source .venv/bin/activate
-python -m pip install -e '.[objects,robodk]'   # numpy, trimesh (+ robodk API for import)
+python -m pip install -e '.[objects,pybullet]'   # numpy, trimesh (+ pybullet API for import)
 
 python scripts/generate_all.py                 # == python -m robot_control.sim_objects.generate
 python scripts/validate_all.py                 # == python -m robot_control.sim_objects.validate  (-q for summary)
-python scripts/import_all.py --dry-run         # prints the plan; never imports robodk or connects
-python scripts/import_all.py                   # RoboDK GUI must already be running
+python scripts/import_all.py --dry-run         # prints the plan; never imports pybullet or connects
+python scripts/import_all.py                   # PyBullet GUI must already be running
 python scripts/import_all.py --replace         # re-import ONLY objects with these exact names
 python -m pytest tests/test_sim_objects.py -q  # offline tests
 ```
@@ -66,15 +66,15 @@ If the STLs don't exist, it reports `STL validated: NOT RUN`.
 * The objects go into the **currently active station**, as `ITEM_TYPE_OBJECT` items under the
   `Objects_Frame` frame. That frame is created under `UR5e Base` if it exists, otherwise under the station root.
 * Colour is set through `item.setColor()`, because STL files carry no colour.
-* After import, the mesh is read back from RoboDK and its extents are compared with the expected bounds to
+* After import, the mesh is read back from PyBullet and its extents are compared with the expected bounds to
   confirm the mm scale.
 * If a name already exists, that object is **skipped** unless you pass `--replace`. `--replace` deletes only
   objects with exactly the same name.
 * An existing `Objects_Frame` is never moved unless you pass `--reset-frame-pose`.
 * The importer never touches robots, tools, TCPs, targets, programs, the run mode or other items. It does not
-  launch RoboDK, and it never talks to a physical robot.
+  launch PyBullet, and it never talks to a physical robot.
 * Collisions between the objects and `table` are turned off, because the objects sit on the table top.
-* It does not save the station. Press Ctrl+S in RoboDK to keep the objects. Note that
+* It does not save the station. Press Ctrl+S in PyBullet to keep the objects. Note that
   `robot_control.cli setup-station` rebuilds the demo station tab, so run `import_all.py` again afterwards.
 
 **Display layout.** `Objects_Frame` is placed at `[-620, 0, 0, 0, 0, 90]` (mm, deg) relative to the robot base.
@@ -83,7 +83,7 @@ X = −620, Y = −240…240, beside the delivery pad. This layout is for displa
 is free space in the real cell. To change it, edit `object_specifications.json` and re-run with
 `--reset-frame-pose` (frame) or `--replace` (objects).
 
-**Inspecting in RoboDK.** Expand `UR5e Base → Objects_Frame` in the station tree. Double-click an object to see
+**Inspecting in PyBullet.** Expand `UR5e Base → Objects_Frame` in the station tree. Double-click an object to see
 its pose. Use *Tools → Measure* to check dimensions.
 
 ## Changing dimensions

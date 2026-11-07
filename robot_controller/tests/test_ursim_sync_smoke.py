@@ -1,7 +1,7 @@
-"""Opt-in URSim + RoboDK synchronized integration test. Never connects to hardware.
+"""Opt-in URSim + PyBullet synchronized integration test. Never connects to hardware.
 
 Run:  RUN_URSIM_TESTS=1 python -m pytest -m integration tests/test_ursim_sync_smoke.py -q
-Needs: RoboDK GUI with the demo station (setup-station) and the URSim container
+Needs: PyBullet GUI with the demo station (setup-station) and the URSim container
 (robot RUNNING: powered on, brakes released) on 127.0.0.1.
 """
 import json
@@ -33,7 +33,7 @@ def _up(port):
 @pytest.fixture
 def executor(robot_cfg, safety_cfg, scene_cfg):
     if os.environ.get("RUN_URSIM_TESTS") != "1" or not (_up(20500) and _up(30004)):
-        pytest.skip("set RUN_URSIM_TESTS=1 with RoboDK + URSim running")
+        pytest.skip("set RUN_URSIM_TESTS=1 with PyBullet + URSim running")
     pytest.importorskip("rtde_control")
     c = URSimSyncController(robot_cfg, scene_cfg)
     ex = TaskExecutor(c, robot_cfg, safety_cfg, SceneRegistry(scene_cfg), MockDetector())

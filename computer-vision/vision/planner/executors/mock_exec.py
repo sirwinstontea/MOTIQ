@@ -1,4 +1,4 @@
-"""Executor simulato in memoria: per i test e per lavorare senza RoboDK."""
+"""Executor simulato in memoria: per i test e per lavorare senza PyBullet."""
 from __future__ import annotations
 
 import math

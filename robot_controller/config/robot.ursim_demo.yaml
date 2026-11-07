@@ -1,9 +1,8 @@
-# SIM=1 demo config (run_all.sh / start_stack.sh): the UR5e reference cell on URSim (127.0.0.1, executes) mirrored
-# into RoboDK. Same values as robot-chooser's generated UR5e robot.yaml, except backend: ursim_sync, which the
-# chooser deliberately never selects. Loaded explicitly with --config, so the chooser selection is not used in SIM=1.
+# SIM=1 demo config (run_all.sh / start_stack.sh): the UR5e cell in PyBullet.
+# Loaded explicitly with --config, so the chooser selection is not used in SIM=1.
 model: UR5e
 dof: 6
-backend: ursim_sync
+backend: pybullet
 station_name: UR5e Controller Demo
 station_path: stations/UR5e_demo.rdk
 robot_library_file: stations/UR5e.robot

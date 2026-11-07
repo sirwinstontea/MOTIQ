@@ -84,9 +84,9 @@ def test_checker_exception_is_inconclusive(robot_cfg, safety_cfg, scene_cfg):
     assert not d.approved and d.code == ErrorCode.PATH_CHECK_INCONCLUSIVE
 
 
-def test_robodk_requires_collision_geometry(robot_cfg, safety_cfg):
+def test_pybullet_requires_collision_geometry(robot_cfg, safety_cfg):
     empty_station = PathCheckResult(ok=True, conclusive=True, geometry_checked=False, reason="0 collisions")
-    d = policy(robot_cfg, safety_cfg, empty_station, backend="robodk_sim").check_segment(seg())
+    d = policy(robot_cfg, safety_cfg, empty_station, backend="pybullet").check_segment(seg())
     assert not d.approved and d.code == ErrorCode.PATH_CHECK_INCONCLUSIVE
 
 
@@ -96,7 +96,7 @@ def test_physical_backend_denied(robot_cfg, safety_cfg):
 
 
 def test_physical_backend_denied_even_if_allowed(robot_cfg, safety_dict):
-    safety_dict["allowed_backends"] = ["mock", "robodk_sim", "physical_disabled"]
+    safety_dict["allowed_backends"] = ["mock", "pybullet", "physical_disabled"]
     d = policy(robot_cfg, SafetyConfig.model_validate(safety_dict)).check_backend(PhysicalDisabledController(robot_cfg))
     assert not d.approved and d.code == ErrorCode.PHYSICAL_BACKEND_DISABLED
 

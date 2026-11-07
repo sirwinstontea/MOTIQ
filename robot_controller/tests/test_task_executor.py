@@ -77,7 +77,7 @@ def test_fault_latches_until_operator_reset(make_executor):
 def test_no_automatic_retry(make_executor):
     ex = make_executor(faults={"move:test_cube_grasp": ErrorCode.BACKEND_ERROR})
     ex.submit(demo_task(), wait=True)
-    assert ex.c.history == ["joint:test_cube_approach"]          # failed segment not retried
+    assert ex.c.history == ["joint:test_cube_approach", "joint:home"]  # failed segment not retried; arm goes home
 
 
 def test_plan_errors_rejected_before_motion(make_executor):
@@ -86,7 +86,7 @@ def test_plan_errors_rejected_before_motion(make_executor):
         {"action_id": "p", "action": "place_object", "parameters": {"destination_id": "delivery_zone"}}]}
     st = ex.submit(task, wait=True)
     assert st.status == ActionStatus.REJECTED and st.error.code == ErrorCode.PRECONDITION_FAILED
-    assert ex.c.history == []
+    assert ex.c.history == ["joint:home"]
 
 
 def test_unknown_object_rejected(make_executor):
@@ -95,7 +95,7 @@ def test_unknown_object_rejected(make_executor):
     t["actions"][0]["parameters"]["object_id"] = "blue_ball"
     st = ex.submit(t, wait=True)
     assert st.status == ActionStatus.REJECTED and st.error.code == ErrorCode.UNKNOWN_ID
-    assert ex.c.history == []
+    assert ex.c.history == ["joint:home"]
 
 
 def test_pick_without_identify_rejected(make_executor):
@@ -104,7 +104,7 @@ def test_pick_without_identify_rejected(make_executor):
     t["actions"] = t["actions"][1:]
     st = ex.submit(t, wait=True)
     assert st.status == ActionStatus.REJECTED and st.actions["a2"] == ActionStatus.REJECTED
-    assert ex.c.history == []
+    assert ex.c.history == ["joint:home"]
 
 
 def test_concurrency_one_task_at_a_time(make_executor):
@@ -165,7 +165,7 @@ def test_release_while_holding_rejected(make_executor):
     t = demo_task()
     t["actions"] = t["actions"][:2] + [{"action_id": "r", "action": "release_object", "parameters": {}}]
     st = ex.submit(t, wait=True)
-    assert st.status == ActionStatus.REJECTED and ex.c.history == []
+    assert st.status == ActionStatus.REJECTED and ex.c.history == ["joint:home"]
 
 
 def test_move_object_then_place(make_executor):

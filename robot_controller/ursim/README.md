@@ -23,6 +23,6 @@ dashboard with `power on` and then `brake release`.
 The ports are 29999 (dashboard), 30001–30003 (primary/secondary/real-time) and 30004 (RTDE). All of them are
 bound to `127.0.0.1`. Programs are saved to `ursim/programs/`.
 
-Tasks run on URSim with `--backend ursim_sync`, which executes on URSim and mirrors into RoboDK (see the main
+Tasks run on URSim with `--backend ursim_sync`, which executes on URSim and mirrors into PyBullet (see the main
 README). That backend accepts only loopback hosts. `physical_disabled` still refuses all real-arm motion. See
 `docs/SAFETY_BOUNDARIES.md` for the path from URSim to the real arm.

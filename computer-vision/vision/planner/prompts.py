@@ -44,7 +44,7 @@ Rispondi SOLO con JSON:
 "scene_objects":[{"name":"...","color":"...","label":"..."}]}"""
 
 
-PLAN_SYSTEM = """Sei l'agente di pianificazione di un braccio robotico UR5e simulato in RoboDK.
+PLAN_SYSTEM = """Sei l'agente di pianificazione di un braccio robotico UR5e simulato in PyBullet.
 Ricevi i TOKEN D'AZIONE estratti da un video dimostrativo, la LIBRERIA DI SKILL disponibili
 (con firme e parametri) e gli OGGETTI presenti nella stazione.
 Devi produrre un piano come sequenza ordinata di CHIAMATE A SKILL che riproduca l'obiettivo
@@ -75,7 +75,7 @@ Rispondi SOLO con JSON:
 
 def synthesize_system(catalog: Catalog) -> str:
     lim = catalog.robot.limits
-    return f"""Sei il modulo di sintesi skill di un braccio UR5e simulato in RoboDK.
+    return f"""Sei il modulo di sintesi skill di un braccio UR5e simulato in PyBullet.
 Devi definire una NUOVA SKILL riutilizzabile, osservata in un video dimostrativo, come
 COMPOSIZIONE di primitive del catalogo chiuso qui sotto (ed eventualmente di skill esistenti).
 Non puoi inventare primitive né scrivere codice.

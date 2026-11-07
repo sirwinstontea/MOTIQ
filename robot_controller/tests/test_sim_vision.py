@@ -1,22 +1,20 @@
-"""Simulated-camera search: ONNX + YOLO-World on the RoboDK camera, no taught look path, pick at the measured point."""
-import sys
+"""Simulated-camera search: ONNX + YOLO-World on the PyBullet camera, no taught look path, pick at the measured point."""
 from pathlib import Path
 
 import pytest
 
-from robot_control.backends.robodk_sim import pick_pose_from_vision
+from robot_control.backends.pybullet_sim import pose_at_camera_xy
 from robot_control.models import PickParams
 
 REPO = Path(__file__).resolve().parents[2]
 
 
-def test_pick_pose_keeps_the_taught_height_above_the_measured_surface():
-    grasp_z = 0.025
+def test_the_camera_sets_the_table_position_and_the_height_stays_taught():
     approach = [-0.45, -0.20, 0.150, 3.1416, 0.0, 0.0]
-    grasp = [-0.45, -0.20, grasp_z, 3.1416, 0.0, 0.0]
-    surface = (0.41, -0.12, 0.03)
-    assert pick_pose_from_vision(grasp, grasp_z, surface) == [0.41, -0.12, 0.03, 3.1416, 0.0, 0.0]
-    assert pick_pose_from_vision(approach, grasp_z, surface)[2] == pytest.approx(0.155)
+    grasp = [-0.45, -0.20, 0.025, 3.1416, 0.0, 0.0]
+    surface = (0.41, -0.12, 0.0)   # depth often lands on the table, under the workspace floor
+    assert pose_at_camera_xy(grasp, surface) == [0.41, -0.12, 0.025, 3.1416, 0.0, 0.0]
+    assert pose_at_camera_xy(approach, surface)[2] == pytest.approx(0.150)
 
 
 def test_seen_point_must_be_three_finite_metres():
@@ -30,8 +28,7 @@ def test_seen_point_must_be_three_finite_metres():
 def _bridge(tmp_path, monkeypatch):
     pytest.importorskip("httpx")
     monkeypatch.setenv("SIM_VISION", "1")
-    sys.path.insert(0, str(REPO / "robot_controller" / "bridge"))
-    import motiq_bridge as mb
+    import robot_control.arm_bridge as mb
     b = mb.Bridge("http://127.0.0.1:9", "http://127.0.0.1:9",
                   REPO / "robot_controller/config/scene.example.yaml", tmp_path / "vision.json", sim=True)
     b.tasks = []
@@ -59,27 +56,13 @@ def test_find_uses_the_camera_and_does_not_move_to_a_taught_pose(tmp_path, monke
     assert "scan_a" not in r["did"]
 
 
-def test_a_miss_steps_on_a_generated_grid_not_a_named_target(tmp_path, monkeypatch):
-    mb, b = _bridge(tmp_path, monkeypatch)
-    monkeypatch.setattr(mb, "sim_search_offsets_m", lambda: [(0.08, 0.0)])
+def test_a_miss_moves_the_camera_across_the_scan_poses(tmp_path, monkeypatch):
+    _mb, b = _bridge(tmp_path, monkeypatch)
     b.vision_frame = lambda: {"frame_id": 1, "ts": __import__("time").time(), "objects": []}
-    moves = []
-
-    class Arm:
-        sim = True
-
-        def shift_xy(self, x, y):
-            moves.append((round(x, 3), round(y, 3)))
-            return {"ok": True}
-
-        def tcp_now(self):
-            return [0.30, 0.0, 0.40, 0, 0, 0]
-
-    b.physical = Arm()
     r = b.find("green_ring_02")
     assert r["ok"] is False
-    assert moves == [(0.38, 0.0), (0.30, 0.0)]
-    assert b.tasks == []
+    assert b.tasks == [[("move_to_target", {"target_id": "scan_a"})]]
+    assert "green_ring_02" not in str(b.tasks)
 
 
 def test_pick_sends_the_measured_point_and_no_look_target(tmp_path, monkeypatch):
@@ -92,3 +75,24 @@ def test_pick_sends_the_measured_point_and_no_look_target(tmp_path, monkeypatch)
     assert pick[0] == "pick_object"
     assert pick[1]["seen_xyz_m"] == [0.41, -0.12, 0.02]
     assert all(step[0] != "move_to_target" for step in b.tasks[0])
+
+
+def test_find_reports_an_object_already_in_the_gripper(tmp_path, monkeypatch):
+    _mb, b = _bridge(tmp_path, monkeypatch)
+    b._gripper_holding = lambda: "green_ring_02"
+    b.vision_frame = lambda: {"frame_id": 1, "ts": 0, "objects": []}
+    r = b.find("green_ring_02")
+    assert r["ok"] is True and r["holding"] is True
+    assert "gripper" in r["did"]
+    assert b.tasks == []
+
+
+def test_a_second_pick_and_place_places_what_is_already_held(tmp_path, monkeypatch):
+    _mb, b = _bridge(tmp_path, monkeypatch)
+    b._gripper_holding = lambda: "orange_screw_03"
+    b.vision_frame = lambda: {"frame_id": 1, "ts": __import__("time").time(), "objects": [
+        {"id": 1, "label": "blue bucket", "conf": 0.9, "xyz_base_m": [-0.50, -0.20, 0.05]}]}
+    r = b.tool("pick_and_place", {"object": "orange screw", "destination": "blue bucket"})
+    assert r["ok"] is True
+    assert b.tasks == [[("place_object", {"destination_id": "blue_bucket_01_inside",
+                                          "seen_xyz_m": [-0.50, -0.20, 0.05]})]]

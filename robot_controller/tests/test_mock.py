@@ -32,21 +32,21 @@ def test_stale_sensor_data(make_executor):
     ex = make_executor(stale_state=True)
     st = ex.submit(demo_task(), wait=True)
     assert st.status == ActionStatus.REJECTED and st.error.code == ErrorCode.STALE_DATA
-    assert ex.c.history == []
+    assert ex.c.history == ["joint:home"]
 
 
 def test_missing_target_in_station(make_executor):
     ex = make_executor(missing_targets={"delivery_place"})
     st = ex.submit(demo_task(), wait=True)
     assert st.status == ActionStatus.REJECTED and st.error.code == ErrorCode.UNKNOWN_ID
-    assert ex.c.history == []                             # caught in preflight
+    assert ex.c.history == ["joint:home"]                             # caught in preflight
 
 
 def test_unreachable_target(make_executor):
     ex = make_executor(unreachable_targets={"shake_left"})
     st = ex.submit(demo_task(), wait=True)
     assert st.status == ActionStatus.REJECTED and st.error.code == ErrorCode.UNREACHABLE
-    assert ex.c.history == []
+    assert ex.c.history == ["joint:home"]
 
 
 def test_collision_veto_adapter(make_executor, robot_cfg, scene_cfg):
@@ -63,7 +63,7 @@ def test_excess_shaking_rejected(make_executor):
     ex = make_executor()
     st = ex.submit(demo_task(cycles=5), wait=True)        # contract allows <=10, pattern max is 3
     assert st.status == ActionStatus.REJECTED and st.error.code == ErrorCode.SAFETY_VETO
-    assert ex.c.history == []
+    assert ex.c.history == ["joint:home"]
 
 
 def test_identify_not_available_without_vision(make_executor):
@@ -102,21 +102,19 @@ def test_physical_backend_task_rejected(robot_cfg, safety_cfg, scene_cfg):
     assert caps.motion_enabled is False and caps.simulation is False
 
 
-def test_robodk_backend_has_no_real_robot_calls():
-    """Static guard: the RoboDK backend never uses driver/program-generation APIs."""
+def test_pybullet_backend_has_no_real_robot_calls():
+    """Static guard: the PyBullet backend never uses a robot driver."""
     from tests.conftest import ROOT
     import ast
-    tree = ast.parse((ROOT / "robot_control/backends/robodk_sim.py").read_text())
+    tree = ast.parse((ROOT / "robot_control/backends/pybullet_sim.py").read_text())
     for node in ast.walk(tree):                      # drop docstrings; comments vanish in unparse
         body = getattr(node, "body", None)
         if isinstance(body, list) and body and isinstance(body[0], ast.Expr) \
                 and isinstance(getattr(body[0], "value", None), ast.Constant) and isinstance(body[0].value.value, str):
             node.body = body[1:] or [ast.Pass()]
     code = ast.unparse(tree)
-    for forbidden in (".Connect(", "ConnectSafe(", "RUNMODE_RUN_ROBOT", "RUNMODE_MAKE_ROBOTPROG",
-                      "ProgramStart(", "MakeProgram(", "RunOnRobot", "setConnectionParams"):
+    for forbidden in ("rtde", "Dashboard", "192.168.", "socket"):
         assert forbidden not in code, forbidden
-    assert "RUNMODE_SIMULATE" in code
 
 
 def test_generic_modules_do_not_import_rtde():

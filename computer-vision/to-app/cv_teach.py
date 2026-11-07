@@ -79,6 +79,13 @@ class WorldDetector:
 
 def warm_up(log: Log = lambda k, m: None) -> None:
     """Load YOLO-World in the background when the server starts, so the first video doesn't wait for it."""
+    try:
+        from vision.boot import load_torchvision
+
+        load_torchvision()
+    except Exception as e:  # noqa: BLE001
+        log("cv", f"torchvision failed to load: {e}")
+
     def run():
         try:
             WorldDetector.model()

@@ -5,7 +5,7 @@ dof: 6
 backend: mock
 station_name: UR3e Controller Demo
 station_path: stations/UR3e_demo.rdk
-robot_library_file: stations/UR3e.robot   # download from https://robodk.com/robot/Universal-Robots/UR3e
+robot_library_file: stations/UR3e.robot   # download from https://www.universal-robots.com/products/ur3e/
 robot_item_name: UR3e
 base_frame: UR3e Base
 tool_frame: Gripper TCP

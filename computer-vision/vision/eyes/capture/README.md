@@ -6,5 +6,5 @@ Video sources. Every reader offers the same interface: `read_once`, `start_backg
 |---|---|
 | `reader.py` | `VideoReader`: `webcam`, stream, replay and `synthetic` modes. Also makes the disconnected placeholder frame and sample videos. |
 | `realsense.py` | `RealSenseReader`: aligned colour and depth from a D415 or D435, plus intrinsics. `pyrealsense2` loads lazily. |
-| `robodk.py` | **Read only**, never moves the robot. `RoboDKFlange` gives the flange pose, `RoboDKCameraReader` gives simulated colour and depth. |
-| `sim_render.py` | `SoftwareD435`: renders the RoboDK station with numpy and OpenCV, because RoboDK without a licence limits snapshots and blocks the depth camera |
+| `pybullet.py` | **Read only**, never moves the robot. `PyBulletFlange` gives the flange pose, `PyBulletCameraReader` gives simulated colour and depth. |
+| `sim_render.py` | `SoftwareD435`: renders the PyBullet station with numpy and OpenCV, because PyBullet without a licence limits snapshots and blocks the depth camera |

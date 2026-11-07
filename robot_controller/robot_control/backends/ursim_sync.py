@@ -1,15 +1,15 @@
-"""URSim + RoboDK synchronized backend (SIMULATION ONLY: URSim on localhost).
+"""URSim + PyBullet synchronized backend (SIMULATION ONLY: URSim on localhost).
 
 Every approved segment runs on two simulators in lock-step:
 
-1. RoboDK (digital twin) resolves the named target, solves IK and collision-tests
-   the path exactly as ``robodk_sim`` does (inherited).
+1. PyBullet resolves the named target, solves IK and collision-tests the path
+   exactly as ``pybullet`` does (inherited).
 2. The motion is executed on **URSim** (the real UR controller software, no
    hardware) through RTDE: ``moveJ`` for joint segments, ``moveL_FK`` for linear
    ones, with the configured speed/acceleration limits.
-3. While URSim moves, its *actual* joints are streamed into the RoboDK robot,
-   so RoboDK shows what the controller is really doing (held objects follow).
-4. After the move, URSim's joints must match the planned joints and RoboDK must
+3. While URSim moves, its *actual* joints are streamed into the PyBullet arm,
+   so the cell shows what the controller is really doing (held objects follow).
+4. After the move, URSim's joints must match the planned joints and PyBullet must
    match URSim (feedback reconciliation). Before every move both must already
    be in sync, URSim must be RUNNING with safety NORMAL and not stopped.
 
@@ -17,7 +17,7 @@ Host restriction: ``ursim_host`` must be a loopback address. A real arm is never
 on 127.0.0.1, so this backend cannot command physical hardware. Controlling a
 real UR needs a separate, reviewed adapter (see docs/SAFETY_BOUNDARIES.md).
 
-The gripper stays symbolic (RoboDK attach/detach); URSim has no gripper.
+The gripper stays symbolic (PyBullet attach/detach); URSim has no gripper.
 """
 from __future__ import annotations
 
@@ -30,11 +30,11 @@ import time
 from ..config import RobotConfig, SceneConfig
 from ..controller import Capabilities, MotionContext, MotionType
 from ..models import ErrorCode, RobotControlError
-from .robodk_sim import RoboDKSimController
+from .pybullet_sim import PyBulletSimController
 
-SYNC_TOL_DEG = 0.5            # RoboDK vs URSim joints before a move
+SYNC_TOL_DEG = 0.5            # PyBullet vs URSim joints before a move
 ARRIVE_TOL_DEG = 0.5          # URSim actual vs planned joints after a move
-MIRROR_PERIOD_S = 0.02        # 50 Hz joint streaming into RoboDK
+MIRROR_PERIOD_S = 0.02        # 50 Hz joint streaming into PyBullet
 IDLE_MIRROR_PERIOD_S = 0.05   # 20 Hz between tasks (jogging in PolyScope)
 IDLE_MIRROR_DEADBAND_DEG = 0.01
 SCRIPT_START_TIMEOUT_S = 5.0  # wait for a re-uploaded RTDE control script to report running
@@ -61,7 +61,7 @@ def is_loopback(host: str) -> bool:
         return False
 
 
-class URSimSyncController(RoboDKSimController):
+class URSimSyncController(PyBulletSimController):
     backend_name = "ursim_sync"
 
     def __init__(self, robot: RobotConfig, scene: SceneConfig, *, ursim_host: str | None = None, **kwargs):
@@ -76,9 +76,9 @@ class URSimSyncController(RoboDKSimController):
         # were observed to make URSim silently drop async move commands.
         self._rtde_lock = threading.RLock()
         self._si = None               # (tcp_v m/s, tcp_a m/s2, joint_v rad/s, joint_a rad/s2)
-        # Idle mirror: RoboDK follows URSim between tasks too (e.g. jogging in PolyScope).
+        # Idle mirror: PyBullet follows URSim between tasks too (e.g. jogging in PolyScope).
         self._mirror_stop = threading.Event()
-        self._mirror_pause = threading.Event()   # set while collision tests move the RoboDK model
+        self._mirror_pause = threading.Event()   # set while collision tests move the PyBullet model
         self._mirror_thread: threading.Thread | None = None
         self._executing = threading.Event()      # set while _execute drives URSim
 
@@ -95,42 +95,29 @@ class URSimSyncController(RoboDKSimController):
             t.join(timeout=2.0)
 
     def _idle_mirror_loop(self):
-        """Copy URSim joints into RoboDK whenever URSim moves.
-
-        Uses its own RTDE receive and RoboDK API connections (neither library is thread-safe),
-        so it never shares a socket with the motion path. Writes only when URSim's joints change,
-        so it does not fight the controller's snapshot/restore collision tests.
-        """
+        """Copy URSim joints into PyBullet whenever URSim moves."""
         import rtde_receive
-        rec = rdk = robot = None
+        rec = None
         last = None
         while not self._mirror_stop.is_set():
             try:
                 if rec is None:
                     rec = rtde_receive.RTDEReceiveInterface(self.ursim_host)
-                if robot is None:
-                    rdk = self.rl.Robolink(port=self.port)
-                    if rdk.RunMode() != self.rl.RUNMODE_SIMULATE:
-                        raise RuntimeError("RoboDK is not in simulate mode")
-                    robot = rdk.Item(self.robot_cfg.robot_item_name, self.rl.ITEM_TYPE_ROBOT)
-                    if not robot.Valid():
-                        raise RuntimeError(f"robot '{self.robot_cfg.robot_item_name}' not found in RoboDK")
                     last = None
                 q = [math.degrees(v) for v in rec.getActualQ()]
                 changed = last is None or max(abs(a - b) for a, b in zip(q, last)) > IDLE_MIRROR_DEADBAND_DEG
-                if changed and not self._mirror_pause.is_set():
-                    robot.setJoints(q)
+                if changed and not self._mirror_pause.is_set() and self.robot is not None:
+                    self.robot.setJoints(q)
                     if last is not None and not self._executing.is_set():
                         self._at_target = None   # moved by hand: no longer at a taught target
                     last = q
-            except Exception as e:     # URSim/RoboDK restarted: drop connections and retry
+            except Exception as e:     # URSim restarted: drop the receive link and retry
                 log.debug("idle mirror: %s; reconnecting", e)
-                for iface in (rec,):
-                    try:
-                        iface and iface.disconnect()
-                    except Exception:
-                        pass
-                rec = rdk = robot = None
+                try:
+                    rec and rec.disconnect()
+                except Exception:
+                    pass
+                rec = None
                 self._mirror_stop.wait(1.0)
                 continue
             self._mirror_stop.wait(IDLE_MIRROR_PERIOD_S)
@@ -140,7 +127,7 @@ class URSimSyncController(RoboDKSimController):
             pass
 
     def test_segment(self, seg):
-        # Collision tests move the RoboDK model and restore it; keep the mirror off it meanwhile.
+        # Collision tests move the PyBullet arm and restore it; keep the mirror off it meanwhile.
         self._mirror_pause.set()
         try:
             return super().test_segment(seg)
@@ -177,7 +164,7 @@ class URSimSyncController(RoboDKSimController):
 
     # ------------------------------------------------------------ lifecycle
     def connect(self):
-        super().connect()             # RoboDK: simulate mode, robot/tool/base selection
+        super().connect()             # PyBullet cell: arm, parts, home joints
         try:
             import rtde_control
             import rtde_receive
@@ -200,7 +187,7 @@ class URSimSyncController(RoboDKSimController):
             self._close_rtde()
             raise RobotControlError(ErrorCode.BACKEND_NOT_CONNECTED,
                                     f"URSim RTDE control failed: {e} (enable Remote Control in PolyScope?)") from e
-        # Same TCP on both sides, so URSim TCP readouts and moveL paths match RoboDK's tool.
+        # Same TCP on both sides, so URSim TCP readouts and moveL paths match the PyBullet tool.
         with self._rtde_lock:
             self.rtde_c.setTcp(list(self.robot_cfg.tcp_offset_m_rad))
         self._mirror()                # initial sync: URSim is the source of truth for the pose
@@ -232,7 +219,7 @@ class URSimSyncController(RoboDKSimController):
         return Capabilities(**{**caps.model_dump(), "backend": self.backend_name,
                                "motion_enabled": self.connected and self.rtde_c is not None,
                                "notes": caps.notes + [f"motion executed on URSim at {self.ursim_host} "
-                                                      "(controller simulator, no hardware) and mirrored into RoboDK",
+                                                      "(controller simulator, no hardware) and mirrored into PyBullet",
                                                       "localhost only: cannot command a physical arm"]})
 
     # ------------------------------------------------------------ helpers
@@ -283,8 +270,8 @@ class URSimSyncController(RoboDKSimController):
                 dk = self.robot.Joints().list()
                 err = max(abs(a - b) for a, b in zip(ur, dk))
                 if err > SYNC_TOL_DEG:
-                    problems.append(f"RoboDK and URSim out of sync by {err:.2f} deg (was the robot jogged "
-                                    "in RoboDK? reconnect to re-sync from URSim)")
+                    problems.append(f"PyBullet and URSim out of sync by {err:.2f} deg (was the arm jogged "
+                                    "in URSim? reconnect to re-sync from URSim)")
         except Exception as e:
             problems.append(f"URSim readiness query failed: {e}")
         return problems
@@ -343,10 +330,10 @@ class URSimSyncController(RoboDKSimController):
                                     f"URSim did not reach {label} (joint error {err:.2f} deg)")
         dk = self.robot.Joints().list()
         if max(abs(a - b) for a, b in zip(actual, dk)) > SYNC_TOL_DEG:
-            raise RobotControlError(ErrorCode.BACKEND_ERROR, f"RoboDK failed to follow URSim at {label}")
+            raise RobotControlError(ErrorCode.BACKEND_ERROR, f"PyBullet failed to follow URSim at {label}")
 
     def _follow(self, end_deg, motion: MotionType, ctx: MotionContext, label: str):
-        """Stream URSim joints into RoboDK until the async move has started AND finished."""
+        """Stream URSim joints into PyBullet until the async move has started AND finished."""
         t0 = time.monotonic()
         deadline = t0 + ctx.timeout_s
         started = False

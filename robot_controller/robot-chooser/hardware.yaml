@@ -5,7 +5,7 @@
 schema: motiq_hardware/2
 
 active_robot: ur_ur5e                       # one id from catalog.yaml
-backend: mock                               # mock (no RoboDK) | robodk_sim (RoboDK, RUNMODE_SIMULATE)
+backend: mock                               # mock | pybullet
 speed_percent: 10.0                         # % of the ACTIVE robot's verified maximums
 
 mounting:
@@ -118,7 +118,7 @@ requirements:
     attached_to: arm
     carried_by_arm: true
     driver: controller_symbolic
-    connection: simulated via robot_controller (mock / robodk_sim backends)
+    connection: simulated via robot_controller (mock / pybullet backends)
     status: placeholder
   - id: realsense_d415
     type: camera

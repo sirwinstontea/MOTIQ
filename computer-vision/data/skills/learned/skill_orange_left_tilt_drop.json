@@ -10,7 +10,7 @@
     "updated_at": "2026-11-05T13:25:19Z",
     "source": {
       "type": "manual",
-      "note": "Asked for 40 cm left / 35 cm down / drop anywhere by tilting; clamped to the cell limits: +Y ends at 0.40 m (30 cm left = y 0.38) and the arm holds the screw 30 cm above the table (20 cm down leaves ~5 cm clearance). The controller only releases a held object at a taught place target, so the drop is at the delivery zone. Tilt is wrist 1 +30° (60° would bring the screw to the table; the other way leaves the workspace). Verified step by step on URSim + RoboDK 2026-11-05."
+      "note": "Asked for 40 cm left / 35 cm down / drop anywhere by tilting; clamped to the cell limits: +Y ends at 0.40 m (30 cm left = y 0.38) and the arm holds the screw 30 cm above the table (20 cm down leaves ~5 cm clearance). The controller only releases a held object at a taught place target, so the drop is at the delivery zone. Tilt is wrist 1 +30° (60° would bring the screw to the table; the other way leaves the workspace). Verified step by step on URSim + PyBullet 2026-11-05."
     }
   },
   "intent": {
@@ -928,7 +928,7 @@
     "confidence": 0.9,
     "human_review_required": true,
     "uncertainties": [
-      "Runs in RoboDK only: the real arm has no gripper."
+      "Runs in PyBullet only: the real arm has no gripper."
     ]
   },
   "safety": {

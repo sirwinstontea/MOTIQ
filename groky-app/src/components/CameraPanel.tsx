@@ -168,36 +168,42 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
   };
 
   const handleGrokDetect = () => {
-    runGrokAction(`/grok/detect?source=${activeSource}`, 'Grok Detect', (d) => {
-      const names = d.objects?.map((o: any) => o.name || o.label).join(', ') || 'nessuno';
-      return `Rilevati ${d.count} oggetti: ${names}. YOLO-World ora li traccia in tempo reale!`;
+    runGrokAction(`/grok/detect?source=${activeSource}`, 'Find objects', (d) => {
+      const names = d.objects?.map((o: any) => o.name || o.label).filter(Boolean).join(', ');
+      if (!d.count) {
+        const already = (d.already || []).filter(Boolean).join(', ');
+        return already
+          ? `Nothing new. This camera is already tracking ${already}.`
+          : 'Nothing new in this picture.';
+      }
+      return `Found ${d.count}: ${names}. The live boxes keep tracking those names.`;
     });
   };
 
   const handleGrokDescribe = () => {
-    runGrokAction(`/grok/describe?source=${activeSource}`, 'Descrizione Scena', (d) => d.description || 'Nessuna descrizione.');
+    runGrokAction(`/grok/describe?source=${activeSource}`, 'Describe', (d) => d.description || 'No description.');
   };
 
   const handleGrokName = () => {
-    runGrokAction(`/grok/name?source=${activeSource}`, 'Rinomina Oggetti', (d) => {
-      const list = d.named?.map((n: any) => `ID ${n.id}: "${n.name}"`).join(', ') || 'Nessun oggetto nominato.';
-      return `Oggetti riconosciuti e nominati: ${list}`;
+    runGrokAction(`/grok/name?source=${activeSource}`, 'Name boxes', (d) => {
+      const list = d.named?.map((n: any) => `#${n.id} ${n.name}`).join(', ') || 'Nothing numbered in this frame.';
+      return list;
     });
   };
 
   const handleSaveRef = () => {
-    runGrokAction(`/grok/changes/reference?source=${activeSource}`, 'Salva Riferimento', () => 'Scena di riferimento memorizzata! Sposta o rimuovi oggetti per calcolare le differenze.');
+    runGrokAction(`/grok/changes/reference?source=${activeSource}`, 'Save reference', () => 'Reference saved. Move or remove something, then tap What changed.');
   };
 
   const handleDiff = () => {
-    runGrokAction(`/grok/changes/diff?source=${activeSource}`, 'Analisi Differenze', (d) => {
-      const exp = d.explanation || 'Nessun cambiamento rilevato.';
-      return `${exp} (${d.changes?.length || 0} modifiche evidenziate a video)`;
+    runGrokAction(`/grok/changes/diff?source=${activeSource}`, 'What changed', (d) => {
+      const exp = d.explanation || 'Nothing changed.';
+      return `${exp} (${d.changes?.length || 0} marked on the video)`;
     });
   };
 
   const handleReset = () => {
-    runGrokAction(`/grok/reset?source=${activeSource}`, 'Reset Memoria', () => 'Memoria resettata e YOLO-World ripristinato alle classi base.');
+    runGrokAction(`/grok/reset?source=${activeSource}`, 'Reset', () => 'Cleared the names Grok taught this camera. The live detector is back to its usual list.');
   };
 
   // microphone alongside a url camera: browser MediaRecorder, or expo-audio on a phone / tablet
@@ -281,8 +287,7 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
     },
   }));
 
-  // Cerca se esiste una fotocamera con visione per la webcam del PC
-  const webcamVisionCam = cameras.find((c) => c.id === 'vision-webcam');
+  const simCam = cameras.find((c) => c.label === 'Sim camera');
 
   return (
     <View style={s.card}>
@@ -290,10 +295,7 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
         {enabled ? (
           <ScrollView horizontal style={{ flex: 1 }} showsHorizontalScrollIndicator={false}>
             <Segmented
-              options={cameras.map((k) => ({
-                id: k.id,
-                label: k.id === 'vision-arm' && !cameras.some(c => c.id === 'vision-webcam') ? 'PC Webcam (Vision)' : k.label,
-              }))}
+              options={cameras.map((k) => ({ id: k.id, label: k.label }))}
               value={cam.id}
               onChange={(id) => setCam(cameras.find((k) => k.id === id) ?? cameras[0])}
             />
@@ -411,16 +413,15 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
             )}
           </View>
 
-          {/* Banner su Tablet per passare a Webcam Vision o attivare overlay bounding box */}
           {!cam.url && (
             <View style={s.tabletBanner}>
-              {webcamVisionCam ? (
+              {simCam ? (
                 <Button
                   size="sm"
                   variant="primary"
                   icon="videocam-outline"
-                  label="Passa a Webcam Vision (Stream Bounding Box)"
-                  onPress={() => setCam(webcamVisionCam)}
+                  label="Show sim camera"
+                  onPress={() => setCam(simCam)}
                 />
               ) : null}
               <Button
@@ -433,52 +434,56 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
             </View>
           )}
 
-          {/* Barra Strumenti Grok Vision (disponibile per qualunque sorgente attiva) */}
+          {/* Grok looks at the same picture this panel is showing. */}
           <View style={s.grokSection}>
             <View style={s.grokHeader}>
               <Ionicons name="sparkles" size={14} color={c.accent} />
-              <Text style={s.grokTitle}>Grok Multimodale & YOLO ({activeSource.toUpperCase()})</Text>
+              <Text style={s.grokTitle}>Ask Grok about this camera</Text>
               {grokBusy && <ActivityIndicator size="small" color={c.accent} style={{ marginLeft: 6 }} />}
             </View>
+            <Text style={s.grokHint}>
+              Find objects names what is in the picture and the live boxes keep tracking it. Describe writes a sentence.
+              Name boxes labels the numbers. Save reference, then What changed, compares the scene. Reset forgets those names.
+            </Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.grokActions}>
               <Button
                 size="sm"
                 variant="secondary"
                 icon="scan-outline"
-                label="Grok Detect"
-                loading={grokBusy === 'Grok Detect'}
+                label="Find objects"
+                loading={grokBusy === 'Find objects'}
                 onPress={handleGrokDetect}
               />
               <Button
                 size="sm"
                 variant="secondary"
                 icon="chatbubble-ellipses-outline"
-                label="Descrivi Scena"
-                loading={grokBusy === 'Descrizione Scena'}
+                label="Describe"
+                loading={grokBusy === 'Describe'}
                 onPress={handleGrokDescribe}
               />
               <Button
                 size="sm"
                 variant="secondary"
                 icon="pricetag-outline"
-                label="Rinomina Oggetti"
-                loading={grokBusy === 'Rinomina Oggetti'}
+                label="Name boxes"
+                loading={grokBusy === 'Name boxes'}
                 onPress={handleGrokName}
               />
               <Button
                 size="sm"
                 variant="secondary"
                 icon="camera-outline"
-                label="Salva Rif."
-                loading={grokBusy === 'Salva Riferimento'}
+                label="Save reference"
+                loading={grokBusy === 'Save reference'}
                 onPress={handleSaveRef}
               />
               <Button
                 size="sm"
                 variant="secondary"
                 icon="git-compare-outline"
-                label="Differenze"
-                loading={grokBusy === 'Analisi Differenze'}
+                label="What changed"
+                loading={grokBusy === 'What changed'}
                 onPress={handleDiff}
               />
               <Button
@@ -486,7 +491,7 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
                 variant="ghost"
                 icon="refresh-outline"
                 label="Reset"
-                loading={grokBusy === 'Reset Memoria'}
+                loading={grokBusy === 'Reset'}
                 onPress={handleReset}
               />
             </ScrollView>
@@ -775,6 +780,7 @@ const makeStyles = (c: Colors) =>
     },
     grokHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     grokTitle: { ...type.caption, fontSize: 12, fontWeight: '600', color: c.text },
+    grokHint: { ...type.caption, fontSize: 11, color: c.dim, lineHeight: 15 },
     grokActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
     resultBox: {
       backgroundColor: c.panelHi,

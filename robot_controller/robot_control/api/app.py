@@ -66,7 +66,7 @@ def create_app(ex: TaskExecutor, *, auth: tuple[str, str] | None = None) -> Fast
     def health():
         return {"process": "ok", "backend": ex.c.backend_name, "executor_state": ex.state.value,
                 "model": ex.robot_cfg.model, "dof": ex.robot_cfg.dof,
-                "simulation": ex.c.backend_name in ("mock", "robodk_sim", "ursim_sync"),
+                "simulation": ex.c.backend_name in ("mock", "pybullet", "ursim_sync"),
                 "note": "health is not a claim of physical motion readiness"}
 
     @app.get("/", response_class=HTMLResponse)
@@ -126,6 +126,15 @@ def create_app(ex: TaskExecutor, *, auth: tuple[str, str] | None = None) -> Fast
     def stop():
         ex.stop_robot()
         return {"requested": "controlled_stop", "note": "software stop request; NOT an emergency stop"}
+
+    @app.post("/robot/reset")
+    async def robot_reset(request: Request):
+        """Put the simulation back to the start, even if the gripper is holding a part."""
+        try:
+            operator = str((await request.json()).get("operator", "reset"))
+        except Exception:
+            operator = "reset"
+        return ex.reset_cell(operator or "reset")
 
     @app.post("/operator/reset")
     async def operator_reset(request: Request):

@@ -27,15 +27,15 @@ This installs packages into `computer-vision/.venv` the first time, writes the s
 | `run.py setup` | Create `computer-vision/.venv` and install packages. Falls back to no RealSense driver if it can't install. |
 | `run.py serve` | Start the vision server. See the options below. |
 | `run.py teach` | Start the teach server. `--teach-port 8001` |
-| `run.py env` | Write `EXPO_PUBLIC_VISION_SERVER` and `EXPO_PUBLIC_TEACH_SERVER` to `groky-app/.env`. Options: `--url`, `--port`, `--teach-port`, `--sources arm,dog`. No other setting is touched. |
+| `run.py env` | Write `EXPO_PUBLIC_VISION_SERVER` and `EXPO_PUBLIC_TEACH_SERVER` to `groky-app/.env`. Options: `--url`, `--port`, `--teach-port`, `--sources arm,webcam`. No other setting is touched. |
 | `run.py check` | Test a running server: health, one annotated frame per source, tracked objects |
 | `run.py all` | Setup if needed, then `env`, the teach server and `serve` |
 
-Options for `serve` and `all`: `--mode auto|realsense|robodk|webcam|synthetic|replay|stream`, `--device`, `--port 8000`, `--host`, `--dog-target <index or URL>`, plus extra arguments passed to the vision server.
+Options for `serve` and `all`: `--mode auto|realsense|pybullet|webcam|synthetic|replay|stream`, `--device`, `--port 8000`, `--host`, plus extra arguments passed to the vision server.
 
 ## In the app
 
-- `EXPO_PUBLIC_VISION_SERVER` adds the vision cameras, filtered by `EXPO_PUBLIC_VISION_SOURCES` (default `arm,webcam`). Start the server with `--dog-target` to publish `dog`. The `webcam` source appears only in RealSense mode.
+- `EXPO_PUBLIC_VISION_SERVER` adds the vision cameras, filtered by `EXPO_PUBLIC_VISION_SOURCES` (default `arm,webcam`). The `webcam` source appears only in RealSense mode.
 - If `EXPO_PUBLIC_ARM_URL` is set, the arm camera already shows the same annotated frame through the bridge.
 - Show Motion and live view send the annotated frame to Grok, so it can refer to objects by number.
 

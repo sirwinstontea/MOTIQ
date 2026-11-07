@@ -552,7 +552,7 @@ export default function SkillEditor({ initial, startInJson, onClose, onSave }: P
 
                     {st.action === 'PUSH' && (
                       <Text style={s.hint}>
-                        Arm connected: one checked controller task in RoboDK / URSim (closed gripper, down beside the
+                        Arm connected: one checked controller task in the PyBullet sim (closed gripper, down beside the
                         object, push 5 cm, lift) on its taught push path. Pushable: {PUSHABLE_OBJECTS.join(', ')}. The
                         moves below are what the app simulator shows.
                       </Text>

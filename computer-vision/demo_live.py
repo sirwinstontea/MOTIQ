@@ -322,8 +322,8 @@ def main() -> None:
     show_conf = True  # K lo cambia
 
     # Nomi e ruoli standard per le N telecamere
-    STANDARD_NAMES = ["arm", "dog", "cam3", "cam4", "cam5", "cam6", "cam7", "cam8"]
-    STANDARD_ROLES = ["ARM (Braccio)", "DOG (Cane/Mobile)", "CAM 3 (Panoramica)", "CAM 4", "CAM 5", "CAM 6", "CAM 7", "CAM 8"]
+    STANDARD_NAMES = ["arm", "cam2", "cam3", "cam4", "cam5", "cam6", "cam7", "cam8"]
+    STANDARD_ROLES = ["ARM (Braccio)", "CAM 2", "CAM 3 (Panoramica)", "CAM 4", "CAM 5", "CAM 6", "CAM 7", "CAM 8"]
 
     cam_targets = []
     if args.replay:
@@ -348,11 +348,11 @@ def main() -> None:
             avail = detect_cameras(8)
             others = [c for c in avail if c != args.cam]
             if others:
-                cam_targets.append(("dog", others[0], "webcam", f"DOG [Dev {others[0]}]"))
+                cam_targets.append(("cam2", others[0], "webcam", f"CAM 2 [Dev {others[0]}]"))
         elif val.lower() not in ("none", "no", "false", "off", ""):
             t = int(val) if val.isdigit() else val
             m = "webcam" if isinstance(t, int) else "stream"
-            cam_targets.append(("dog", t, m, f"DOG [{f'Dev {t}' if m == 'webcam' else 'Stream'}]"))
+            cam_targets.append(("cam2", t, m, f"CAM 2 [{f'Dev {t}' if m == 'webcam' else 'Stream'}]"))
     else:
         mode, target = default_camera(args.cam)
         lbl = "ARM [RealSense USB-C]" if mode == "realsense" else f"ARM [Webcam PC, Dev {target}]"
@@ -464,7 +464,6 @@ def main() -> None:
         "is_busy": False,     # una chiamata a Grok è in corso
         "status": (f"Pronto. {len(cam_sources)} telecamere connesse. V/B = cambia cam, M = layout, G = trova.", "ok") if len(cam_sources) > 1 else ("Pronto. G = Grok trova gli oggetti, click = seleziona, H = aiuto.", "ok"),
         "latency_msg": "",
-        "dog_info": "",
         "ref_frame": None,    # scena di riferimento (P)
         "changes": [],        # cambiamenti trovati con X, disegnati finché non premi di nuovo P, X o C
     }
@@ -784,8 +783,6 @@ def main() -> None:
                          "wait" if st["is_busy"] else kind, st["latency_msg"])
             if st["selected_id"] is not None:
                 _draw_panel(frame_display, sel, st["selected_id"], st["last_cmd"])
-            if st["dog_info"]:
-                _text(frame_display, st["dog_info"], 10, 64, (0, 165, 255), 0.5, 2)
             if st["typing"] is not None:
                 _draw_input(frame_display, st["typing"])
             elif st["help"]:
@@ -936,14 +933,6 @@ def main() -> None:
 
             elif key in (ord("0"), ord("r"), ord("R")):
                 reset_zoom()
-
-            elif key in (ord("t"), ord("T")):
-                target = sel or (all_objs[0] if all_objs else None)
-                if target:
-                    st["dog_info"] = f"Target cane: #{target['id']}"
-                    set_status(f"Target cane impostato su #{target['id']} ({display_obj(target)}).")
-                else:
-                    set_status("Nessun oggetto da agganciare.", "err")
 
     finally:
         pipeline.stop()

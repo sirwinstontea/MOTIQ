@@ -1,5 +1,5 @@
 """PlanningAgent: video/token -> piano di skill (Grok) -> skill mancanti sintetizzate (Grok)
--> espansione + validazione deterministica -> esecuzione step-by-step (RoboDK o mock).
+-> espansione + validazione deterministica -> esecuzione step-by-step (PyBullet o mock).
 
 Il run log JSON (`logs/runs/run_<id>.json`) viene aggiornato a ogni transizione.
 """

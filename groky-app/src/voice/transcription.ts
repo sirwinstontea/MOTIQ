@@ -21,7 +21,6 @@ export const TRANSCRIBE_KEYTERMS = [
   'anello verde',
   'tappo bianco',
   'pinza',
-  'robot dog',
   'robot arm',
   'gripper',
   'pick and place',

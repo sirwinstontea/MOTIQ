@@ -88,7 +88,7 @@ def opencv_distortion(intrinsics: Any) -> np.ndarray:
     Zero coefficients (any model) -> zeros. Non-zero Brown-Conrady -> the coefficients. Any other model with non-zero
     coefficients (e.g. librealsense *inverse* Brown-Conrady, whose coefficients map the other way) raises
     `UnsupportedDistortion`: calibration and localization fail closed instead of silently using the wrong model.
-    Objects without `coeffs` (legacy intrinsics, RoboDK) are treated as ideal pinhole.
+    Objects without `coeffs` (legacy intrinsics, PyBullet) are treated as ideal pinhole.
     """
     if isinstance(intrinsics, dict):
         coeffs = [float(c) for c in intrinsics.get("coeffs") or []]

@@ -58,7 +58,7 @@ def create_app(svc: TwinService, key: str | None = None) -> FastAPI:
             raise ValueError(e.errors()[0]["msg"]) from e
 
     def reply(res: dict) -> JSONResponse:
-        code = 200 if res.get("ok") else (409 if res.get("status") not in ("robot_offline", "robodk_offline") else 503)
+        code = 200 if res.get("ok") else (409 if res.get("status") not in ("robot_offline", "sim_offline") else 503)
         return JSONResponse(res, status_code=code)
 
     @app.exception_handler(ValueError)

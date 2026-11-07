@@ -1,5 +1,4 @@
 """Bridge tools for the new built-in skills: overview (camera only, no motion) and push (one controller task)."""
-import sys
 from pathlib import Path
 
 import pytest
@@ -9,8 +8,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 def _make(tmp_path, sim):
     pytest.importorskip("httpx")
-    sys.path.insert(0, str(REPO / "robot_controller" / "bridge"))
-    import motiq_bridge as mb
+    import robot_control.arm_bridge as mb
     b = mb.Bridge("http://127.0.0.1:9", "http://127.0.0.1:9", REPO / "robot_controller/config/scene.example.yaml",
                   tmp_path / "vision.json", sim=sim)
     b.tasks = []
@@ -21,7 +19,7 @@ def _make(tmp_path, sim):
 
 @pytest.fixture
 def bridge(tmp_path):
-    """SIM=1 bridge: push is a controller task (RoboDK / URSim)."""
+    """SIM=1 bridge: push is a controller task (PyBullet / URSim)."""
     return _make(tmp_path, sim=True)
 
 

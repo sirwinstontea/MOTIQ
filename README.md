@@ -24,7 +24,7 @@
   <img src="https://img.shields.io/badge/React_Native-0.88-61DAFB?logo=react&logoColor=black" alt="React Native 0.88">
   <img src="https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white" alt="FastAPI">
   <img src="https://img.shields.io/badge/Robot-UR5e-1F4E79" alt="Universal Robots UR5e">
-  <img src="https://img.shields.io/badge/Sim-RoboDK_%7C_URSim-5B5B5B" alt="RoboDK and URSim">
+  <img src="https://img.shields.io/badge/Sim-PyBullet_%7C_URSim-5B5B5B" alt="PyBullet and URSim">
   <img src="https://img.shields.io/badge/LLM-Grok-000000" alt="Grok">
 </p>
 
@@ -33,18 +33,18 @@ MOTIQ is an end-to-end robot control stack driven by natural language and demons
 The project was built at the Grok Hackathon (SpaceX AI / xAI) at the Ctrl+Alt Museum in Pavia, 4–5 November 2026. The reference cell is a Universal Robots UR5e with a wrist-mounted Intel RealSense camera and a four-object tabletop scene.
 
 > [!IMPORTANT]
-> MOTIQ is a hackathon prototype, not a certified safety system. The controller runs in simulation only (mock, RoboDK or URSim). A separate, small set of direct step tools in the bridge can move a real UR arm when an external driver is installed. Read [Safety](#safety) before connecting hardware.
+> MOTIQ is a hackathon prototype, not a certified safety system. The controller runs in simulation only (mock, PyBullet or URSim). A separate, small set of direct step tools in the bridge can move a real UR arm when an external driver is installed. Read [Safety](#safety) before connecting hardware.
 
 ## Highlights
 
 | | |
 |---|---|
-| **Voice agent** | Grok Voice runs the conversation and calls robot tools. One agent drives the arm and the robot dog, in any language Grok Voice supports. |
+| **Voice agent** | Grok Voice runs the conversation and calls robot tools. One agent drives the arm, in any language Grok Voice supports. |
 | **Teach by showing** | Record 15 seconds of video and speech with **Show Motion**, upload a video, or demonstrate in front of the arm camera. MOTIQ turns it into a skill draft. |
 | **Vision in the loop** | YOLO plus ByteTrack gives stable numbered objects. YOLO-World follows new classes that Grok names. The eye-in-hand camera searches for objects before a pick and confirms the place. |
 | **Skills as data** | Skills are JSON built from a closed primitive catalog. No model-generated code is ever executed. |
 | **Layered safety** | Spoken plan approval, app-side kinematic checks, an allowlisted action contract, an explicit state machine, path checks and latched faults. |
-| **Simulate first** | The same task JSON runs on `mock`, RoboDK, or URSim mirrored into RoboDK. |
+| **Simulate first** | The same task JSON runs on `mock`, PyBullet, or URSim mirrored into PyBullet. |
 | **Hardware as config** | Describe any arm and cell in YAML with `robot-chooser` and regenerate the controller configuration without code changes. |
 | **Replaceable brain** | Vision and planning use an OpenAI-compatible client, so xAI or OpenRouter work through environment variables. |
 
@@ -75,7 +75,6 @@ The project was built at the Grok Hackathon (SpaceX AI / xAI) at the Ctrl+Alt Mu
 "Put the orange screw in the blue bucket."     → Motion proposes a plan and waits for your yes
 "Yes."                                         → the arm finds, picks, places and verifies
 "Move the arm 5 cm up and back down."
-"Dog, walk forward a meter and wave."
 "Run the handover skill."
 "In the pick skill, use the green ring instead."
 "Stop!"                                        → never locked, halts everything
@@ -97,15 +96,16 @@ flowchart TB
     end
 
     subgraph pc["Robot PC on the LAN"]
-        bridge["bridge :8080<br/>tools to tasks, X-Bridge-Key"]
-        vision["computer-vision :8000<br/>YOLO, tracking, calibration, Grok tools"]
-        teach["teach server :8001<br/>video to action tokens, skill store"]
-        chooser["robot-chooser :8770<br/>catalog and cell YAML"]
+        bridge["robot controller :8080<br/>app bridge, X-Bridge-Key"]
+        vision["computer-vision :8000<br/>YOLO, YOLO-World, tracking, PyBullet camera"]
+        teach["computer-vision/to-app :8001<br/>video to action tokens, skill store"]
+        chooser["robot_controller/robot-chooser :8771<br/>catalog and cell YAML"]
+        twin["robot_control/digital_twin :8770<br/>optional, read only"]
         controller["robot_controller 127.0.0.1:8765<br/>action contract, FSM, safety gate"]
     end
 
     subgraph targets["Execution targets"]
-        sim["mock · RoboDK · URSim"]
+        sim["mock · PyBullet · URSim"]
         ur["Real UR arm<br/>direct steps, needs external ur_jog driver"]
     end
 
@@ -115,6 +115,7 @@ flowchart TB
     app -->|"state, frames, vision tools"| vision
     app -->|"video or frames"| teach
     app -.->|"Settings, Hardware"| chooser
+    app -.->|"Sync Digital Twin"| twin
     teach --> llm
     vision --> llm
     bridge -->|"reads /state/arm"| vision
@@ -151,8 +152,11 @@ sequenceDiagram
     User->>Motion: "Yes"
     Motion->>Bridge: POST /tools/pick_and_place
     Bridge->>Vision: GET /state/arm
-    alt object not in view
-        Bridge->>Ctrl: move_to_target (look poses)
+    alt object not in view, simulation
+        Bridge->>Bridge: generated search on the PyBullet camera
+        Bridge->>Vision: Check again
+    else object not in view, real arm
+        Bridge->>Ctrl: move_to_target (taught look poses)
         Bridge->>Vision: Check again
     end
     Bridge->>Ctrl: identify → pick → place
@@ -183,22 +187,27 @@ flowchart LR
 MOTIQ/
 ├── groky-app/                         React Native app (Expo): Motion, cameras, skills, history
 ├── computer-vision/                   Perception server, Grok vision toolkit, video planner
-│   └── to-app/                        Installer, .env wiring, and the teach server
+│   ├── vision/eyes/                   Detection, tracking, masks, simulated flange camera
+│   ├── vision/grok/                   Grok vision tasks and voice tools
+│   ├── vision/planner/                Demonstration video → action tokens
+│   ├── to-app/                        Installer, .env wiring, and the teach server
+│   └── data/                          Models, calibration, learned skills
 ├── robot_controller/                  Typed, safety-gated controller with swappable backends
-│   ├── bridge/                        App tool protocol → controller tasks; direct UR step tools
 │   ├── robot-chooser/                 Robot catalog and cell description → controller config
-│   └── stations/library/              Source RoboDK stations used to build the demo cells
+│   ├── robot_control/                 FSM, safety gate, backends, app bridge, digital twin
+│   ├── config/                        Robot, scene, and safety YAML
+│   ├── stations/library/              Source PyBullet stations used to build the demo cells
+│   └── docs/                          Action contract, states, safety
 └── demonstration video/               Logo and demo video
 ```
 
 | Component | Role | Stack | Default port |
 |---|---|---|---|
 | [`groky-app`](groky-app) | User interface and voice agent | Expo SDK 58, React Native 0.88, TypeScript | Metro on the laptop |
-| [`robot_controller/bridge`](robot_controller/bridge) | Exposes tools on the LAN and maps them to tasks | FastAPI, httpx | 8080 |
-| [`robot_controller`](robot_controller) | Task FSM, safety policy, backends, dashboard | Pydantic, FastAPI, RoboDK API, `ur_rtde` | 8765 (loopback) |
+| [`robot_controller`](robot_controller) | Task FSM, safety policy, backends, dashboard, and the app bridge | Pydantic, FastAPI, PyBullet, `ur_rtde` | 8765 loopback, bridge 8080 |
 | [`computer-vision`](computer-vision) | Detection, tracking, masks, calibration, Grok tasks, planner | Ultralytics, OpenCV, FastAPI, ffmpeg | 8000 |
 | [`computer-vision/to-app`](computer-vision/to-app) | Vision installer, `.env` wiring, video → tokens | Python standard library + planner | 8001 |
-| [`robot_controller/robot-chooser`](robot_controller/robot-chooser) | Arm catalog, hardware components, requirements report | Pydantic, PyYAML, stdlib HTTP server | 8770 (loopback) |
+| [`robot_controller/robot-chooser`](robot_controller/robot-chooser) | Arm catalog, hardware components, requirements report | Pydantic, PyYAML, stdlib HTTP server | 8771 (loopback) |
 
 Every folder has its own README with a file-level guide.
 
@@ -211,10 +220,10 @@ Every folder has its own README with a file-level guide.
 | Robot PC | Python 3.10–3.12 recommended, ffmpeg (optional, `imageio-ffmpeg` is the fallback) |
 | API key | An xAI key for voice. Vision and planning also accept an OpenRouter key. |
 | Camera (optional) | Intel RealSense D415/D435 or any webcam. `--mode synthetic` runs without one. |
-| RoboDK (optional) | RoboDK with the GUI running, for `robodk_sim` and `ursim_sync` |
+| PyBullet | Python package. `SIM=1` builds the arm cell inside the controller. `PYBULLET_GUI=0` runs it headless. |
 | URSim (optional) | Docker and `ur_rtde`, for `ursim_sync` |
 
-`robot_controller/bridge/start_stack.sh` is written for Linux. On Windows, start each service with the commands in [Full simulated stack](#3-full-simulated-stack). The first time the vision server loads YOLO-World it downloads the model weights, including a CLIP model of about 340 MB.
+`python -m robot_control.cli stack`, run from `robot_controller/`, starts vision, teach, the controller and the app bridge. The first time the vision server loads YOLO-World it downloads the model weights, including a CLIP model of about 340 MB.
 
 ## Quick start
 
@@ -230,7 +239,7 @@ cp .env.example .env        # set EXPO_PUBLIC_XAI_API_KEY
 npx expo start              # scan the QR code with Expo Go
 ```
 
-With `EXPO_PUBLIC_ARM_URL` and `EXPO_PUBLIC_DOG_URL` empty, the arm and dog run in the in-app simulator. On venue Wi-Fi, use `npx expo start --tunnel`.
+With `EXPO_PUBLIC_ARM_URL` empty, the arm runs in the in-app simulator. On venue Wi-Fi, use `npx expo start --tunnel`.
 
 ### 2. Controller demo (no app, no camera)
 
@@ -253,9 +262,10 @@ cd robot_controller && python -m venv .venv && .venv/bin/pip install -e ".[dev]"
 **Linux**, with one command:
 
 ```bash
-BRIDGE_KEY='pick-a-long-secret' BACKEND=mock VISION_MODE=synthetic ./robot_controller/bridge/start_stack.sh
+cd robot_controller && BRIDGE_KEY='pick-a-long-secret' BACKEND=mock VISION_MODE=synthetic SIM=0 .venv/bin/python -m robot_control.cli stack
 # BACKEND=mock VISION=0   no camera or vision server
-# no BACKEND              uses config/robot.yaml, starts RoboDK if the backend needs it
+# no BACKEND              uses config/robot.yaml, starts PyBullet if the backend needs it
+# SIM=1                   PyBullet flange camera (color + depth, ONNX + YOLO-World); find and pick use that point
 ```
 
 **Windows**, in three terminals from the repo root:
@@ -268,9 +278,9 @@ python computer-vision/to-app/run.py all --mode synthetic
 cd robot_controller
 .venv\Scripts\python -m robot_control.cli serve --backend mock --detector vision_file --vision-file runs\vision_bridge.json
 
-# 3. Bridge
+# 3. Bridge, from the repo root (a new terminal)
 $env:BRIDGE_KEY = "pick-a-long-secret"
-robot_controller\.venv\Scripts\python bridge\motiq_bridge.py --vision http://127.0.0.1:8000
+robot_controller\.venv\Scripts\python robot_controller\bridge\motiq_bridge.py --vision http://127.0.0.1:8000
 ```
 
 Then point the app at the robot PC. Use its **LAN IP**: `127.0.0.1` on a phone means the phone.
@@ -286,13 +296,13 @@ EXPO_PUBLIC_TEACH_SERVER=http://192.168.x.x:8001
 
 Restart with `npx expo start -c`, because `EXPO_PUBLIC_*` values are built into the bundle. To check the connection, open `http://192.168.x.x:8000/health` in the tablet's browser.
 
-### 4. RoboDK digital twin
+### 4. PyBullet digital twin
 
 ```bash
 cd robot_controller
-cp config/robot.example.yaml config/robot.yaml       # set backend: robodk_sim
+cp config/robot.example.yaml config/robot.yaml       # set backend: pybullet
 python -m robot_control.cli setup-station --config config/robot.yaml
-python -m robot_control.cli demo --backend robodk_sim --task examples/pick_place.json --config config/robot.yaml
+python -m robot_control.cli demo --backend pybullet --task examples/pick_place.json --config config/robot.yaml
 ```
 
 See [`robot_controller`](robot_controller) for URSim sync and the live dashboard.
@@ -315,8 +325,8 @@ curl -X POST localhost:8765/operator/reset -H 'content-type: application/json' -
 | 8001 | Teach server | `0.0.0.0` by default |
 | 8080 | Arm bridge | `0.0.0.0`, needs `BRIDGE_KEY` of 8+ characters |
 | 8765 | Controller API and dashboard | `127.0.0.1`. Other addresses need `ROBOT_API_PASSWORD`. |
-| 8770 | robot-chooser UI and API | `127.0.0.1`, no authentication |
-| 20500 | RoboDK API | Local |
+| 8770 | Digital twin, read only | `127.0.0.1`. Started only when `DIGITAL_TWIN_CONFIG` is set. |
+| 8771 | robot-chooser UI and API | `127.0.0.1`, no authentication |
 
 > [!WARNING]
 > The vision and teach servers have no authentication and open CORS. Run them on a trusted network only. `EXPO_PUBLIC_XAI_API_KEY` is compiled into the JS bundle, so use it on your own devices only. For anything shared, set `EXPO_PUBLIC_TOKEN_URL` to a backend that mints short-lived tokens.
@@ -332,7 +342,7 @@ curl -X POST localhost:8765/operator/reset -H 'content-type: application/json' -
 | `EXPO_PUBLIC_GROK_LANGUAGE_HINT` | BCP-47 hint for speech recognition. Empty means auto-detect. | |
 | `EXPO_PUBLIC_GROK_VISION_MODEL` | Model behind `camera_look` | `grok-4.20-0309-non-reasoning` |
 | `EXPO_PUBLIC_VISION_URL` | Optional proxy for vision calls | |
-| `EXPO_PUBLIC_ARM_URL`, `EXPO_PUBLIC_DOG_URL` | Robot bridges. Empty means simulated. | |
+| `EXPO_PUBLIC_ARM_URL` | Arm bridge. Empty means simulated. | |
 | `EXPO_PUBLIC_BRIDGE_KEY` | Sent as `X-Bridge-Key` | |
 | `EXPO_PUBLIC_VISION_SERVER` | Vision server URL | |
 | `EXPO_PUBLIC_VISION_SOURCES` | Sources listed as cameras | `arm,webcam` |
@@ -392,7 +402,7 @@ MOTIQ reduces software risk. It does not replace the UR safety configuration, a 
 
 | Path | Tools | What moves | Checks |
 |---|---|---|---|
-| **Controller tasks** | `pick_and_place`, `pick`, `place`, `shake`, `find`, `scan`, `check_placed`, `home`, `open_gripper`, `move_above` | Simulator only: `mock`, RoboDK in `RUNMODE_SIMULATE`, or URSim on loopback. `physical_disabled` refuses every motion. | Allowlisted IDs, preflight, joint and workspace limits, reach, speed, path check, fault latch |
+| **Controller tasks** | `pick_and_place`, `pick`, `place`, `shake`, `find`, `scan`, `check_placed`, `home`, `open_gripper`, `move_above` | Simulator only: `mock`, the PyBullet cell, or URSim on loopback. `physical_disabled` refuses every motion. | Allowlisted IDs, preflight, joint and workspace limits, reach, speed, path check, fault latch |
 | **Direct bridge steps** | `move_up/down/left/right/forward/backward`, `move_joint`, `rotate_yaw`, `ur_down_up`, `ur_visit` | A **real UR arm**, sending URScript to port 30002, only if `ur_manual/ur_jog.py` exists beside the repo folder. It is not in this repository. Without it, these tools are refused. | Bridge caps: 10 cm per step, 30° per joint move, 5 cm for `ur_down_up`, 35 cm of travel for `ur_visit`, 50 mm/s, stoppable. These do **not** pass through the controller's safety gate. |
 
 In the app, "real" means a bridge URL is set. Behind that URL, controller tasks still run on a simulator.
@@ -422,7 +432,7 @@ In the app, "real" means a bridge URL is set. Behind that URL, controller tasks 
 | New detector weights | Set `YOLO_MODEL` and map its classes in the scene's `class_labels` | None |
 | A new skill | Generate, import or write the JSON | None |
 
-The arm is selected in `robot-chooser` by CLI, web UI or **Settings → Hardware** in the app. Restart the controller and bridge afterwards, because a running controller does not switch robots live. If the selection is `BLOCKED`, the controller refuses to start. Today `ur_ur5e` is the only `READY` entry. The others in the catalog still need limits, a scene or a workspace.
+The arm is selected in [`robot_controller/robot-chooser`](robot_controller/robot-chooser) by CLI, web UI or **Settings → Hardware** in the app. With `SIM=1`, choosing another ready arm restarts the controller and bridge on that cell. If the selection is `BLOCKED`, the controller refuses to start. Today `ur_ur5e` is the only `READY` entry. The others in the catalog still need limits, a scene or a workspace.
 
 ## Testing
 
@@ -447,7 +457,7 @@ cd groky-app && npm run typecheck && npm run lint && npm run test:voice
 | `computer-vision` + `vision/grok` | 181 passed, 2 skipped |
 | `groky-app` `test:voice` | All checks passed |
 
-RoboDK and URSim integration tests are opt-in with `RUN_ROBODK_TESTS=1` and `RUN_URSIM_TESTS=1`. The repository has no CI yet.
+PyBullet and URSim integration tests are opt-in with `RUN_PYBULLET_TESTS=1` and `RUN_URSIM_TESTS=1`. The repository has no CI yet.
 
 ## Troubleshooting
 
@@ -460,7 +470,7 @@ RoboDK and URSim integration tests are opt-in with `RUN_ROBODK_TESTS=1` and `RUN
 | `arm_move_up` is refused | There is no `ur_jog` driver on this PC, or the arm isn't reachable. |
 | Bridge refuses a pick | The object isn't in view or isn't mapped. Check `/state/arm` and the scene's `class_labels`. |
 | Every task is refused after a stop | Run the operator reset on the robot PC. |
-| Controller exits at startup | Run `python -m robot_chooser status` and fix the blockers. |
+| Controller exits at startup | From `robot_controller/robot-chooser`, run `python -m robot_chooser status` and fix the blockers. |
 | Bridge won't start | Set `BRIDGE_KEY` to 8+ characters. |
 | Camera busy | One process per camera. Close `run_demo.bat`, RealSense Viewer and other apps. |
 | Package install fails | Use Python 3.10–3.12. |
@@ -469,11 +479,11 @@ RoboDK and URSim integration tests are opt-in with `RUN_ROBODK_TESTS=1` and `RUN
 
 - Controller tasks are simulation only. There is no real gripper driver, payload calibration or physical backend.
 - The cell's tool is a rigid, non-actuated 3D-printed part, so grasps are symbolic and grasp targets are placeholders to re-teach.
-- Picks use taught targets. Camera positions are not used for motion yet.
-- `ur_jog.py` and the dog bridge are not in this repository.
+- In simulation, find searches with the PyBullet flange camera (color and depth, ONNX and YOLO-World) on a generated grid, and the pick goes to the measured point. Place still uses the taught destination. On the real arm, picks still use taught targets. The arm motion stays in PyBullet and URSim.
+- `ur_jog.py` is not in this repository.
 - `calibration_skill` still needs a small app patch before it can run from the app.
 - The mic is muted while Motion speaks, so use the stop button to interrupt.
-- `robot-chooser` selects one active arm per controller, and changes need a restart.
+- `robot_controller/robot-chooser` selects one active arm per controller. With `SIM=1` the stack restarts the controller and bridge on the new cell. Otherwise the change applies on the next start.
 - The vision server and voice context serve one user at a time.
 
 ## Documentation
@@ -481,9 +491,10 @@ RoboDK and URSim integration tests are opt-in with `RUN_ROBODK_TESTS=1` and `RUN
 | Guide | Covers |
 |---|---|
 | [`groky-app/README.md`](groky-app/README.md) | App tabs, voice session, tools, skills |
-| [`robot_controller/bridge/README.md`](robot_controller/bridge/README.md) | Tool map, eye-in-hand search, physical steps |
+| [`robot_controller/robot_control/arm_bridge.py`](robot_controller/robot_control/arm_bridge.py) | App tool map, eye-in-hand search, physical steps |
 | [`robot_controller/README.md`](robot_controller/README.md) | Backends, CLI, HTTP API, demo objects |
-| [`robot_controller/docs/`](robot_controller/docs) | Action contract, states, safety, vision integration, RoboDK on Linux |
+| [`robot_controller/docs/`](robot_controller/docs) | Action contract, states, safety, vision integration, PyBullet on Linux |
+| [`robot_controller/docs/DIGITAL_TWIN_SYNC.md`](robot_controller/docs/DIGITAL_TWIN_SYNC.md) | Read-only digital twin on port 8770 |
 | [`computer-vision/README.md`](computer-vision/README.md) | Perception server, calibration, models |
 | [`computer-vision/API_APP.md`](computer-vision/API_APP.md) | Vision HTTP and WebSocket reference (Italian) |
 | [`computer-vision/vision/eyes`](computer-vision/vision/eyes) | Detection, tracking, masks, server |
@@ -520,7 +531,7 @@ Issues and pull requests are welcome.
 
 Built by [sirwinstontea](https://github.com/sirwinstontea), [piniz-dev](https://github.com/piniz-dev), [aman-abeb](https://github.com/aman-abeb), [filippodinoia-svg](https://github.com/filippodinoia-svg) and [r-46n0](https://github.com/r-46n0).
 
-MOTIQ builds on [xAI Grok](https://x.ai), [Expo](https://expo.dev), [Ultralytics YOLO](https://github.com/ultralytics/ultralytics), [ByteTrack](https://github.com/ifzhang/ByteTrack), [OpenCV](https://opencv.org), [RoboDK](https://robodk.com), [URSim](https://www.universal-robots.com/download/) and [Intel RealSense](https://www.intelrealsense.com). Thanks to the Ctrl+Alt Museum in Pavia for hosting the hackathon.
+MOTIQ builds on [xAI Grok](https://x.ai), [Expo](https://expo.dev), [Ultralytics YOLO](https://github.com/ultralytics/ultralytics), [ByteTrack](https://github.com/ifzhang/ByteTrack), [OpenCV](https://opencv.org), [PyBullet](https://pybullet.org), [URSim](https://www.universal-robots.com/download/) and [Intel RealSense](https://www.intelrealsense.com). Thanks to the Ctrl+Alt Museum in Pavia for hosting the hackathon.
 
 ## License
 

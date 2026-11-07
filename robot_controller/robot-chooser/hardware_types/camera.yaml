@@ -26,8 +26,8 @@ drivers:
     connects_via: computer-vision server
     physical: false
     actuates: false
-  - id: robodk_camera
-    description: simulated camera in the RoboDK station (computer-vision/vision/eyes/capture/robodk.py)
-    connects_via: computer-vision server + RoboDK
+  - id: pybullet_camera
+    description: flange camera in the PyBullet cell (computer-vision/vision/eyes/capture/pybullet_cam.py)
+    connects_via: computer-vision server + PyBullet
     physical: false
     actuates: false

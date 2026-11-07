@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from .models import ErrorCode, RobotControlError
 
-BackendName = Literal["mock", "robodk_sim", "ursim_sync", "physical_disabled"]
+BackendName = Literal["mock", "pybullet", "ursim_sync", "physical_disabled"]
 
 
 class _Cfg(BaseModel):
@@ -47,7 +47,7 @@ class RobotConfig(_Cfg):
     dof: int = Field(ge=1, le=12)
     backend: BackendName
     station_path: Optional[str] = None
-    station_name: Optional[str] = None            # RoboDK station tab to use/create
+    station_name: Optional[str] = None
     robot_library_file: Optional[str] = None      # .robot file used by `setup-station`
     robot_item_name: str
     base_frame: str
@@ -98,7 +98,7 @@ class Workspace(_Cfg):
 
 
 class SafetyConfig(_Cfg):
-    allowed_backends: list[BackendName] = Field(default_factory=lambda: ["mock", "robodk_sim"])
+    allowed_backends: list[BackendName] = Field(default_factory=lambda: ["mock", "pybullet"])
     # Either ONE percentage of the robot model's maximums...
     speed_percent_of_model_max: Optional[float] = Field(default=None, gt=0, le=100)
     # ...or all four absolute values (m/s, m/s^2, rad/s, rad/s^2). Not both.
@@ -138,7 +138,7 @@ class TargetDef(_Cfg):
 
     Cartesian target: ``pose_m_rad`` only. Joint target: ``joints_rad`` (plus an
     optional ``pose_m_rad`` = expected TCP pose, used by the mock backend; the
-    RoboDK backend computes the pose with forward kinematics instead).
+    PyBullet backend computes the pose with forward kinematics instead).
     """
     pose_m_rad: Optional[list[float]] = None      # [x,y,z,rx,ry,rz] in frame_id, rotvec
     joints_rad: Optional[list[float]] = None
@@ -168,7 +168,7 @@ class ObjectDef(_Cfg):
     grasp_target: str
     lift_target: str
     class_labels: list[str] = Field(default_factory=list)   # vision labels mapped to this ID
-    station_item: Optional[str] = None                       # RoboDK object to attach (simulation)
+    station_item: Optional[str] = None                       # PyBullet object to attach (simulation)
     push: Optional[PushDef] = None                           # None = this object cannot be pushed
 
 
@@ -207,7 +207,7 @@ class MotionDef(_Cfg):
 
 
 class BoxDef(_Cfg):
-    """Simple box geometry for building a DEMO RoboDK station (simulation only).
+    """Simple box geometry for building a DEMO PyBullet station (simulation only).
 
     It is a stand-in for the real cell; collision results against it say
     nothing about physical clearance.

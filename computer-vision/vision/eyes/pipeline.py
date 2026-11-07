@@ -4,7 +4,6 @@ Unisce:
 - `VideoReader` (acquisizione webcam / stream / replay / synthetic)
 - `ObjectTracker` (YOLO + ByteTrack / Mock fallback)
 - `ArmCalibrator` (omografia ArUco pixel -> mm + angolo di presa per `arm`)
-- `DogNavigator` (errore orizzontale, altezza bbox e safety stop persone per `dog`)
 - `attach_masks` (sagoma dell'oggetto + distanza/dimensioni dalla maschera, solo per `arm`)
 - `draw_marks` (Set-of-Mark con badge numerici)
 - `LiveVisionState` (stato condiviso thread-safe per Visione B, App e Robotica)
@@ -24,7 +23,7 @@ from .calibration.aruco_calib import ArmCalibrator
 from .calibration.hand_eye import FIXED_POSE, ControllerTcp, FixedTcp, HandEye, TcpReading, still_for_frame
 from .capture.reader import SourceMode, VideoReader
 from .capture.realsense import RealSenseReader
-from .dog.telemetry import DogNavigator, check_hand_safety_stop, check_person_safety_stop
+from .safety import check_hand_safety_stop, check_person_safety_stop
 from .marks.som import draw_marks
 from .schemas import EyeObject, FramePayload
 from .segmentation import MaskCache, TableBackground, attach_masks
@@ -34,7 +33,7 @@ from ..grok.changes import draw_changes
 from .zoom.manager import DigitalZoomManager
 
 # `realsense`: colore + profondità allineati (D415/D435); `target` è il seriale, oppure 0/None = la prima
-PipelineMode = SourceMode | Literal["realsense", "robodk"]
+PipelineMode = SourceMode | Literal["realsense", "pybullet"]
 
 
 # Frame di tavolo vuoto per la mediana (il piano ne prevedeva 15: 10 bastano e la registrazione dura meno)
@@ -52,7 +51,6 @@ class SourceNode:
     reader: VideoReader | RealSenseReader | Any
     tracker: ObjectTracker
     calibrator: ArmCalibrator | None = None
-    dog_navigator: DogNavigator | None = None
     zoom: DigitalZoomManager | None = None
     # Maschere di segmentazione (vedi vision/eyes/segmentation/): solo la camera del braccio, che è fissa sul tavolo
     masks: bool = False
@@ -130,6 +128,28 @@ class SourceNode:
             self.recording_bg = False
 
 
+def _table_points(objects: Sequence[EyeObject | dict], ray) -> list[EyeObject | dict]:
+    """Fill `xyz_base_m` from the camera ray and the table plane when depth did not measure the object."""
+    out: list[EyeObject | dict] = []
+    for o in objects:
+        get = o.get if isinstance(o, dict) else lambda k, _o=o: getattr(_o, k)
+        if get("xyz_base_m") is not None:
+            out.append(o)
+            continue
+        bbox = get("bbox")
+        if not bbox or len(bbox) != 4:
+            out.append(o)
+            continue
+        x, y, w, h = bbox
+        p = ray(x + w / 2.0, y + h / 2.0)
+        if p is None:
+            out.append(o)
+            continue
+        update = {"xyz_base_m": tuple(round(float(v), 4) for v in p)}
+        out.append({**o, **update} if isinstance(o, dict) else o.model_copy(update=update))
+    return out
+
+
 class EyePipeline:
     """Motore principale di Visione A ("Occhi")."""
 
@@ -161,20 +181,20 @@ class EyePipeline:
         controller_url: str | None = None,
         look_pose: Sequence[float] | None = None,
         fixed_pose_file: str | Path | None = None,
-        robot_pose: Literal["controller", "robodk"] = "controller",
+        robot_pose: Literal["controller"] = "controller",
         color_labels: dict[str, str] | None = None,
-        robodk_options: dict | None = None,
+        sim_options: dict | None = None,
     ) -> SourceNode:
-        """Configura e registra una sorgente (`arm` o `dog`). `masks`: sagome e misure; di default solo per `arm`.
+        """Configura e registra una sorgente (`arm`, or `webcam` for the PC camera). `masks`: sagome e misure; di default solo per `arm`.
 
         Camera sul braccio, posa fissa: con `fixed_pose_file` esistente (`calibrate-look-pose`) le coordinate in base
         sono `T_base_cam · xyz_cam_m`, senza leggere il robot; ha la precedenza sulla hand-eye.
         Camera sul braccio, pose qualsiasi: con `hand_eye_file` esistente la posa TCP arriva da `look_pose` (fissa, m e rad) se data,
-        altrimenti da `controller_url` (robot_controller, sola lettura) o, con `robot_pose="robodk"`, dalla flangia in
-        RoboDK. L'omografia fissa del tavolo non si usa più: con la camera che si muove darebbe millimetri sbagliati.
-        `mode="robodk"`: camera D435 simulata sulla flangia (`capture.robodk`, opzioni in `robodk_options`).
+        altrimenti da `controller_url` (robot_controller, sola lettura). L'omografia fissa del tavolo non si usa più:
+        con la camera che si muove darebbe millimetri sbagliati.
+        `mode="pybullet"`: camera sulla flangia resa in PyBullet (`capture.pybullet_cam`).
         Senza un file di hand-eye, il montaggio noto della camera sulla flangia è la calibrazione: le detection
-        (ONNX e YOLO-World) ricevono `xyz_base_m` dalla posa della flangia in RoboDK.
+        (ONNX e YOLO-World) ricevono `xyz_base_m` dalla posa della flangia.
         `color_labels`: con il tracker mock, colore (italiano) -> etichetta, es. {"arancione": "vite_arancione"}.
         """
         calibration_id = None
@@ -194,9 +214,6 @@ class EyePipeline:
             hand_eye = HandEye.load(hand_eye_file)
             if look_pose:
                 tcp_fn, runtime_src = FixedTcp(look_pose), "manual"
-            elif robot_pose == "robodk":
-                from .capture.robodk import RoboDKFlange
-                tcp_fn, runtime_src = RoboDKFlange((robodk_options or {}).get("robot_name")), "robodk"
             else:
                 tcp_fn, runtime_src = ControllerTcp(controller_url or "http://127.0.0.1:8765"), "controller"
             print(f"[Hand-eye] {hand_eye_file}: {hand_eye.n_samples} pose, dispersione "
@@ -231,22 +248,21 @@ class EyePipeline:
             min_hits=min_hits,
             color_labels=color_labels,
         )
-        if mode == "robodk":
-            from .capture.robodk import RoboDKCameraReader, RoboDKFlange
-            reader = RoboDKCameraReader(source_name=source, **(robodk_options or {}))
+        if mode == "pybullet":
+            from .capture.pybullet_cam import PyBulletCameraReader, PyBulletFlange
+            opts = {k: v for k, v in (sim_options or {}).items() if k in ("mount",)}
+            reader = PyBulletCameraReader(source_name=source, fps=self.fps, **opts)
             if hand_eye is None:
-                # The mount is the true T_flange_camera of this simulated camera, so no taught hand-eye is required.
-                from .calibration.hand_eye import HandEye
-                hand_eye = HandEye(T_tool_cam=reader.T_F_C, method="robodk_mount", n_samples=1, tcp_source="robodk")
-                tcp_fn = RoboDKFlange((robodk_options or {}).get("robot_name"), rdk=reader.rdk)
-                calibration_id = "robodk_mount"
-                print(f"[RoboDK] montaggio noto sulla flangia per '{source}': xyz_base_m senza calibrazione insegnata")
+                # The mount is the true flange-to-camera transform, so no taught hand-eye is required.
+                hand_eye = HandEye(T_tool_cam=reader.T_F_C, method="pybullet_mount", n_samples=1, tcp_source="pybullet")
+                tcp_fn = PyBulletFlange(reader)
+                calibration_id = "pybullet_mount"
+                print(f"[PyBullet] montaggio noto sulla flangia per '{source}': xyz_base_m dalla profondità")
         elif mode == "realsense":
             serial = str(target) if target not in (None, "", 0, "0") else None
             reader = RealSenseReader(source_name=source, serial=serial)
         else:
             reader = VideoReader(source_name=source, mode=mode, target=target, fps=self.fps)
-        dog_nav = DogNavigator() if source == "dog" else None
         zoom_mgr = DigitalZoomManager()
 
         node = SourceNode(
@@ -254,7 +270,6 @@ class EyePipeline:
             reader=reader,
             tracker=tracker,
             calibrator=calibrator,
-            dog_navigator=dog_nav,
             zoom=zoom_mgr,
             masks=(source == "arm") if masks is None else bool(masks),
             hand_eye=hand_eye,
@@ -280,7 +295,7 @@ class EyePipeline:
         node = self.nodes[source]
 
         depth = None
-        if hasattr(node.reader, "get_frames"):  # RealSense o RoboDK: colore e profondità dello stesso frame
+        if hasattr(node.reader, "get_frames"):  # RealSense o PyBullet: colore e profondità dello stesso frame
             if node.reader._running:
                 _ok, frame, depth, frame_id, ts = node.reader.get_frames()
             else:
@@ -339,14 +354,15 @@ class EyePipeline:
             node._feed_background(frame, depth, frame_id)
         objects = node.attach(objects, frame)
         objects = node.to_base(objects, ts)
+        # Depth, when the camera has it, is the measurement. The table ray is only the stand-in for an
+        # unlicensed PyBullet install, which can render colour but refuses the depth camera.
+        ray = getattr(node.reader, "table_point_base", None)
+        if ray is not None and getattr(node.reader, "cam_depth", None) is None:
+            objects = _table_points(objects, ray)
 
-        dog_telemetry = None
-        if node.dog_navigator is not None:
-            dog_telemetry, safety_stop, safety_reason = node.dog_navigator.evaluate(objects)
-        else:
-            safety_stop, safety_reason = check_person_safety_stop(objects)
-            if not safety_stop and source == "arm":  # una mano dove lavora il braccio: fermo
-                safety_stop, safety_reason = check_hand_safety_stop(objects)
+        safety_stop, safety_reason = check_person_safety_stop(objects)
+        if not safety_stop and source == "arm":  # una mano dove lavora il braccio: fermo
+            safety_stop, safety_reason = check_hand_safety_stop(objects)
 
         marked = draw_marks(
             frame,
@@ -371,7 +387,6 @@ class EyePipeline:
             frame_id=frame_id,
             ts=ts,
             marked_frame=marked,
-            dog_telemetry=dog_telemetry,
             safety_stop=safety_stop,
             safety_reason=safety_reason,
         )

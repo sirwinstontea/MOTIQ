@@ -58,7 +58,6 @@
       }
     }
   ],
-  "dog_telemetry": null,
   "safety_stop": false,
   "safety_reason": null
 }

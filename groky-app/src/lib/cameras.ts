@@ -20,19 +20,31 @@ function parseExtra(raw: string): Camera[] {
 
 // The computer-vision server draws boxes and track numbers on its frames (/frame/<source>.jpg). List them as cameras
 // so the Cameras tab shows what vision sees. Skipped for a robot whose bridge already proxies that same frame.
+// `webcam` here is the camera on the arm inside the simulation, shown as Sim camera.
 function visionCameras(): Camera[] {
   if (!env.visionServer) return [];
-  return env.visionSources
+  const names = env.visionSources
     .split(',')
     .map((x) => x.trim().toLowerCase())
-    .filter((x) => x === 'arm' || x === 'dog' || x === 'webcam')
-    .filter((x) => x === 'webcam' || !devices[x as 'arm' | 'dog']?.url)
-    .map((x) => ({
+    .filter((x) => x === 'arm' || x === 'webcam');
+  const armListed = names.includes('arm') && !devices.arm?.url;
+  return names.flatMap((x) => {
+    if (x === 'webcam') {
+      if (armListed) return [];
+      return [{
+        id: 'vision-arm',
+        label: 'Sim camera',
+        url: `${env.visionServer}/frame/arm.jpg?raw=false`,
+        open: true,
+      }];
+    }
+    return [{
       id: `vision-${x}`,
-      label: x === 'webcam' ? 'Webcam vision' : `${devices[x as 'arm' | 'dog']?.label ?? x} vision`,
+      label: `${devices.arm?.label ?? x} vision`,
       url: `${env.visionServer}/frame/${x}.jpg?raw=false`,
       open: true,
-    }));
+    }];
+  });
 }
 
 export const cameras: Camera[] = [

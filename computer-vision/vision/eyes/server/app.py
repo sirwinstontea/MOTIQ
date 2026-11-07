@@ -1,7 +1,7 @@
 """Server FastAPI per Visione A ("Occhi"):
 - Stream video MJPEG con Set-of-Mark (`/stream/{source}`) e raw (`/stream/{source}/raw`)
 - WebSocket con il JSON degli oggetti e telemetria (`/ws/objects`, `/ws/objects/{source}`)
-- Endpoint REST per stato istantaneo, target del cane, verifica locale e bridge Grok Voice.
+- Endpoint REST per stato istantaneo, verifica locale e bridge Grok Voice.
 """
 from __future__ import annotations
 
@@ -14,9 +14,9 @@ from typing import Any
 
 import cv2
 import numpy as np
-from fastapi import Depends, FastAPI, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from vision.grok.voice_tools import TOOLS as VOICE_TOOLS
@@ -31,11 +31,6 @@ from ..calibration.setup_config import CALIB_DIR
 from ..pipeline import EyePipeline
 from .calibration_api import build_router, require_access, workflow_error_handler
 from ..verification.verifier import verify_action_local
-
-
-class DogTargetRequest(BaseModel):
-    target_id: int | None = None
-    target_label: str | None = None
 
 
 class ActionStartRequest(BaseModel):
@@ -70,12 +65,11 @@ def create_app(pipeline: EyePipeline | None = None, calibration_service: Calibra
     if pipeline is None:
         pipeline = EyePipeline()
         pipeline.add_source("arm", mode="synthetic")
-        pipeline.add_source("dog", mode="synthetic")
 
     app = FastAPI(
         title="Visione A - Occhi (Grok Hackathon)",
         version="0.1.0",
-        description="Percezione locale: MJPEG Set-of-Mark, WebSocket JSON oggetti, calibrazione ArUco e telemetria cane.",
+        description="Percezione locale: MJPEG Set-of-Mark, WebSocket JSON oggetti e calibrazione ArUco.",
     )
     app.add_middleware(
         CORSMiddleware,
@@ -105,6 +99,27 @@ def create_app(pipeline: EyePipeline | None = None, calibration_service: Calibra
             raise WorkflowError("bad_request", "file must be a bare .json name inside data/calibration", 400)
         return calib_root / name
 
+    def resolve_source(source: str) -> str | None:
+        """The camera a request means.
+
+        In the simulation the only picture is the arm camera. The app still asks for `webcam`
+        for that view, so a missing webcam uses the arm camera. A real `webcam` source, when
+        one is running, stays its own camera.
+        """
+        if source in pipeline.nodes:
+            return source
+        if source == "webcam" and "arm" in pipeline.nodes:
+            return "arm"
+        return None
+
+    def _ready(source: str) -> str:
+        resolved = resolve_source(source)
+        if resolved is None:
+            raise HTTPException(status_code=404, detail=f"The {source} camera is not running.")
+        if not pipeline._running:
+            pipeline.step(resolved)
+        return resolved
+
     @app.get("/health")
     def health() -> dict:
         return {
@@ -114,28 +129,12 @@ def create_app(pipeline: EyePipeline | None = None, calibration_service: Calibra
 
     @app.get("/state/{source}")
     def get_source_state(source: str) -> dict:
-        resolved = source
-        if resolved not in pipeline.nodes:
-            if resolved in ("webcam", "arm") and ("arm" in pipeline.nodes or "webcam" in pipeline.nodes):
-                resolved = "arm" if "arm" in pipeline.nodes else "webcam"
-            elif pipeline.nodes:
-                resolved = next(iter(pipeline.nodes.keys()))
-        if resolved in pipeline.nodes and not pipeline._running:
-            pipeline.step(resolved)
-        payload = pipeline.state.get_payload(resolved)
-        return payload.model_dump()
+        resolved = _ready(source)
+        return pipeline.state.get_payload(resolved).model_dump()
 
     @app.get("/frame/{source}.jpg")
     def get_marked_jpeg(source: str, raw: bool = Query(default=False)) -> Response:
-        # Se viene richiesta la webcam o arm ma la sorgente attiva ? l'altra, fai fallback su quella disponibile
-        resolved = source
-        if resolved not in pipeline.nodes:
-            if resolved in ("webcam", "arm") and ("arm" in pipeline.nodes or "webcam" in pipeline.nodes):
-                resolved = "arm" if "arm" in pipeline.nodes else "webcam"
-            elif pipeline.nodes:
-                resolved = next(iter(pipeline.nodes.keys()))
-        if resolved in pipeline.nodes and not pipeline._running:
-            pipeline.step(resolved)
+        resolved = _ready(source)
         img = pipeline.state.get_frame(resolved) if raw else pipeline.state.get_marked_frame(resolved)
         return Response(content=encode_jpeg(img), media_type="image/jpeg")
 
@@ -157,7 +156,7 @@ def create_app(pipeline: EyePipeline | None = None, calibration_service: Calibra
     async def stream_marked(source: str, fps: float = Query(default=20.0, ge=1.0, le=60.0)):
         """Stream MJPEG con riquadri e numeri Set-of-Mark per l'app web."""
         return StreamingResponse(
-            _mjpeg_generator(source, raw=False, fps=fps),
+            _mjpeg_generator(_ready(source), raw=False, fps=fps),
             media_type="multipart/x-mixed-replace; boundary=frame",
         )
 
@@ -165,16 +164,9 @@ def create_app(pipeline: EyePipeline | None = None, calibration_service: Calibra
     async def stream_raw(source: str, fps: float = Query(default=20.0, ge=1.0, le=60.0)):
         """Stream MJPEG del frame originale pulito."""
         return StreamingResponse(
-            _mjpeg_generator(source, raw=True, fps=fps),
+            _mjpeg_generator(_ready(source), raw=True, fps=fps),
             media_type="multipart/x-mixed-replace; boundary=frame",
         )
-
-    @app.post("/dog/target")
-    def set_dog_target(req: DogTargetRequest) -> dict:
-        node = pipeline.nodes.get("dog")
-        if node and node.dog_navigator:
-            node.dog_navigator.set_target(target_id=req.target_id, target_label=req.target_label)
-        return {"ok": True, "target_id": req.target_id, "target_label": req.target_label}
 
     @app.post("/action/{source}/start")
     def start_action(source: str, req: ActionStartRequest) -> dict:
@@ -253,7 +245,7 @@ def create_app(pipeline: EyePipeline | None = None, calibration_service: Calibra
             return {"ok": False, "reason": f"sorgente '{source}' non registrata"}
         intr = getattr(node.reader, "intrinsics", None)
         if intr is None:
-            return {"ok": False, "reason": "serve la camera con intrinseci (RealSense o RoboDK)"}
+            return {"ok": False, "reason": "serve la camera con intrinseci (RealSense o PyBullet)"}
         try:
             body = await request.json()
         except Exception:  # noqa: BLE001 - corpo vuoto
@@ -315,7 +307,7 @@ def create_app(pipeline: EyePipeline | None = None, calibration_service: Calibra
         node = pipeline.nodes.get(source)
         intr = getattr(getattr(node, "reader", None), "intrinsics", None)
         if node is None or intr is None:
-            return {"ok": False, "reason": "serve la camera con intrinseci (RealSense o RoboDK)"}
+            return {"ok": False, "reason": "serve la camera con intrinseci (RealSense o PyBullet)"}
         raw = json.loads(Path(markers_file).read_text(encoding="utf-8"))
         markers = {int(k): (float(v[0]), float(v[1])) for k, v in raw.items() if str(k).isdigit()}
         z = table_z_mm if table_z_mm is not None else float(raw.get("_table_z_mm") or 0.0)
@@ -439,15 +431,16 @@ def create_app(pipeline: EyePipeline | None = None, calibration_service: Calibra
     # --- Endpoints per Modelli Dual (Custom + YOLO-World) e Funzionalità Grok ---
     @app.get("/models/status")
     def models_status(source: str = "arm") -> dict:
-        node = pipeline.nodes.get(source) or pipeline.nodes.get("arm") or (next(iter(pipeline.nodes.values())) if pipeline.nodes else None)
+        resolved = resolve_source(source)
+        node = pipeline.nodes.get(resolved) if resolved else None
         ov_active = bool(node and getattr(node, "open_vocab", None) is not None)
         classes = node.open_vocab.classes if (ov_active and hasattr(node.open_vocab, "classes")) else []
         ov_status = getattr(node.open_vocab, "status", None) if ov_active else None
         import os
         grok_ok = bool(os.getenv("XAI_API_KEY") or os.getenv("GROK_MOCK"))
         return {
-            "ok": True,
-            "source": getattr(node, "source", source) if node else source,
+            "ok": node is not None,
+            "source": resolved or source,
             "available_sources": list(pipeline.nodes.keys()),
             "custom_model": "oggetti_mani.onnx (pezzi demo + mani/braccia)",
             "yolo_world_model": "yolov8s-worldv2.pt (OpenVocab)",
@@ -466,9 +459,10 @@ def create_app(pipeline: EyePipeline | None = None, calibration_service: Calibra
         return_image: bool = True,
     ):
         """Elabora un frame (JPEG/PNG) inviato da client/tablet o webcam con entrambi i modelli."""
-        node = pipeline.nodes.get(source) or pipeline.nodes.get("webcam") or pipeline.nodes.get("arm") or (next(iter(pipeline.nodes.values())) if pipeline.nodes else None)
+        resolved = resolve_source(source)
+        node = pipeline.nodes.get(resolved) if resolved else None
         if not node:
-            return JSONResponse({"ok": False, "error": "Nessuna sorgente attiva"}, status_code=503)
+            return JSONResponse({"ok": False, "error": f"The {source} camera is not running."}, status_code=404)
 
         body = await request.body()
         if not body:
@@ -529,11 +523,13 @@ def create_app(pipeline: EyePipeline | None = None, calibration_service: Calibra
 
     @app.post("/grok/detect")
     def grok_detect(source: str = "arm", focus: str | None = None) -> dict:
-        node = pipeline.nodes.get(source)
-        if not node:
-            return {"ok": False, "error": f"sorgente {source} non trovata"}
-        raw = pipeline.state.get_frame(source)
-        objs = [o.model_dump() for o in pipeline.state.get_objects(source)]
+        try:
+            resolved = _ready(source)
+        except HTTPException as exc:
+            return {"ok": False, "error": str(exc.detail)}
+        node = pipeline.nodes[resolved]
+        raw = pipeline.state.get_frame(resolved)
+        objs = pipeline.state.get_objects(resolved)
         core_objs = [o for o in objs if o["id"] < 1000]
         from vision.grok.tasks import detect_objects
         res = detect_objects(raw, known=core_objs, focus=focus, max_objects=4 if focus else 15)
@@ -556,26 +552,30 @@ def create_app(pipeline: EyePipeline | None = None, calibration_service: Calibra
             "ok": True,
             "count": len(res.objects),
             "objects": [o.model_dump() for o in res.objects],
+            "already": [o.get("name") or o.get("label") for o in core_objs],
         }
 
     @app.post("/grok/describe")
     def grok_describe(source: str = "arm") -> dict:
-        node = pipeline.nodes.get(source)
-        if not node:
-            return {"ok": False, "error": f"sorgente {source} non trovata"}
-        raw = pipeline.state.get_frame(source)
-        objs = [o.model_dump() for o in pipeline.state.get_objects(source)]
+        try:
+            resolved = _ready(source)
+        except HTTPException as exc:
+            return {"ok": False, "error": str(exc.detail)}
+        raw = pipeline.state.get_frame(resolved)
+        objs = pipeline.state.get_objects(resolved)
         from vision.grok.tasks import describe_scene
         res = describe_scene(raw, objs)
         return {"ok": res.ok, "description": res.text, "error": res.error if not res.ok else None}
 
     @app.post("/grok/name")
     def grok_name(source: str = "arm") -> dict:
-        node = pipeline.nodes.get(source)
-        if not node:
-            return {"ok": False, "error": f"sorgente {source} non trovata"}
-        marked = pipeline.state.get_marked_frame(source)
-        objs = [o.model_dump() for o in pipeline.state.get_objects(source)]
+        try:
+            resolved = _ready(source)
+        except HTTPException as exc:
+            return {"ok": False, "error": str(exc.detail)}
+        node = pipeline.nodes[resolved]
+        marked = pipeline.state.get_marked_frame(resolved)
+        objs = pipeline.state.get_objects(resolved)
         from vision.grok.tasks import name_objects
         res = name_objects(marked, objs)
         if not res.ok:
@@ -584,26 +584,32 @@ def create_app(pipeline: EyePipeline | None = None, calibration_service: Calibra
             node.meta[n.id] = {"name": n.name}
         return {
             "ok": True,
-            "named": [{"id": n.id, "name": n.name, "description": n.description} for n in res.objects]
+            "named": [{"id": n.id, "name": n.name, "color": n.color} for n in res.objects]
         }
 
     @app.post("/grok/changes/reference")
     def grok_ref_frame(source: str = "arm") -> dict:
-        node = pipeline.nodes.get(source)
-        if not node:
-            return {"ok": False, "error": f"sorgente {source} non trovata"}
-        raw = pipeline.state.get_frame(source)
+        try:
+            resolved = _ready(source)
+        except HTTPException as exc:
+            return {"ok": False, "error": str(exc.detail)}
+        node = pipeline.nodes[resolved]
+        raw = pipeline.state.get_frame(resolved)
         node.ref_frame = raw.copy()
         node.changes = []
         return {"ok": True, "message": "Scena di riferimento salvata."}
 
     @app.post("/grok/changes/diff")
     def grok_changes_diff(source: str = "arm") -> dict:
-        node = pipeline.nodes.get(source)
-        if not node or getattr(node, "ref_frame", None) is None:
-            return {"ok": False, "error": "Nessuna scena di riferimento salvata in precedenza."}
-        raw = pipeline.state.get_frame(source)
-        objs = [o.model_dump() for o in pipeline.state.get_objects(source)]
+        try:
+            resolved = _ready(source)
+        except HTTPException as exc:
+            return {"ok": False, "error": str(exc.detail)}
+        node = pipeline.nodes[resolved]
+        if getattr(node, "ref_frame", None) is None:
+            return {"ok": False, "error": "Save a reference picture first."}
+        raw = pipeline.state.get_frame(resolved)
+        objs = pipeline.state.get_objects(resolved)
         hands = [o["bbox"] for o in objs if str(o.get("label", "")).lower() in ("mano", "polso", "braccio")]
         from vision.grok.changes import find_changes, draw_changes
         from vision.grok.tasks import explain_changes
@@ -622,9 +628,11 @@ def create_app(pipeline: EyePipeline | None = None, calibration_service: Calibra
 
     @app.post("/grok/reset")
     def grok_reset(source: str = "arm") -> dict:
-        node = pipeline.nodes.get(source)
-        if not node:
-            return {"ok": False}
+        try:
+            resolved = _ready(source)
+        except HTTPException as exc:
+            return {"ok": False, "error": str(exc.detail)}
+        node = pipeline.nodes[resolved]
         node.grok_objects = []
         node.label_meta = {}
         node.meta = {}
@@ -639,6 +647,11 @@ def create_app(pipeline: EyePipeline | None = None, calibration_service: Calibra
     async def ws_objects(websocket: WebSocket, source: str = "arm", hz: float = 15.0):
         """WebSocket che invia il JSON continuo degli oggetti rilevati e telemetria."""
         await websocket.accept()
+        resolved = resolve_source(source)
+        if resolved is None:
+            await websocket.close(code=1008)
+            return
+        source = resolved
         delay = 1.0 / max(1.0, min(60.0, hz))
         try:
             while True:

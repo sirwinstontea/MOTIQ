@@ -4,15 +4,15 @@ Fast local perception, known in the team as Vision A ("the eyes"). It captures f
 
 ```mermaid
 flowchart LR
-    cap["capture/<br/>webcam, RealSense, RoboDK,<br/>stream, replay, synthetic"] --> track["tracking/<br/>YOLO + ByteTrack"]
+    cap["capture/<br/>webcam, RealSense, PyBullet,<br/>stream, replay, synthetic"] --> track["tracking/<br/>YOLO + ByteTrack"]
     track --> seg["segmentation/<br/>masks, size, angle"]
     seg --> cal["calibration/<br/>camera to base"]
     cal --> state["state/<br/>LiveVisionState"]
     state --> marks["marks/<br/>Set-of-Mark"]
     state --> server["server/<br/>FastAPI :8000"]
     state --> ver["verification/"]
-    track --> dog["dog/<br/>telemetry, safety stop"]
-    dog --> state
+    track --> safety["safety.py<br/>person and hand stop"]
+    safety --> state
 ```
 
 ## Modules
@@ -25,7 +25,7 @@ flowchart LR
 | [`depth/`](depth) | Monocular distance estimate when there is no depth camera |
 | [`calibration/`](calibration) | ArUco homography, fixed look pose, hand-eye |
 | [`marks/`](marks) | Numbered object overlays for video and Grok |
-| [`dog/`](dog) | Visual following telemetry and the person or hand safety stop |
+| [`safety.py`](safety.py) | Stop when a person or a hand is in the work area |
 | [`state/`](state) | Thread-safe `VisionState` shared with `vision/grok` |
 | [`verification/`](verification) | Deterministic checks of whether an object left or arrived |
 | [`zoom/`](zoom) | Smooth digital zoom for the desktop demo |
@@ -35,7 +35,7 @@ flowchart LR
 |---|---|
 | [`cli.py`](cli.py) | Command line |
 | [`pipeline.py`](pipeline.py) | `SourceNode` per camera and the `EyePipeline` loop |
-| [`schemas.py`](schemas.py) | `EyeObject`, `FramePayload`, `DogTelemetry`, `CoordsMM` |
+| [`schemas.py`](schemas.py) | `EyeObject`, `FramePayload`, `CoordsMM` |
 
 ## Command line
 
@@ -54,7 +54,7 @@ python -m vision.eyes.cli inspect --mode replay --file data/replays/sample_arm.m
 python -m vision.eyes.cli generate-replay --output data/replays/sample_arm.mp4
 ```
 
-Key options for `run`: `--mode auto|realsense|robodk|webcam|replay|stream|synthetic`, `--device`, `--file`, `--dog-target`, `--fps`, `--host`, `--port`, `--mock-tracker`, `--color-labels`, `--no-webcam`, `--webcam-device`, `--fixed-pose`, `--hand-eye`, `--controller`, `--look-pose`, `--robot-ip`, `--robot-pose controller|robodk`.
+Key options for `run`: `--mode auto|realsense|pybullet|webcam|replay|stream|synthetic`, `--device`, `--file`, `--fps`, `--host`, `--port`, `--mock-tracker`, `--color-labels`, `--no-webcam`, `--webcam-device`, `--fixed-pose`, `--hand-eye`, `--controller`, `--look-pose`, `--robot-ip`, `--robot-pose controller`.
 
 In RealSense mode the PC webcam is added as a `webcam` source unless you pass `--no-webcam`.
 
@@ -72,10 +72,10 @@ python -m vision.eyes.cli calibrate-look-pose --table-z-mm 0
 python -m vision.eyes.cli calibrate-look-pose --check
 
 # Eye-in-hand
-python -m vision.eyes.cli calibrate-hand-eye --tcp controller|manual|robodk|rtde
+python -m vision.eyes.cli calibrate-hand-eye --tcp controller|manual|pybullet|rtde
 
 # Simulation check of what the camera sees and how far off it is
-python -m vision.eyes.cli robodk-check
+python -m vision.eyes.cli pybullet-check
 ```
 
 A homography holds for the resolution it was made at. Fixed-pose positions are valid only at the observation pose. With a table-empty reference (`POST /empty_table/arm`, from the observation pose), masks work on large uniform objects such as the bucket. Without one they use GrabCut, which can fail there with `invalid_depth`.
@@ -89,7 +89,7 @@ A homography holds for the resolution it was made at. Fixed-pose positions are v
  "objects": [{"id": 1, "label": "box", "name": null, "conf": 0.87,
               "bbox": [0.7188, 0.5208, 0.1266, 0.1479], "color": "verde",
               "coords_mm": null, "distance_m": 1.2}],
- "dog_telemetry": null, "safety_stop": false, "safety_reason": null}
+ "safety_stop": false, "safety_reason": null}
 ```
 
 ## Server
@@ -99,7 +99,7 @@ See [`server/`](server) for routes and [`../../API_APP.md`](../../API_APP.md) fo
 ## Test
 
 ```bash
-python -m pytest -q tests/test_eyes.py tests/test_segmentation.py tests/test_hand_eye.py tests/test_robodk.py
+python -m pytest -q tests/test_eyes.py tests/test_segmentation.py tests/test_hand_eye.py tests/test_pybullet.py
 ```
 
 ## 🎯 Skills → Calibration (D435 on the UR5e flange, read-only)
@@ -133,7 +133,7 @@ python -m pip install -r vision/eyes/requirements.txt ur_rtde pyrealsense2
 PYTHONPATH=. python -m pytest -q tests/test_flange_calibration.py tests/test_hand_eye.py tests/test_eyes.py
 PYTHONPATH=. python -m vision.eyes.cli flange-pose --robot-ip 192.168.7.20      # Phase A check (read-only)
 BRIDGE_KEY=<same as EXPO_PUBLIC_BRIDGE_KEY> PYTHONPATH=. python -m vision.eyes.cli run --mode realsense --robot-ip 192.168.7.20
-# or from the repo root: VISION_ROBOT_IP=192.168.7.20 BRIDGE_KEY=... ./robot_controller/bridge/start_stack.sh
+# or: cd robot_controller && VISION_ROBOT_IP=192.168.7.20 BRIDGE_KEY=... .venv/bin/python -m robot_control.cli stack
 cd ../groky-app && npx tsc --noEmit
 ```
 

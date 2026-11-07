@@ -94,7 +94,7 @@ class SceneObject(BaseModel):
     label: Optional[str] = None
     aliases: list[str] = Field(default_factory=list)
     position_mm: Optional[PositionMM] = None  # nel frame base del robot
-    source: str = "video"  # video|robodk|mock|manual
+    source: str = "video"  # video|sim|mock|manual
 
 
 class VideoTokens(BaseModel):

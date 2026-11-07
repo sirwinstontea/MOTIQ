@@ -56,7 +56,7 @@ def _parser() -> argparse.ArgumentParser:
     ar.add_argument("--dof", type=int, required=True)
     ar.add_argument("--reach", type=float, required=True, help="nominal reach in m")
     ar.add_argument("--payload", type=float, required=True, help="nominal payload in kg")
-    ar.add_argument("--url", required=True, help="https:// RoboDK library or manufacturer page")
+    ar.add_argument("--url", required=True, help="https:// PyBullet library or manufacturer page")
     ar.add_argument("--robot-file", default=None, help="<name>.robot in robot_controller/stations/")
     sub.add_parser("remove-robot").add_argument("robot_id")
     sub.add_parser("types", help="hardware types (hardware_types/*.yaml) with their fields and drivers")

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { devices, DeviceId, getArmSpeed, setArmSpeed, stopDevice } from '../devices';
+import { devices, DeviceId, getArmSpeed, resetArm, setArmSpeed, stopDevice } from '../devices';
 import { useDevices } from '../hooks/useDevices';
 import type { Line } from '../voice/types';
 import { Button, IconButton, IconChip, Pill, Slider } from '../components/ui';
@@ -75,8 +75,8 @@ function ArmCatalog() {
     if (!Number.isInteger(dof) || dof < 1 || dof > 12) return 'axes: a whole number 1-12';
     if (!(num(f.reach) > 0)) return 'reach must be > 0 (m)';
     if (!(num(f.payload) > 0)) return 'payload must be > 0 (kg)';
-    if (!/^https:\/\//.test(f.url.trim())) return 'link must be an https:// page (RoboDK library or datasheet)';
-    if (f.file.trim() && !/^[^/\\]+\.robot$/.test(f.file.trim())) return 'RoboDK file: a plain <name>.robot file name';
+    if (!/^https:\/\//.test(f.url.trim())) return 'link must be an https:// page (library or datasheet)';
+    if (f.file.trim() && !/^[^/\\]+\.robot$/.test(f.file.trim())) return 'robot file: a plain <name>.robot file name';
     return null;
   })();
 
@@ -167,13 +167,13 @@ function ArmCatalog() {
             <Field label="payload (kg)" value={f.payload} onChange={set('payload')} placeholder="3" numeric />
           </View>
           <Field
-            label="RoboDK / datasheet link"
+            label="Datasheet link"
             value={f.url}
             onChange={set('url')}
-            placeholder="https://robodk.com/robot/KUKA/KR-3-R540"
+            placeholder="https://example.com/robot/KR-3-R540"
           />
           <Field
-            label="RoboDK file in robot_controller/stations/ (optional)"
+            label="Robot file in robot_controller/stations/ (optional)"
             value={f.file}
             onChange={set('file')}
             placeholder="KR 3 R540.robot"
@@ -251,6 +251,7 @@ function Card({ id, lines }: { id: DeviceId; lines: Line[] }) {
   const s = useStyles(makeStyles);
   const { status, ready } = useDevices();
   const [stopping, setStopping] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const d = devices[id];
   const st = status[id];
 
@@ -270,6 +271,12 @@ function Card({ id, lines }: { id: DeviceId; lines: Line[] }) {
     await stopDevice(id);
     setStopping(false);
   };
+  const reset = async () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    setResetting(true);
+    await resetArm();
+    setResetting(false);
+  };
 
   const badge = !ready ? 'checking' : st.state;
   const badgeTone = st.state === 'offline' ? 'bad' : st.state === 'online' ? 'ok' : 'accent';
@@ -281,6 +288,16 @@ function Card({ id, lines }: { id: DeviceId; lines: Line[] }) {
         <Text style={s.name}>{d.label}</Text>
         <Pill label={badge} tone={badgeTone} dot={st.state !== 'sim'} style={{ height: 22 }} />
         <View style={{ flex: 1 }} />
+        {id === 'arm' && (
+          <Button
+            label={resetting ? '...' : 'Reset'}
+            icon="refresh"
+            size="sm"
+            onPress={reset}
+            disabled={resetting}
+            loading={resetting}
+          />
+        )}
         <Button
           label={stopping ? '...' : 'Stop'}
           icon="hand-left"

@@ -1,4 +1,4 @@
-"""Digital twin: RoboDK guards, marker placement, service lifecycle, local API, bridge proxy, static safety."""
+"""Digital twin: PyBullet guards, marker placement, service lifecycle, local API, bridge proxy, static safety."""
 import ast
 import json
 import re
@@ -12,7 +12,7 @@ import pytest
 
 from robot_control.digital_twin.config import TwinConfig
 from robot_control.digital_twin.frames import rotz, transl
-from robot_control.digital_twin.robodk_writer import COLOR_FRESH, COLOR_STALE, GuardError, RoboDKWriter
+from robot_control.digital_twin.sim_writer import COLOR_FRESH, COLOR_STALE, GuardError, PyBulletWriter
 from robot_control.digital_twin.service import TwinService, WriterLock
 from robot_control.digital_twin.vision_client import VisionUnavailable, parse_frame
 
@@ -24,7 +24,7 @@ REPO = ROOT.parent
 
 
 def writer_for(cfg, rdk):
-    return RoboDKWriter(cfg.robodk, link=rdk, rl=rl, rm=rm)
+    return PyBulletWriter(cfg.sim, link=rdk, rl=rl, rm=rm)
 
 
 def svc_for(cfg, rdk=None, joints=None, obs=None, **kw):
@@ -34,15 +34,15 @@ def svc_for(cfg, rdk=None, joints=None, obs=None, **kw):
     return s, rdk
 
 
-# ---- 6. RoboDK write guards -----------------------------------------------------------------------------------
+# ---- 6. PyBullet write guards -----------------------------------------------------------------------------------
 @pytest.mark.parametrize("setup,status", [
-    (lambda r: setattr(r, "run_mode", rl.RUNMODE_RUN_ROBOT), "robodk_not_simulating"),
+    (lambda r: setattr(r, "run_mode", rl.RUNMODE_RUN_ROBOT), "sim_not_running"),
     (lambda r: setattr(r, "driver_state", rl.ROBOTCOM_READY), "robot_driver_connected"),
     (lambda r: setattr(r, "driver_state", rl.ROBOTCOM_WORKING), "robot_driver_connected"),
-    (lambda r: setattr(r, "busy", True), "robodk_robot_busy"),
+    (lambda r: setattr(r, "busy", True), "sim_busy"),
     (lambda r: setattr(r.robot, "name", "UR10e"), "robot_not_found"),
 ])
-def test_unsafe_robodk_blocks_every_write(setup, status):
+def test_unsafe_sim_blocks_every_write(setup, status):
     cfg = phys_cfg()
     s, rdk = svc_for(cfg)
     setup(rdk)
@@ -56,8 +56,8 @@ def test_unsafe_robodk_blocks_every_write(setup, status):
 
 def test_wrong_station_refused():
     d = phys_dict()
-    d["robodk"]["station_name"] = "Twin_Station"
-    d["robodk"]["base_alignment"].update(validated=True, validated_for="physical", validated_by="t")
+    d["sim"]["station_name"] = "Twin_Station"
+    d["sim"]["base_alignment"].update(validated=True, validated_for="physical", validated_by="t")
     s, rdk = svc_for(TwinConfig.model_validate(d))
     assert s.snapshot(objects=False)["status"] == "wrong_station" and rdk.writes() == []
 
@@ -72,7 +72,7 @@ def test_guard_rechecked_before_each_batch_mid_run():
     _wait(lambda: s.state == "ERROR")
     n = len(rdk.writes("setJoints"))
     time.sleep(0.3)
-    assert len(rdk.writes("setJoints")) == n and s.last_error["status"] == "robodk_not_simulating"
+    assert len(rdk.writes("setJoints")) == n and s.last_error["status"] == "sim_not_running"
     assert not s._threads_alive() or _wait(lambda: not s._threads_alive())
     s.stop()
 
@@ -107,7 +107,7 @@ def test_marker_lands_at_measured_point_with_rotated_objects_frame_and_offset_ba
 
 def test_non_identity_T_R_B_applied_before_station_transform():
     d = phys_dict()
-    d["robodk"]["base_alignment"].update(validated=True, validated_for="physical", validated_by="t",
+    d["sim"]["base_alignment"].update(validated=True, validated_for="physical", validated_by="t",
                                          T_R_B=(transl(0.01, 0.02, 0) @ rotz(180)).tolist())
     cfg = TwinConfig.model_validate(d)
     rdk = FakeRDK()
@@ -134,8 +134,8 @@ def test_surface_marker_policy_leaves_cad_bucket_alone():
 
 def test_tabletop_policy_puts_cad_bottom_on_table_not_at_visible_top():
     d = phys_dict()
-    d["robodk"]["base_alignment"].update(validated=True, validated_for="physical", validated_by="t")
-    d["robodk"]["allow_cad_model_reposition"] = True
+    d["sim"]["base_alignment"].update(validated=True, validated_for="physical", validated_by="t")
+    d["sim"]["allow_cad_model_reposition"] = True
     d["objects"]["blue_bucket_01"].update(pose_policy="tabletop_contact_preserve_orientation",
                                           table_z_base_m=0.0, tabletop_policy_validated=True)
     s, rdk = svc_for(TwinConfig.model_validate(d), obs=FakeObs(_bucket_frame))
@@ -269,7 +269,7 @@ def test_check_reports_prerequisites_without_writing():
     res = s.check()
     assert res["ok"] and res["can_start_robot_only"] and not res["can_start_with_objects"]
     assert any("not validated" in b for b in res["object_blockers"])
-    assert res["robodk"]["fk_consistency"]["robodk_flange_vs_ur_nominal_dh_flange_mm"] < 0.01
+    assert res["sim"]["fk_consistency"]["sim_flange_vs_ur_nominal_dh_flange_mm"] < 0.01
     assert rdk.writes() == []
     assert res["physical_motion_enabled"] is False
 
@@ -295,8 +295,7 @@ def test_api_routes_auth_and_validation():
 
 # ---- bridge proxy -----------------------------------------------------------------------------------------
 def _bridge():
-    sys.path.insert(0, str(ROOT / "bridge"))
-    import motiq_bridge
+    import robot_control.arm_bridge as motiq_bridge
     return motiq_bridge
 
 
@@ -356,8 +355,7 @@ def _code_only(path: Path) -> str:
 
 
 def test_no_command_paths_in_digital_twin_code():
-    files = sorted((ROOT / "robot_control" / "digital_twin").glob("*.py")) + \
-        [ROOT / "scripts" / "mirror_ursim_to_robodk.py"]
+    files = sorted((ROOT / "robot_control" / "digital_twin").glob("*.py"))
     for f in files:
         code = _code_only(f)
         for pat in FORBIDDEN:
@@ -367,7 +365,7 @@ def test_no_command_paths_in_digital_twin_code():
 
 
 def test_bridge_twin_proxy_has_no_motion_reference():
-    src = (ROOT / "bridge" / "motiq_bridge.py").read_text()
+    src = (ROOT / "robot_control" / "arm_bridge.py").read_text()
     cls = src[src.index("class DigitalTwinProxy"):src.index("def parse_twin_body")]
     for bad in ("PhysicalArm", "self.physical", "self.controller", "Bridge(", "/tools", "jog", "send_script",
                 ".stop("):

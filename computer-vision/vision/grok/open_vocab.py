@@ -18,6 +18,8 @@ from pathlib import Path
 
 import numpy as np
 
+from vision.boot import load_torchvision
+
 from .local_resolver import SYNONYMS
 
 ID_OFFSET = 2000  # YOLO di Visione A usa id < 1000, detect_objects da 1000
@@ -76,6 +78,7 @@ class OpenVocab:
         self.status = "carico YOLO-World..."
         self._pending: list[str] | None = self.base or None
         self._frame: np.ndarray | None = None
+        load_torchvision()
         threading.Thread(target=self._run, daemon=True).start()
 
     def set_classes(self, labels) -> None:

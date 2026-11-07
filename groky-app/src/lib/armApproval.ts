@@ -6,7 +6,7 @@
 // Phrases cover every language Grok Voice lists as supported (docs.x.ai Speech to Speech), so a short yes/no in
 // the visitor's language still unlocks or cancels the plan after auto language detection.
 // When the PC stack runs SIM=1 and also holds the physical arm, the approval also says WHERE to run it:
-// 'sim' (URSim + RoboDK) or 'real' (the physical UR5e). A bare "yes" is then not enough: the user picks one.
+// 'sim' (the PyBullet cell) or 'real' (the physical UR5e). A bare "yes" is then not enough: the user picks one.
 import { useSyncExternalStore } from 'react';
 
 export type Plan = {
@@ -93,10 +93,10 @@ const YES =
 const NO =
   /^(do not|don't|hold on|pas maintenant|nope|cancel|wait|stop|no|annulla|aspetta|fermo|ferma|non|nono|nah|nein|stopp|warte|abbrechen|cancelar|espera|para|alto|não|nao|cancela|hayır|hayir|dur|không|khong|đừng|dung|tidak|jangan|batal|нет|не|стоп|отмена|لا|لأ|توقف|ألغ|नहीं|नही|रुक|না|থাম|いいえ|やめて|だめ|ダメ|キャンセル|待って|不|不要|别|取消|停下|아니요|아니|취소|멈춰|그만)(?=\s|$)/u;
 
-// "in simulation", "RoboDK", "on the real arm", "for real", "simulazione", "braccio reale".
+// "in simulation", "run sim", "on the real arm", "for real", "simulazione", "braccio reale".
 // Bare "sim" is Portuguese for yes, so it is not treated as the simulator.
 const SIM =
-  /\b(simulation|simulated|simulator|robodk|ursim|virtuale?|simulazione|simulato|simulata|simulatore)\b|\b(?:in|the) sim\b/;
+  /\b(simulation|simulated|simulator|ursim|virtuale?|simulazione|simulato|simulata|simulatore)\b|\b(?:in|the) sim\b/;
 const REAL = /\b(real|physical|reale|vero|fisico|fisica)\b/;
 const targetIn = (text: string): Target | 'both' | null => {
   const s = SIM.test(text);
@@ -145,7 +145,7 @@ export function userSaid(
   if (plan.state === 'pending') {
     if (isNo(text)) return reject(), 'rejected';
     if (where === 'both') return 'need_target';
-    // "simulation", "on the real arm", "yes, in RoboDK": an answer with a place approves it there
+    // "simulation", "on the real arm", "yes, run sim": an answer with a place approves it there
     if (where && (plan.choice || where === plan.target)) return approve(via, where), 'approved';
     if (isYes(text)) return approve(via) ? 'approved' : 'need_target';
     expire(); // they answered with something else (a change, a new task): Motion proposes again

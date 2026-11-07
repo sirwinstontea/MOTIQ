@@ -124,11 +124,10 @@ def _cmd_calibrate_arm(args: argparse.Namespace) -> int:
     return 0
 
 
-def _robodk_options(args: argparse.Namespace) -> dict:
-    opts = {"robot_name": args.robodk_robot or None, "depth_invert": args.robodk_depth_invert,
-            "depth_is_ray": args.robodk_depth_ray}
-    if args.robodk_mount:
-        opts["mount"] = parse_pose_mm(args.robodk_mount)
+def _camera_mount(args: argparse.Namespace) -> dict:
+    opts = {}
+    if getattr(args, "mount", None):
+        opts["mount"] = parse_pose_mm(args.mount)
     return opts
 
 
@@ -140,90 +139,8 @@ def _color_labels(text: str | None) -> dict[str, str] | None:
 
 
 def _arm_camera(args: argparse.Namespace):
-    """Sorgente `arm` per le calibrazioni: la RealSense o la D435 simulata in RoboDK (`--camera robodk`)."""
-    if getattr(args, "camera", "realsense") == "robodk":
-        return EyePipeline().add_source("arm", mode="robodk", use_mock_tracker=True, robodk_options=_robodk_options(args))
+    """Sorgente `arm` per le calibrazioni: la RealSense."""
     return EyePipeline().add_source("arm", mode="realsense", target=args.device or 0, use_mock_tracker=True)
-
-
-def _cmd_robodk_check(args: argparse.Namespace) -> int:
-    """Simulazione: cosa inquadra la camera da questa posa, e (se calibrata) quanto sbaglia la visione rispetto a
-    RoboDK. Non muove il robot: lo si sposta a mano nella finestra di RoboDK."""
-    from fastapi.testclient import TestClient
-
-    from .capture.robodk import item_position_base
-
-    items = _color_labels(args.items) or {}
-    pipeline = EyePipeline()
-    node = pipeline.add_source("arm", mode="robodk", use_mock_tracker=True, robodk_options=_robodk_options(args),
-                               fixed_pose_file=args.fixed_pose, hand_eye_file=args.hand_eye, robot_pose="robodk",
-                               color_labels=_color_labels(args.color_labels))
-    reader = node.reader
-    T_true = reader.camera_in_base()
-    print(f"Camera vera nel base (RoboDK): {[round(float(v) * 1000, 1) for v in T_true[:3, 3]]} mm, altezza sul tavolo "
-          f"{(T_true[2, 3] - args.table_z_mm / 1000) * 1000:.0f} mm")
-    fp = table_footprint(T_true, reader.intrinsics, args.table_z_mm / 1000.0)
-    if fp is None:
-        print("La camera non guarda verso il tavolo da questa posa")
-    else:
-        lo, hi = fp.min(axis=0) * 1000, fp.max(axis=0) * 1000
-        print(f"Tavolo inquadrato (circa): X da {lo[0]:.0f} a {hi[0]:.0f} mm, Y da {lo[1]:.0f} a {hi[1]:.0f} mm")
-        poly = (fp * 1000).astype(np.float32)
-        for name in items:
-            xy = item_position_base(reader.rdk, reader.robot, name)[:2] * 1000
-            margin = cv2.pointPolygonTest(poly, (float(xy[0]), float(xy[1])), True)
-            where = "dentro" if margin > 0 else "FUORI"  # del centro: serve un margine > metà oggetto
-            print(f"  {name}: ({xy[0]:.0f}, {xy[1]:.0f}) mm -> centro {where} l'inquadratura (margine {margin:.0f} mm: deve superare metà dell'oggetto)")
-    if args.save_truth:  # solo simulazione: la posa vera della camera come calibrazione a posa fissa perfetta
-        HandEye(T_tool_cam=T_true, method="robodk_truth", tcp_source="fixed",
-                image_size=(reader.width, reader.height), extra={"table_z_m": args.table_z_mm / 1000.0}).save(
-            args.fixed_pose)
-        print(f"Posa vera della camera salvata in {args.fixed_pose}: rilanciate robodk-check senza --save-truth "
-              "per misurare gli oggetti (prova profondità -> base senza il foglio ArUco)")
-        return 0
-    if node.hand_eye is None:
-        print("Nessuna calibrazione: calibrate-look-pose --camera robodk (con il foglio nella scena) oppure "
-              "robodk-check --save-truth")
-        return 0
-    if node.hand_eye.tcp_source == "fixed":
-        d = np.linalg.norm(node.hand_eye.T_tool_cam[:3, 3] - T_true[:3, 3]) * 1000
-        print(f"Calibrazione a posa fissa: camera stimata a {d:.1f} mm da quella vera"
-              + ("" if d < 5 else "  (il braccio è nella posa di osservazione della calibrazione?)"))
-    if args.record_empty:  # tavolo vuoto dalla posa di osservazione: oggetti nascosti un attimo (solo simulazione)
-        hidden = [reader.rdk.Item(name) for name in items]
-        for it in hidden:
-            it.setVisible(False)
-        try:
-            node.record_empty_table()
-            for _ in range(40):
-                pipeline.step("arm")
-                if not node.recording_bg:
-                    break
-        finally:
-            for it in hidden:
-                it.setVisible(True)
-        print(f"Tavolo vuoto registrato: {'sì' if node.bg.ready else 'NO'} (le maschere useranno la profondità)")
-    client = TestClient(create_app(pipeline))
-    pipeline.start()
-    worst = 0.0
-    try:
-        for name, label in items.items():
-            res = client.get(f"/locate/arm?label={label}&n={args.n}&timeout_s={args.timeout}").json()
-            truth = item_position_base(reader.rdk, reader.robot, name)
-            if res.get("status") != "ok":
-                print(f"  {name}: {res.get('status')} - {res.get('reason')}")
-                worst = float("inf")
-                continue
-            est = np.array(res["position_base_m"])
-            dxy = np.linalg.norm(est[:2] - truth[:2]) * 1000
-            worst = max(worst, dxy)
-            print(f"  {name}: visione {[round(float(v) * 1000, 1) for v in est]} mm, RoboDK "
-                  f"{[round(float(v) * 1000, 1) for v in truth]} mm -> errore XY {dxy:.1f} mm, Z {(est[2] - truth[2]) * 1000:+.1f}"
-                  " mm (Z della visione = superficie in cima, Z di RoboDK = origine del CAD)")
-    finally:
-        pipeline.stop()
-    print(f"Errore XY peggiore: {worst:.1f} mm" + ("  -> OK" if worst < 5 else ""))
-    return 0 if worst < 5 else 1
 
 
 def _cmd_calibrate_look_pose(args: argparse.Namespace) -> int:
@@ -244,7 +161,7 @@ def _cmd_calibrate_look_pose(args: argparse.Namespace) -> int:
     best, frame, depth = None, None, None
     try:
         if intr is None:
-            print("Serve la camera con profondità (RealSense o RoboDK): non risponde.")
+            print("Serve la camera con profondità (RealSense o PyBullet): non risponde.")
             return 1
         deadline = time.time() + args.seconds
         tries = 0
@@ -307,9 +224,6 @@ def _cmd_calibrate_hand_eye(args: argparse.Namespace) -> int:
     """Raccoglie coppie (posa TCP, posa del foglio ArUco) dalla RealSense sul braccio e calcola `T_tool_cam`."""
     if args.tcp == "manual":
         tcp_fn = None
-    elif args.tcp == "robodk":
-        from .capture.robodk import RoboDKFlange
-        tcp_fn = RoboDKFlange(args.robodk_robot or None)
     elif args.tcp == "rtde":
         if not args.robot_ip:
             print("Con --tcp rtde serve --robot-ip (l'IP dell'UR, lo trovate sul pendant: Impostazioni > Rete)")
@@ -321,7 +235,7 @@ def _cmd_calibrate_hand_eye(args: argparse.Namespace) -> int:
     node.reader.start_background()
     intr = node.reader.intrinsics
     if intr is None:
-        print("Serve la camera con profondità (RealSense o RoboDK): non risponde.")
+        print("Serve la camera con profondità (RealSense o PyBullet): non risponde.")
         node.reader.stop()
         return 1
     poses, boards = [], []
@@ -442,7 +356,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         look_pose=parse_pose_mm(args.look_pose) if args.look_pose else None,
         robot_pose=args.robot_pose,
         color_labels=_color_labels(args.color_labels),
-        robodk_options=_robodk_options(args) if mode == "robodk" or args.robot_pose == "robodk" else None,
+        sim_options=_camera_mount(args) if mode == "pybullet" else None,
     )
     if args.robot_ip:  # sola lettura della posa: serve alla calibrazione dall'app (skill), non muove mai il robot
         try:
@@ -450,14 +364,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
         except RuntimeError as exc:
             print(f"[Robot] legacy TCP reader unavailable: {exc}")
     arm.flange_provider = _flange_provider(args)     # Skills -> Calibration: verified flange pose, read-only
-    if args.dog_target:  # solo se richiesto: una seconda sorgente sulla stessa camera la aprirebbe due volte
-        dog_mode = mode if mode in ("replay", "synthetic") else ("webcam" if args.dog_target.isdigit() else "stream")
-        pipeline.add_source(
-            source="dog",
-            mode=dog_mode,
-            target=args.dog_target,
-            use_mock_tracker=args.mock_tracker,
-        )
     if mode == "realsense" and getattr(args, "include_webcam", True):
         try:
             pipeline.add_source(
@@ -478,12 +384,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
-def _add_robodk_args(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--robodk-robot", default="", help="Nome del robot nella stazione RoboDK (vuoto = il primo)")
-    p.add_argument("--robodk-mount", default="0,-70,30,0,0,0",
-                   help="Camera simulata nella flangia 'x,y,z,rx,ry,rz' (mm, rad) = la T_F_C vera")
-    p.add_argument("--robodk-depth-invert", action="store_true", help="Profondità RoboDK: valori alti = vicino")
-    p.add_argument("--robodk-depth-ray", action="store_true", help="Profondità RoboDK lungo il raggio, non Z")
+def _add_mount_arg(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--mount", default="0,-70,30,0,0,0",
+                   help="Camera nella flangia 'x,y,z,rx,ry,rz' (mm, rad)")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -492,7 +395,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     # inspect
     p_insp = sub.add_parser("inspect", help="Esegue N cicli di percezione e stampa il JSON")
-    p_insp.add_argument("--source", default="arm", choices=["arm", "dog"])
+    p_insp.add_argument("--source", default="arm", choices=["arm"])
     p_insp.add_argument("--mode", default="synthetic", choices=["webcam", "replay", "stream", "synthetic"])
     p_insp.add_argument("--device", default="0")
     p_insp.add_argument("--file", default="data/replays/sample_arm.mp4")
@@ -525,11 +428,10 @@ def build_parser() -> argparse.ArgumentParser:
     # run
     p_run = sub.add_parser("run", help="Avvia la pipeline e il server FastAPI (MJPEG + WebSocket)")
     p_run.add_argument("--mode", default="auto",
-                       choices=["auto", "realsense", "robodk", "webcam", "replay", "stream", "synthetic"],
+                       choices=["auto", "realsense", "pybullet", "webcam", "replay", "stream", "synthetic"],
                        help="auto = RealSense USB-C se c'è, se no la webcam del PC (--device)")
     p_run.add_argument("--device", default="0", help="Indice webcam; con --mode realsense il seriale (vuoto = la prima)")
     p_run.add_argument("--file", default="data/replays/sample_arm.mp4")
-    p_run.add_argument("--dog-target", default=None, help="Camera del cane (indice o stream). Senza: solo 'arm'")
     p_run.add_argument("--calibration", default="data/calibration/calibration_arm.json")
     p_run.add_argument("--fps", type=float, default=25.0)
     p_run.add_argument("--host", default="0.0.0.0")
@@ -547,8 +449,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="IP dell'UR: la posa si legge via RTDE (sola lettura) per calibrare dall'app")
     p_run.add_argument("--simulate-robot", default=None, metavar="X,Y,Z,RX,RY,RZ",
                        help="Demo only: fixed SIMULATED flange pose (mm, rad) for Skills -> Calibration")
-    p_run.add_argument("--robot-pose", default="controller", choices=["controller", "robodk"],
-                       help="Con la hand-eye: posa da robot_controller o della flangia da RoboDK (sola lettura)")
+    p_run.add_argument("--robot-pose", default="controller", choices=["controller"],
+                       help="Con la hand-eye: posa TCP da robot_controller")
     p_run.add_argument("--color-labels", default=None,
                        help="Con --mock-tracker: 'arancione=vite_arancione,blu=secchio_blu' (oggetti per colore)")
     p_run.add_argument("--include-webcam", action="store_true", default=True,
@@ -557,7 +459,7 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Disabilita l'inclusione automatica della webcam del PC")
     p_run.add_argument("--webcam-device", default="0",
                        help="Indice webcam del PC per la sorgente 'webcam' (default: 0)")
-    _add_robodk_args(p_run)
+    _add_mount_arg(p_run)
     p_run.set_defaults(func=_cmd_run)
 
     # flange-pose (read-only): Phase A acceptance check for Skills -> Calibration
@@ -579,17 +481,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_lp.add_argument("--check", action="store_true",
                       help="Non salva: confronta con la calibrazione salvata (braccio nella posa giusta?)")
     p_lp.add_argument("--output", default="data/calibration/fixed_pose.json")
-    p_lp.add_argument("--camera", default="realsense", choices=["realsense", "robodk"])
-    _add_robodk_args(p_lp)
+    p_lp.add_argument("--camera", default="realsense", choices=["realsense"])
     p_lp.set_defaults(func=_cmd_calibrate_look_pose)
 
     # calibrate-hand-eye
     p_he = sub.add_parser("calibrate-hand-eye", help="Calibra la camera sul braccio (T_tool_cam) col foglio ArUco")
     p_he.add_argument("--device", default=None, help="Seriale della RealSense (vuoto = la prima)")
-    p_he.add_argument("--tcp", default="controller", choices=["controller", "manual", "robodk", "rtde"],
-                      help="Posa dal controller (GET /robot/state), scritta a mano dal pendant o flangia da RoboDK")
-    p_he.add_argument("--camera", default="realsense", choices=["realsense", "robodk"])
-    _add_robodk_args(p_he)
+    p_he.add_argument("--tcp", default="controller", choices=["controller", "manual", "rtde"],
+                      help="Posa dal controller (GET /robot/state) o scritta a mano dal pendant")
+    p_he.add_argument("--camera", default="realsense", choices=["realsense"])
     p_he.add_argument("--controller", default="http://127.0.0.1:8765")
     p_he.add_argument("--method", default="park", choices=["park", "tsai", "horaud", "daniilidis"])
     p_he.add_argument("--output", default="data/calibration/hand_eye.json")
@@ -597,26 +497,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_he.add_argument("--markers-out", default="data/calibration/markers_mm.json",
                       help="Dove scrivere i centri dei marker nel base calcolati ('' = non scriverli)")
     p_he.set_defaults(func=_cmd_calibrate_hand_eye)
-
-    # robodk-check
-    p_rc = sub.add_parser("robodk-check", help="Simulazione: cosa inquadra la camera e quanto sbaglia la visione")
-    p_rc.add_argument("--items", default="vite_arancione=vite_arancione,secchio_blu=secchio_blu",
-                      help="'oggetto_RoboDK=etichetta_visione,...'")
-    p_rc.add_argument("--color-labels", default="arancione=vite_arancione,blu=secchio_blu")
-    p_rc.add_argument("--table-z-mm", type=float, default=0.0)
-    p_rc.add_argument("--fixed-pose", default="data/calibration/fixed_pose.json")
-    p_rc.add_argument("--hand-eye", default="data/calibration/hand_eye.json")
-    p_rc.add_argument("--n", type=int, default=5)
-    p_rc.add_argument("--timeout", type=float, default=8.0)
-    p_rc.add_argument("--record-empty", action="store_true",
-                      help="Registra il tavolo vuoto nascondendo un attimo gli oggetti (maschere dalla profondità)")
-    p_rc.add_argument("--save-truth", action="store_true",
-                      help="Salva la posa vera della camera (RoboDK) come calibrazione a posa fissa ed esce")
-    _add_robodk_args(p_rc)
-    p_rc.set_defaults(func=_cmd_robodk_check)
-
     return parser
-
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()

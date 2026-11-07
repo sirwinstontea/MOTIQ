@@ -1,12 +1,13 @@
 """Linux CLI.
 
   python -m robot_control.cli demo --backend mock --task examples/pick_place.json
-  python -m robot_control.cli setup-station --config config/robot.yaml     # RoboDK demo station
-  python -m robot_control.cli demo --backend robodk_sim --task examples/pick_place.json --config config/robot.yaml
-  python -m robot_control.cli demo --backend ursim_sync --task examples/objects/all_objects_pick_place.json   # URSim + RoboDK in sync
+  python -m robot_control.cli setup-station --config config/robot.yaml     # PyBullet demo station
+  python -m robot_control.cli demo --backend pybullet --task examples/pick_place.json --config config/robot.yaml
+  python -m robot_control.cli demo --backend ursim_sync --task examples/objects/all_objects_pick_place.json   # URSim, mirrored into PyBullet
   python -m robot_control.cli validate --task examples/invalid_action.json
   python -m robot_control.cli tools          # AI tool list (JSON)
   python -m robot_control.cli serve          # local FastAPI on 127.0.0.1:8765
+  python -m robot_control.cli stack          # vision, teach, controller and the app bridge
 """
 from __future__ import annotations
 
@@ -66,10 +67,9 @@ def _add_common(ap):
     ap.add_argument("--config", default=None, help="robot config (default config/robot.yaml or robot.example.yaml)")
     ap.add_argument("--scene", default=None)
     ap.add_argument("--safety", default=None)
-    ap.add_argument("--backend", choices=["mock", "robodk_sim", "ursim_sync", "physical_disabled"], default=None)
+    ap.add_argument("--backend", choices=["mock", "pybullet", "ursim_sync", "physical_disabled"], default=None)
     ap.add_argument("--detector", choices=["mock", "none", "vision_file"], default="mock")
     ap.add_argument("--vision-file", default=None, help="MOTIQ vision JSON (FramePayload or logs/selection.json)")
-    ap.add_argument("--start-robodk", action="store_true", help="launch RoboDK if it is not running")
     ap.add_argument("--speed-percent", type=float, default=None,
                     help="override: speed/accel as %% of the robot model's maximums (0 < p <= 100)")
 
@@ -86,8 +86,7 @@ def build_executor(args, on_event=None, on_step=None) -> TaskExecutor:
         except ValueError as e:
             raise RobotControlError(ErrorCode.CONFIG_ERROR, f"invalid --speed-percent: {e}") from e
     backend = args.backend or robot.backend
-    kwargs = {"start_robodk": args.start_robodk} if backend in ("robodk_sim", "ursim_sync") else {}
-    controller = create_controller(robot, scene_cfg, backend, **kwargs)
+    controller = create_controller(robot, scene_cfg, backend)
     if args.detector == "mock":
         detector = MockDetector()
     elif args.detector == "vision_file":
@@ -191,23 +190,13 @@ def cmd_validate(args) -> int:
 
 
 def cmd_setup_station(args) -> int:
-    from .backends.robodk_station import build_demo_station
-    robot = load_robot_config(args.config or _default_config("robot"))
-    scene_cfg = load_scene_config(args.scene or _default_config("scene"))
-    path = build_demo_station(robot, scene_cfg)
-    print(f"RoboDK demo station built and saved to {path}")
-    if not args.no_objects:
-        from .sim_objects.robodk_import import run_import
-        print("importing demo objects (objects/object_specifications.json):")
-        if run_import(replace=True, out=lambda m: print("  " + m)) == 0:
-            from .backends.robodk_sim import _import_robodk
-            rl, _ = _import_robodk()
-            rl.Robolink().Save(path)
-            print(f"station with objects saved to {path}")
-        else:
-            print("  object import failed (run `python scripts/generate_all.py` first); station has no demo objects")
-    print("NOTE: demo geometry is a stand-in; collision checks are a digital-twin aid only.")
+    print("The PyBullet cell is created when the controller connects. There is no station file to build.")
     return 0
+
+
+def cmd_stack(_args) -> int:
+    from .stack import run_stack
+    return run_stack()
 
 
 def cmd_serve(args) -> int:
@@ -245,7 +234,7 @@ def main(argv=None) -> int:
     v.add_argument("--task", required=True)
     v.set_defaults(fn=cmd_validate)
 
-    s = sub.add_parser("setup-station", help="build the RoboDK demo station (simulation only)")
+    s = sub.add_parser("setup-station", help="build the PyBullet demo station (simulation only)")
     s.add_argument("--config", default=None)
     s.add_argument("--scene", default=None)
     s.add_argument("--no-objects", action="store_true", help="don't import the 4 demo objects (objects/)")
@@ -259,6 +248,9 @@ def main(argv=None) -> int:
     sv.add_argument("--host", default="127.0.0.1")
     sv.add_argument("--port", type=int, default=8765)
     sv.set_defaults(fn=cmd_serve)
+
+    st = sub.add_parser("stack", help="vision, teach, this controller and the app bridge, in one process")
+    st.set_defaults(fn=cmd_stack)
 
     args = ap.parse_args(argv)
     try:

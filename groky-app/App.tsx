@@ -17,7 +17,8 @@ import Notifications from './src/components/Notifications';
 import Settings from './src/components/Settings';
 import Sidebar, { Tab } from './src/components/Sidebar';
 import StopButton from './src/components/StopButton';
-import { IconButton } from './src/components/ui';
+import { Button, IconButton } from './src/components/ui';
+import { resetArm } from './src/devices/bridge';
 import { useAlerts } from './src/hooks/useAlerts';
 import { useCamera } from './src/hooks/useCamera';
 import { DevicesProvider } from './src/hooks/useDevices';
@@ -127,6 +128,7 @@ function Main() {
 
   const [tab, setTab] = useState<Tab>('talk');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   const live = voice.status !== 'off';
 
@@ -155,6 +157,19 @@ function Main() {
     skills.stop();
     voice.emergencyStop();
   };
+  const resetAll = async () => {
+    if (resetting) return;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    setResetting(true);
+    skills.stop();
+    const r = await resetArm();
+    setResetting(false);
+    notify(
+      r.ok
+        ? { kind: 'ok', title: 'Reset', body: 'Arm is home. Parts are back on their spots.' }
+        : { kind: 'bad', title: 'Reset failed', body: String(r.error ?? 'the arm did not answer') },
+    );
+  };
   const stopButton = (live || skills.running) && <StopButton onPress={stopAll} />;
 
   return (
@@ -182,6 +197,14 @@ function Main() {
               <View style={{ flex: 1 }} />
             )}
             <View style={{ flex: 1 }} />
+            <Button
+              label={resetting ? 'Resetting' : 'Reset'}
+              icon="refresh"
+              size="sm"
+              onPress={resetAll}
+              disabled={resetting}
+              loading={resetting}
+            />
             <Notifications size={mobile ? 34 : 40} />
             {mobile && (
               <IconButton icon="settings-outline" size={34} onPress={() => setSettingsOpen(true)} label="Settings" />

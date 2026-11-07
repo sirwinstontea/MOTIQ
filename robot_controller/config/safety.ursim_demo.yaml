@@ -1,5 +1,5 @@
 # SIM=1 demo safety config: robot-chooser's generated UR5e safety.yaml + ursim_sync (URSim on loopback only).
-allowed_backends: [mock, robodk_sim, ursim_sync]
+allowed_backends: [mock, pybullet, ursim_sync]
 speed_percent_of_model_max: 10.0
 workspace:
   frame_id: base

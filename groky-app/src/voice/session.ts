@@ -20,6 +20,7 @@ import { inputTranscription } from './transcription';
 import { isRobotTool } from '../skills/fromVoice';
 import type { VoiceCommand } from '../skills/fromVoice';
 import type { Line, Looker, SkillRunner, Status, Trace } from './types';
+import { needsToolNudge, shouldSpeakText, textFromDone } from './turn';
 
 type Events = {
   status: (s: Status) => void;
@@ -29,6 +30,13 @@ type Events = {
 
 const pretty = (name: string) => name.replace(/_/g, ' ');
 
+// Spoken after a turn that promised work and called nothing. Not shown in the chat.
+const NUDGE =
+  '[You replied without calling a tool, so nothing happened. Call it now, in this turn: ' +
+  'camera_look or a vision_ tool if they asked what you see, propose_plan if the arm should move, ' +
+  'otherwise the one tool that does what they asked. Then say the result out loud in one or two sentences. ' +
+  'Do not say "on it" and stop.]';
+
 // Arm motion + run_skill: always locked until the user approves Motion's plan (lib/armApproval.ts),
 // including in the simulator — never auto-run after Show Motion / a voice ask.
 // arm_touch_teach_save only records an offset; it does not move the arm.
@@ -36,7 +44,7 @@ const ARM_NO_MOTION = new Set(['arm_verify', 'arm_wait', 'arm_stop', 'arm_touch_
 const needsApproval = (name: string) =>
   (name.startsWith('arm_') && !ARM_NO_MOTION.has(name)) || name === 'run_skill';
 
-// where an approved arm plan can run. SIM=1 bridge: URSim + RoboDK, and the physical arm too when /health says it
+// where an approved arm plan can run. SIM=1 bridge: the PyBullet cell, and the physical arm too when /health says it
 // is reachable (then the user picks). SIM=0 bridge: only the real arm.
 function armPlaces(): { choice: boolean; target: Target; realMissing?: boolean } {
   if (!bridgeIsSim('arm')) return { choice: false, target: 'real' };
@@ -63,6 +71,23 @@ export class VoiceSession {
   // the robot actions that ran for the latest spoken request, handed to the app so it can save them as a skill
   private cmd: VoiceCommand | null = null;
   private onCommand: ((cmd: VoiceCommand) => void) | null = null;
+  // one Grok turn: words, whether any audio arrived, and whether a tool was required but skipped
+  private replyText = '';
+  private replyFromTranscript = false;
+  private replyHeardAudio = false;
+  private responseOpen = false;
+  private nudged = false;
+  private lastUser = '';
+  // the reply after a tool result is her report, not a new request she forgot to act on
+  private afterTool = false;
+  private forcing = false;
+  private ignoreReplyText = false;
+  // "Hearing you..." with no end of speech: room noise keeps the server listening. Stop the mic, then send silence.
+  private hearingTimer: ReturnType<typeof setTimeout> | null = null;
+  private replyTimer: ReturnType<typeof setTimeout> | null = null;
+  private holdMic = false;
+  // tool follow-ups and the end of a turn run one after another, never overlapping
+  private tail: Promise<void> = Promise.resolve();
 
   constructor(private on: Events) {
     this.player.onDone = () => {
@@ -176,9 +201,10 @@ export class VoiceSession {
     return this._status;
   }
 
-  // mic only goes up while we're listening - phone speaker would otherwise trigger VAD on itself
+  // Mic only while waiting for the next thing the person says. During thinking, acting and speaking the
+  // feed stays off: otherwise room noise reopens "Hearing you..." and cancels the reply before she speaks.
   get wantsAudio() {
-    return this._status === 'listening' || this._status === 'thinking';
+    return this._status === 'listening' && !this.holdMic;
   }
 
   // connects without touching the mic; useVoice starts the mic separately so typed chat works on its own
@@ -195,7 +221,10 @@ export class VoiceSession {
       return;
     }
 
-    const url = `wss://api.x.ai/v1/realtime?model=${encodeURIComponent(env.voiceModel)}`;
+    // reasoning defaults to "high" on grok-voice-latest: she writes a text answer and never speaks or calls a tool
+    const url =
+      `wss://api.x.ai/v1/realtime?model=${encodeURIComponent(env.voiceModel)}` +
+      '&reasoning.effort=none';
     // RN's WebSocket accepts headers, unlike the browser one
     // browsers can't set headers: the client secret goes in the subprotocol list instead
     const ws = (
@@ -211,7 +240,13 @@ export class VoiceSession {
         session: {
           instructions: PROMPT,
           voice: env.voice,
-          turn_detection: { type: 'server_vad' },
+          reasoning: { effort: 'none' },
+          turn_detection: {
+            type: 'server_vad',
+            threshold: 0.5,
+            prefix_padding_ms: 200,
+            silence_duration_ms: 450,
+          },
           audio: {
             // grok-transcribe is required for hearing captions + spoken yes/no approval; no language_hint
             // keeps auto-detect across all Grok Voice languages (override via EXPO_PUBLIC_GROK_LANGUAGE_HINT).
@@ -251,10 +286,13 @@ export class VoiceSession {
   stop() {
     const ws = this.ws;
     this.ws = null;
+    this.clearHearing();
+    this.clearReply();
     ws?.close(1000);
     this.player.stop();
     this.calls = [];
     this.queue = [];
+    this.holdMic = false;
     this.set('off');
   }
 
@@ -300,11 +338,14 @@ export class VoiceSession {
       this.trace({ kind: 'hear', title: 'Got a typed request', detail: text });
     }
     this.turnStart = Date.now();
+    this.lastUser = text;
+    this.nudged = false;
+    this.afterTool = false;
     this.send({
       type: 'conversation.item.create',
       item: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] },
     });
-    this.send({ type: 'response.create' });
+    this.askAloud();
     this.set('thinking');
   }
 
@@ -336,12 +377,16 @@ export class VoiceSession {
       case 'input_audio_buffer.speech_started':
         this.userLineId = null;
         this.trace({ kind: 'hear', title: 'Hearing you...' });
+        this.armHearingCap();
         break;
 
       case 'input_audio_buffer.speech_stopped':
+        this.clearHearing();
+        this.holdMic = false;
         this.turnStart = Date.now();
         this.set('thinking');
         this.trace({ kind: 'think', title: 'Thinking it over' });
+        this.armReplyWatch();
         break;
 
       case 'conversation.item.input_audio_transcription.updated':
@@ -357,20 +402,44 @@ export class VoiceSession {
         break;
       }
 
+      case 'response.created':
+        this.clearReply();
+        this.responseOpen = true;
+        this.replyText = '';
+        this.replyFromTranscript = false;
+        this.replyHeardAudio = false;
+        break;
+
       case 'response.output_audio.delta':
-      case 'response.audio.delta':
+      case 'response.audio.delta': {
+        const audio = typeof ev.delta === 'string' ? ev.delta : typeof ev.audio === 'string' ? ev.audio : '';
+        if (!audio) break;
+        this.clearReply();
+        this.replyHeardAudio = true;
         if (!this.speakingTrace) {
           this.speakingTrace = uid();
           const ms = this.turnStart ? Date.now() - this.turnStart : undefined;
           this.trace({ id: this.speakingTrace, kind: 'speak', title: 'Answering', ms });
         }
-        this.player.push(fromBase64(ev.delta));
+        this.player.push(fromBase64(audio));
         break;
+      }
 
       case 'response.output_audio_transcript.delta':
-      case 'response.audio_transcript.delta': {
+      case 'response.audio_transcript.delta':
+      case 'response.text.delta':
+      case 'response.output_text.delta': {
+        const delta = typeof ev.delta === 'string' ? ev.delta : '';
+        if (!delta) break;
+        const fromTranscript = ev.type.includes('transcript');
+        if (fromTranscript) this.replyFromTranscript = true;
+        // text-only deltas repeat the audio transcript once speech has started; a forced
+        // reading of a written answer is already on screen
+        if (this.ignoreReplyText || (!fromTranscript && this.replyFromTranscript)) break;
+        this.replyText += delta;
+        if (!fromTranscript) break; // show a text-only answer once, when the turn ends
         const prev = this.grokLine?.kind === 'grok' ? this.grokLine.text : '';
-        this.grokLine = { id: this.grokLine?.id ?? uid(), kind: 'grok', text: prev + ev.delta };
+        this.grokLine = { id: this.grokLine?.id ?? uid(), kind: 'grok', text: prev + delta };
         this.line(this.grokLine);
         if (this.speakingTrace) {
           this.trace({ id: this.speakingTrace, kind: 'speak', title: 'Answering', detail: this.grokLine.text });
@@ -379,19 +448,31 @@ export class VoiceSession {
       }
 
       case 'response.function_call_arguments.done': {
+        this.clearReply();
         this.set('acting');
         const args = ev.arguments && ev.arguments !== '{}' ? ev.arguments : undefined;
         this.trace({ kind: 'plan', title: `Decided: ${pretty(ev.name)}`, detail: args });
-        this.calls.push(this.call(ev.name, ev.call_id, ev.arguments));
+        const job = this.call(ev.name, ev.call_id, ev.arguments);
+        if (this.responseOpen) this.calls.push(job);
+        else this.later(() => this.deliverCalls([job]));
         break;
       }
 
-      case 'response.done':
+      case 'response.done': {
+        this.responseOpen = false;
         this.flushHeard();
+        const cancelled = ev.response?.status === 'cancelled';
+        const text = (this.replyText || textFromDone(ev)).trim();
+        const hadAudio = this.replyHeardAudio;
+        const shown = this.replyFromTranscript;
         this.grokLine = null;
         this.speakingTrace = null;
-        this.finishTurn();
+        this.replyText = '';
+        this.replyFromTranscript = false;
+        this.replyHeardAudio = false;
+        this.later(() => this.finishTurn(cancelled ? '' : text, hadAudio, cancelled, shown));
         break;
+      }
 
       case 'error':
         this.error(ev.error?.message ?? ev.message ?? 'unknown error');
@@ -401,6 +482,9 @@ export class VoiceSession {
 
   private flushHeard() {
     if (this.heard) {
+      this.lastUser = this.heard;
+      this.nudged = false;
+      this.afterTool = false;
       this.cmd = { id: uid(), text: this.heard, calls: [] }; // robot calls from here on belong to this request
       this.onAsked?.(this.heard, 'voice');
       this.trace({ kind: 'hear', title: 'Understood', detail: this.heard });
@@ -575,11 +659,104 @@ export class VoiceSession {
     }
   }
 
-  private async finishTurn() {
-    const calls = this.calls;
-    this.calls = [];
+  private later(fn: () => Promise<void>) {
+    this.tail = this.tail.then(fn, fn);
+  }
 
-    if (!calls.length) {
+  // the model answered in text and sent no audio: read that text in her voice
+  private speakAloud(text: string, alreadyShown: boolean) {
+    this.forcing = true;
+    this.ignoreReplyText = true;
+    if (!alreadyShown) this.line({ id: uid(), kind: 'grok', text });
+    this.trace({ kind: 'speak', title: 'Speaking the written answer' });
+    this.send({
+      type: 'conversation.item.create',
+      item: {
+        type: 'force_message',
+        role: 'assistant',
+        interruptible: true,
+        content: [{ type: 'output_text', text: text.slice(0, 600) }],
+      },
+    });
+    this.set('thinking');
+  }
+
+  private askAloud() {
+    this.send({ type: 'response.create', response: { modalities: ['audio'] } });
+  }
+
+  private clearHearing() {
+    if (this.hearingTimer) clearTimeout(this.hearingTimer);
+    this.hearingTimer = null;
+  }
+
+  private clearReply() {
+    if (this.replyTimer) clearTimeout(this.replyTimer);
+    this.replyTimer = null;
+  }
+
+  // One utterance. A second speech_started (noise) must not push the cap further out.
+  private armHearingCap() {
+    if (this.hearingTimer) return;
+    this.hearingTimer = setTimeout(() => this.closeStuckHearing(), 7000);
+  }
+
+  // The server never heard a pause. Stop the live mic and feed quiet audio so the turn can end.
+  private closeStuckHearing() {
+    this.hearingTimer = null;
+    if (!this.ws || this._status === 'off' || this._status === 'speaking' || this._status === 'acting') return;
+    this.holdMic = true;
+    this.trace({ kind: 'think', title: 'Got it, working on that' });
+    const silence = new ArrayBuffer(Math.floor(SAMPLE_RATE * 0.9) * 2);
+    this.send({ type: 'input_audio_buffer.append', audio: toBase64(silence) });
+    this.hearingTimer = setTimeout(() => {
+      this.hearingTimer = null;
+      if (this._status !== 'listening') return;
+      this.turnStart = Date.now();
+      this.set('thinking');
+      this.askAloud();
+      this.armReplyWatch();
+    }, 2000);
+  }
+
+  // speech ended and nothing came back: ask once, then say so out loud instead of staying quiet
+  private armReplyWatch() {
+    this.clearReply();
+    this.replyTimer = setTimeout(() => {
+      this.replyTimer = null;
+      if (this._status !== 'thinking' || this.responseOpen || this.replyHeardAudio) return;
+      this.trace({ kind: 'think', title: 'No reply yet', detail: 'Asking her to answer' });
+      this.askAloud();
+      this.replyTimer = setTimeout(() => {
+        this.replyTimer = null;
+        if (this._status !== 'thinking' || this.responseOpen || this.replyHeardAudio) return;
+        this.speakAloud('I heard you. Give me a second.', false);
+      }, 6000);
+    }, 6000);
+  }
+
+  private async finishTurn(text: string, hadAudio: boolean, cancelled: boolean, alreadyShown: boolean) {
+    const calls = this.calls.splice(0);
+    if (calls.length) {
+      this.forcing = false;
+      await this.deliverCalls(calls);
+      return;
+    }
+    // a force_message is already reading the written answer; don't read it again or nudge on top
+    if (this.forcing) {
+      this.forcing = false;
+      this.ignoreReplyText = false;
+      if (this.player.pending) {
+        this.set('speaking');
+        await this.player.flush();
+      } else if (this._status !== 'off') {
+        this.set('listening');
+      }
+      return;
+    }
+    if (cancelled) {
+      this.forcing = false;
+      this.ignoreReplyText = false;
       if (this.player.pending) {
         this.set('speaking');
         await this.player.flush();
@@ -589,12 +766,51 @@ export class VoiceSession {
       return;
     }
 
+    const followUp = this.afterTool;
+    this.afterTool = false;
+    const nudge = !followUp && needsToolNudge(this.lastUser, text, this.nudged);
+    if (nudge) {
+      this.nudged = true;
+      this.trace({ kind: 'think', title: 'Following through', detail: 'The last reply did not use a tool' });
+      this.send({
+        type: 'conversation.item.create',
+        item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: NUDGE }] },
+      });
+      this.askAloud();
+      this.set('thinking');
+      return;
+    }
+    if (shouldSpeakText(text, hadAudio, false)) {
+      this.speakAloud(text, alreadyShown);
+      return;
+    }
+    this.forcing = false;
+    this.ignoreReplyText = false;
+
+    // a turn that produced no words and no audio used to leave the screen on "Hearing you..."
+    if (!hadAudio && !text.trim() && this._status === 'thinking') {
+      this.speakAloud(followUp ? "That's done." : 'I heard you. Say that once more?', false);
+      return;
+    }
+
+    if (this.player.pending) {
+      this.set('speaking');
+      await this.player.flush();
+    } else if (this._status !== 'off') {
+      this.set('listening');
+    }
+  }
+
+  private async deliverCalls(calls: Promise<{ call_id: string; output: string }>[]) {
     // speak whatever Grok said before the tool call while the robot moves,
     // then hand results back only after playback so audio doesn't overlap
     const spoken = new Promise<void>((resolve) => {
       if (!this.player.pending) return resolve();
+      // a player that never reports "finished" used to hold the tool result forever, so she went silent
+      const timer = setTimeout(resolve, 8000);
       const prev = this.player.onDone;
       this.player.onDone = () => {
+        clearTimeout(timer);
         this.player.onDone = prev;
         resolve();
       };
@@ -606,7 +822,8 @@ export class VoiceSession {
     for (const o of outputs) {
       this.send({ type: 'conversation.item.create', item: { type: 'function_call_output', ...o } });
     }
-    this.send({ type: 'response.create' });
+    this.afterTool = true;
+    this.askAloud();
     this.set('thinking');
   }
 
@@ -616,6 +833,7 @@ export class VoiceSession {
 
   private set(s: Status) {
     this._status = s;
+    if (s === 'listening') this.holdMic = false;
     this.on.status(s);
   }
 

@@ -33,7 +33,7 @@ measured `mass_kg` yet. Drop the shake step (see `examples/pick_place.json`) or 
 | `move_to_target` | `target_id` | yes | joint move to a registered target |
 | `shake_object` | `pattern_id`, `cycles` (int 1–10, and ≤ pattern/safety max) | yes | approved pattern made of named targets |
 | `perform_motion` | `motion_id` | yes | pre-validated macro (e.g. `go_home`) |
-| `push_object` | `object_id` | yes | empty gripper, closed (if needed) → above → down beside it → push `distance_m` → lift, on the object's taught `push:` path; needs a fresh detection; objects without a push path (the 7 mm ring) are refused. Simulation: the RoboDK object moves only on the push segment, and only if it is still beside the gripper |
+| `push_object` | `object_id` | yes | empty gripper, closed (if needed) → above → down beside it → push `distance_m` → lift, on the object's taught `push:` path; needs a fresh detection; objects without a push path (the 7 mm ring) are refused. Simulation: the PyBullet object moves only on the push segment, and only if it is still beside the gripper |
 | `get_task_status` | `task_id` | **no** (API) | `GET /tasks/{id}` |
 | `cancel_task` | `task_id` | **no** (API) | `POST /tasks/{id}/cancel`; controlled cancel, not an E-stop |
 | `stop_robot` | – | **no** (API) | `POST /robot/stop`; controlled stop, not an E-stop |

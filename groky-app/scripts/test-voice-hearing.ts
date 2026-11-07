@@ -11,6 +11,7 @@ import {
   userSaid,
 } from '../src/lib/armApproval';
 import { inputTranscription, TRANSCRIBE_KEYTERMS } from '../src/voice/transcription';
+import { needsToolNudge, shouldSpeakText, textFromDone } from '../src/voice/turn';
 
 let failed = 0;
 const check = (name: string, fn: () => void) => {
@@ -111,6 +112,36 @@ check('userSaid rejects multilingual no', () => {
   propose('pick the screw', ['pick']);
   assert.equal(userSaid('Nein', 'typed'), 'rejected');
   assert.equal(currentPlan()?.state, 'rejected');
+});
+
+check('a look request with no tool is nudged once', () => {
+  assert.equal(needsToolNudge('what do you see on the table?', 'On it.', false), true);
+  assert.equal(needsToolNudge('what do you see on the table?', 'On it.', true), false);
+  assert.equal(needsToolNudge('guarda il tavolo', 'Va bene.', false), true);
+});
+
+check('a yes with no tool is nudged, a no is not', () => {
+  assert.equal(needsToolNudge('yes', 'On it.', false), true);
+  assert.equal(needsToolNudge('no', 'Okay.', false), false);
+});
+
+check('who are you is not a tool turn', () => {
+  assert.equal(needsToolNudge('who are you?', "I'm Motion.", false), false);
+});
+
+check('a written answer with no audio is spoken, unless we are about to nudge', () => {
+  assert.equal(shouldSpeakText("I'm Motion, I move the arm.", false, false), true);
+  assert.equal(shouldSpeakText("I'm Motion.", true, false), false);
+  assert.equal(shouldSpeakText('On it.', false, true), false);
+  assert.equal(shouldSpeakText('  ', false, false), false);
+});
+
+check('response.done text is recovered when no delta arrived', () => {
+  assert.equal(
+    textFromDone({ response: { output: [{ content: [{ transcript: 'I see the orange screw.' }] }] } }),
+    'I see the orange screw.',
+  );
+  assert.equal(textFromDone({}), '');
 });
 
 check('userSaid treats a new Japanese task as new_request', () => {

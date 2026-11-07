@@ -1,4 +1,4 @@
-"""Offline tests for the demo simulation objects (no RoboDK needed)."""
+"""Offline tests for the demo simulation objects (no PyBullet needed)."""
 import copy
 import json
 import socket
@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("trimesh")
 
-from robot_control.sim_objects import robodk_import  # noqa: E402
+from robot_control.sim_objects import sim_import  # noqa: E402
 from robot_control.sim_objects.build import build_mesh, export_stl, validate_object  # noqa: E402
 from robot_control.sim_objects.core import (contains, load_object_config, load_spec, pappus_volume,  # noqa: E402
                                             revolve_profile)
@@ -90,28 +90,28 @@ def test_contains_on_bucket():
     assert contains(m, [0.2, 0.1, 4]) and not contains(m, [0.2, 0.1, 60])
 
 
-def test_dry_run_does_not_touch_robodk(monkeypatch, capsys):
+def test_dry_run_does_not_touch_sim(monkeypatch, capsys):
     import builtins
     real_import = builtins.__import__
 
     def guard(name, *a, **k):
-        if name.startswith("robodk"):
-            raise AssertionError("dry-run imported robodk")
+        if name == "pybullet" or name.startswith("pybullet."):
+            raise AssertionError("dry-run imported pybullet")
         return real_import(name, *a, **k)
     monkeypatch.setattr(builtins, "__import__", guard)
-    rc = robodk_import.main(["--dry-run"])
+    rc = sim_import.main(["--dry-run"])
     out = capsys.readouterr().out
     assert "DRY RUN" in out and out.count("would import") == 4
     assert rc in (0, 1)                     # 1 only if STLs were not generated yet
 
 
-def test_import_reports_missing_robodk_gracefully(tmp_path):
+def test_import_uses_the_pybullet_cell(tmp_path):
     with socket.socket() as s:              # find a closed port
         s.bind(("127.0.0.1", 0))
         port = s.getsockname()[1]
     spec = json.loads(json.dumps(SPEC))
     for e in spec["objects"]:
-        e["config"] = str((robodk_import.SPEC_FILE.parent / e["config"]).resolve())
+        e["config"] = str((sim_import.SPEC_FILE.parent / e["config"]).resolve())
         cfg = load_object_config(e)
         cfg["_config_path"] = str(tmp_path / e["id"] / "config" / "x.json")
         export_stl(cfg)
@@ -123,5 +123,5 @@ def test_import_reports_missing_robodk_gracefully(tmp_path):
     sf = tmp_path / "spec.json"
     sf.write_text(json.dumps(spec))
     lines = []
-    rc = robodk_import.run_import(sf, port=port, out=lines.append)
-    assert rc == 2 and any("NOT CONNECTED" in ln for ln in lines)
+    rc = sim_import.run_import(sf, port=port, out=lines.append)
+    assert rc == 0 and any("PyBullet" in ln for ln in lines)

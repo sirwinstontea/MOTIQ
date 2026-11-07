@@ -17,13 +17,11 @@ if not exist "%PY%" (
 )
 echo Da dove leggo la posa del braccio? (sola lettura, non lo muove mai)
 echo   1 = direttamente dall'UR via rete (RTDE, serve l'IP del robot)
-echo   2 = RoboDK collegato al robot vero
-echo   3 = la scrivo io dal pendant a ogni posa (x y z in mm, rx ry rz in rad)
+echo   2 = la scrivo io dal pendant a ogni posa (x y z in mm, rx ry rz in rad)
 set "SRC=1"
 set /p "SRC=Scelta [1]: "
 set "TCPARGS=--tcp rtde"
-if "%SRC%"=="2" set "TCPARGS=--tcp robodk"
-if "%SRC%"=="3" set "TCPARGS=--tcp manual"
+if "%SRC%"=="2" set "TCPARGS=--tcp manual"
 if "%SRC%"=="1" (
     "%PY%" -c "import rtde_receive" 2>nul || (
         echo Installo ur_rtde ^(solo lettura della posa^)...
@@ -33,7 +31,6 @@ if "%SRC%"=="1" (
     set /p "IP=IP del robot UR: "
 )
 if "%SRC%"=="1" set "TCPARGS=--tcp rtde --robot-ip %IP%"
-if "%SRC%"=="2" set "PYTHONPATH=C:\RoboDK\Python"
 echo.
 echo PASSO 1 - Si apre la finestra della camera. Per ogni posa (12-15):
 echo   muovete il braccio dal pendant con il foglio inquadrato e RUOTATO in modo diverso,

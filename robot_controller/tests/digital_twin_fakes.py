@@ -1,4 +1,4 @@
-"""Fake RoboDK station + fake receive-only UR for the digital twin tests (no RoboDK, no robot, no network)."""
+"""Fake PyBullet station + fake receive-only UR for the digital twin tests (no PyBullet, no robot, no network)."""
 from __future__ import annotations
 
 import math

@@ -1,4 +1,4 @@
-"""Digital twin service: single owner of the receive-only UR stream and the RoboDK writer (spec sections 3, 9, 10).
+"""Digital twin service: single owner of the receive-only UR stream and the PyBullet writer (spec sections 3, 9, 10).
 
 States: DISCONNECTED (nothing checked yet / inputs unreachable), READY (checks passed, idle), RUNNING (live loops),
 PAUSED_STALE (running, but telemetry froze: the scene is frozen and markers are greyed), ERROR (a guard refused or a
@@ -22,8 +22,8 @@ import numpy as np
 
 from . import MODE
 from .config import TwinConfig
-from .frames import joints_rad_to_robodk_deg, point_B_to_R, pose_delta, tabletop_contact_B, ur5e_fk_flange
-from .robodk_writer import GuardError, RoboDKWriter
+from .frames import joints_rad_to_deg, point_B_to_R, pose_delta, tabletop_contact_B, ur5e_fk_flange
+from .sim_writer import GuardError, PyBulletWriter
 from .scene_mapper import map_frame
 from .telemetry import JointSample, StaleTracker, TelemetryError, make_source
 from .vision_client import VisionUnavailable, make_observation_source
@@ -39,7 +39,7 @@ def utc_now() -> str:
 
 
 class WriterLock:
-    """Advisory lock: at most one process writes the twin into RoboDK (service, CLI run or CLI snapshot)."""
+    """Advisory lock: at most one process writes the twin into PyBullet (service, CLI run or CLI snapshot)."""
 
     def __init__(self, path: Path = DEFAULT_LOCK):
         self.path, self._fd = Path(path), None
@@ -69,11 +69,11 @@ class WriterLock:
 
 
 class TwinService:
-    def __init__(self, cfg: TwinConfig, writer: RoboDKWriter | None = None, joint_source=None, obs_source=None,
+    def __init__(self, cfg: TwinConfig, writer: PyBulletWriter | None = None, joint_source=None, obs_source=None,
                  api_key: str = "", lock: WriterLock | None = None, log_path: Path | None = DEFAULT_LOG,
                  clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] | None = None):
         self.cfg = cfg
-        self.writer = writer or RoboDKWriter(cfg.robodk)
+        self.writer = writer or PyBulletWriter(cfg.sim)
         self.joints = joint_source or make_source(cfg)
         self.obs = obs_source if obs_source is not None else make_observation_source(cfg, api_key)
         self.lock = lock or WriterLock()
@@ -94,7 +94,7 @@ class TwinService:
         self._fk_at = -1e9
         self._written_q: list[float] | None = None
         self._written_at = -1e9
-        self.robodk_info: dict = {}
+        self.sim_info: dict = {}
         self.vision_info: dict = {"source": cfg.vision.source}
         self.hz = 0.0
         self.started_at: str | None = None
@@ -150,25 +150,25 @@ class TwinService:
 
     # ---- robot --------------------------------------------------------------------------------------------
     def _write_robot(self, s: JointSample) -> None:
-        q_deg = joints_rad_to_robodk_deg(s.q_rad)
+        q_deg = joints_rad_to_deg(s.q_rad)
         now = self.clock()
-        # Each setJoints re-renders RoboDK (~35-90 ms, and the single-threaded API waits for it), so identical joints
+        # Each setJoints re-renders PyBullet (~35-90 ms, and the single-threaded API waits for it), so identical joints
         # are not re-sent; the pose is still refreshed (and the guard re-run) at least once a second.
         if (self._written_q is not None and now - self._written_at < 1.0
                 and max(abs(a - b) for a, b in zip(q_deg, self._written_q)) < 0.01):
             return
         with_fk = now - self._fk_at > 1.0                   # diagnostic only: once a second is plenty
-        T_R_F_robodk = self.writer.write_joints(q_deg, with_fk=with_fk)
+        T_R_F_sim = self.writer.write_joints(q_deg, with_fk=with_fk)
         self._written_q, self._written_at = q_deg, now
         self.last_q_deg = [round(v, 3) for v in q_deg]
-        self.robodk_info = dict(self.writer.last_guard)
-        if T_R_F_robodk is None:
+        self.sim_info = dict(self.writer.last_guard)
+        if T_R_F_sim is None:
             return
         self._fk_at = self.clock()
-        # like-for-like: RoboDK flange FK vs nominal UR5e DH flange FK, same joints, each in its own robot base.
+        # like-for-like: PyBullet flange FK vs nominal UR5e DH flange FK, same joints, each in its own robot base.
         # (The UR's active TCP is NOT a flange and is never compared to the flange.)
-        dmm, ddeg = pose_delta(ur5e_fk_flange(s.q_rad), T_R_F_robodk)
-        self.last_fk = {"robodk_flange_vs_ur_nominal_dh_flange_mm": round(dmm, 2), "deg": round(ddeg, 3),
+        dmm, ddeg = pose_delta(ur5e_fk_flange(s.q_rad), T_R_F_sim)
+        self.last_fk = {"sim_flange_vs_ur_nominal_dh_flange_mm": round(dmm, 2), "deg": round(ddeg, 3),
                         "note": "model/base-convention consistency only; not a measurement error"}
 
     def _robot_tick(self) -> bool:
@@ -216,7 +216,7 @@ class TwinService:
                     self._safe_mark(oid, self.objects[oid]["state"])
 
     def _objects_round(self) -> dict:
-        """One vision observation -> marker updates. Raises GuardError (unsafe RoboDK) to the caller."""
+        """One vision observation -> marker updates. Raises GuardError (unsafe PyBullet) to the caller."""
         self._age_markers()
         s = self.stale.last_good
         q = self._fresh_q()
@@ -239,7 +239,7 @@ class TwinService:
             self._log("frame_rejected", {"reason": res.frame_reason, "frame": obs.frame_id, "check": res.flange_check})
             return {"ok": False, "reason": res.frame_reason, "flange_check": res.flange_check}
 
-        T_R_B = self.cfg.robodk.base_alignment.T
+        T_R_B = self.cfg.sim.base_alignment.T
         updated, skipped = [], []
         with self.writer.batch():                      # one guard, then all marker writes of this observation
             self._apply_decisions(res, T_R_B, updated, skipped)
@@ -260,9 +260,9 @@ class TwinService:
                 self.writer.update_marker(spec.marker_name, p_R)
                 cad = None
                 if (spec.pose_policy == "tabletop_contact_preserve_orientation"
-                        and self.cfg.robodk.allow_cad_model_reposition and spec.tabletop_policy_validated):
+                        and self.cfg.sim.allow_cad_model_reposition and spec.tabletop_policy_validated):
                     p_contact_R = point_B_to_R(T_R_B, tabletop_contact_B(d.position_base_m, spec.table_z_base_m))
-                    cad = self.writer.place_cad_origin(spec.robodk_item_name, p_contact_R)
+                    cad = self.writer.place_cad_origin(spec.pybullet_item_name, p_contact_R)
                 entry.update(state="fresh", reason=None, position_base_m=[round(v, 4) for v in d.position_base_m],
                              confidence=d.confidence, updated_at=utc_now(), _mono=self.clock(),
                              cad_moved=bool(cad), point_semantics="visible_surface_centroid_3d", _shown="fresh")
@@ -281,7 +281,7 @@ class TwinService:
 
     # ---- public API ---------------------------------------------------------------------------------------
     def check(self) -> dict:
-        """Every prerequisite, read-only (no RoboDK write, nothing to the robot)."""
+        """Every prerequisite, read-only (no PyBullet write, nothing to the robot)."""
         out: dict[str, Any] = {"ok": True, "mode": MODE, "target": self.cfg.target, "label": LABEL,
                                "physical_motion_enabled": False}
         sample = self._read_joints() if self.state not in ("RUNNING", "PAUSED_STALE") else self.stale.last_good
@@ -290,21 +290,21 @@ class TwinService:
         if sample is None:
             r.update(connected=False, reason=(self.last_error or {}).get("reason"))
         else:
-            r.update(connected=True, q_deg=[round(v, 2) for v in joints_rad_to_robodk_deg(sample.q_rad)],
+            r.update(connected=True, q_deg=[round(v, 2) for v in joints_rad_to_deg(sample.q_rad)],
                      moving=sample.moving(self.cfg.physical_robot.moving_joint_speed_rad_s),
                      active_tcp_pose_m_rad=None if sample.tcp_pose is None else [round(v, 4) for v in sample.tcp_pose],
                      active_tcp_note="active TCP, not the flange: informational only")
         out["robot"] = r
         try:
             g = self.writer.guard()
-            out["robodk"] = {**g, "ok": True}
+            out["sim"] = {**g, "ok": True}
             if sample is not None:
-                T = self.writer.flange_fk(joints_rad_to_robodk_deg(sample.q_rad))
+                T = self.writer.flange_fk(joints_rad_to_deg(sample.q_rad))
                 dmm, ddeg = pose_delta(ur5e_fk_flange(sample.q_rad), T)
-                out["robodk"]["fk_consistency"] = {"robodk_flange_vs_ur_nominal_dh_flange_mm": round(dmm, 2),
+                out["sim"]["fk_consistency"] = {"sim_flange_vs_ur_nominal_dh_flange_mm": round(dmm, 2),
                                                    "deg": round(ddeg, 3)}
         except GuardError as e:
-            out["robodk"] = {"ok": False, "status": e.status, "reason": e.reason, **self.writer.last_guard}
+            out["sim"] = {"ok": False, "status": e.status, "reason": e.reason, **self.writer.last_guard}
         v: dict[str, Any] = {"source": self.cfg.vision.source}
         if self.cfg.vision.source == "vision_server" and hasattr(self.obs, "get_status"):
             try:
@@ -319,10 +319,10 @@ class TwinService:
         elif self.cfg.vision.source == "replay":
             v.update(connected=True, calibration_valid=None, note="replay fixture (simulation only, no calibration)")
         out["vision"] = v
-        a = self.cfg.robodk.base_alignment
+        a = self.cfg.sim.base_alignment
         out["alignment"] = {"validated": a.validated, "validated_for": a.validated_for, "validated_by": a.validated_by,
                             "T_R_B": a.T_R_B}
-        robot_ok = r.get("connected") and out["robodk"]["ok"]
+        robot_ok = r.get("connected") and out["sim"]["ok"]
         obj_block = self.objects_blockers()
         if self.cfg.vision.source == "vision_server" and not v.get("calibration_valid"):
             obj_block.append("no valid active eye-in-hand calibration on the vision server: "
@@ -340,7 +340,7 @@ class TwinService:
     def _require_lock(self):
         if not self.lock.acquire():
             raise GuardError("writer_busy", "another digital-twin writer (CLI run/snapshot or service) owns the "
-                             "RoboDK station; stop it first")
+                             "PyBullet station; stop it first")
 
     def snapshot(self, objects: bool = True) -> dict:
         with self._life:
@@ -434,7 +434,7 @@ class TwinService:
                         dt = t0 - last
                         self.hz = round(0.8 * self.hz + 0.2 * (1.0 / dt), 2) if dt > 0 else self.hz
                     last = t0
-            except GuardError as e:                    # unsafe RoboDK state: fail closed, operator restarts
+            except GuardError as e:                    # unsafe PyBullet state: fail closed, operator restarts
                 self._fail(e.status, e.reason)
                 break
             except Exception as e:  # noqa: BLE001 - never die silently
@@ -474,10 +474,10 @@ class TwinService:
             "camera": {**{k: v for k, v in self.vision_info.items() if k != "last_frame_ts"},
                        "last_frame_age_ms": None if not self.vision_info.get("last_frame_ts") else
                        round((time.time() - self.vision_info["last_frame_ts"]) * 1000, 1)},
-            "robodk": {"connected": bool(self.robodk_info), **self.robodk_info,
-                       "robot_item": self.cfg.robodk.robot_item_name},
-            "alignment": {"validated": self.cfg.robodk.base_alignment.validated,
-                          "validated_for": self.cfg.robodk.base_alignment.validated_for},
+            "sim": {"connected": bool(self.sim_info), **self.sim_info,
+                       "robot_item": self.cfg.sim.robot_item_name},
+            "alignment": {"validated": self.cfg.sim.base_alignment.validated,
+                          "validated_for": self.cfg.sim.base_alignment.validated_for},
             # fresh/stale/not_visible are live (never overstated); skipped/unknown are from the last observation
             "objects": {**self.counts, **self._live_counts(), "per_object": {oid: {k: v for k, v in o.items() if not k.startswith("_")}
                                                       for oid, o in self.objects.items()}},
@@ -490,7 +490,7 @@ class TwinService:
         return {"updated": st.count("fresh"), "stale": st.count("stale"), "not_visible": st.count("not_visible")}
 
     def _age_counts_only(self):
-        """Status view of ageing (no RoboDK call): a marker older than stale_after_ms is reported stale."""
+        """Status view of ageing (no PyBullet call): a marker older than stale_after_ms is reported stale."""
         lim = self.cfg.sync.stale_after_ms / 1000.0
         now = self.clock()
         for o in self.objects.values():

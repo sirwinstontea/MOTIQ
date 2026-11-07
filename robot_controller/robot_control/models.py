@@ -1,7 +1,7 @@
 """Typed models for the AI action contract, tasks, poses, state and feedback.
 
 Units at every domain boundary: metres (m) and radians (rad). Backends convert
-explicitly to vendor units (RoboDK uses mm and degrees).
+explicitly to vendor units (PyBullet uses mm and degrees).
 """
 from __future__ import annotations
 
@@ -85,7 +85,7 @@ class ActionStatus(str, Enum):
 
 
 class FeedbackSource(str, Enum):
-    SIMULATED = "simulated"            # mock or RoboDK digital twin
+    SIMULATED = "simulated"            # mock or PyBullet digital twin
     UNVERIFIED = "unverified"          # command issued, no confirmation available
     HARDWARE_CONFIRMED = "hardware_confirmed"   # never produced by this build
 
@@ -182,23 +182,38 @@ class NoParams(Strict):
     pass
 
 
+def _camera_point(v):
+    """Optional point the arm camera measured, metres in the base frame. The move uses its XY."""
+    if v is None:
+        return None
+    if len(v) != 3:
+        raise ValueError("seen_xyz_m needs x, y, z in metres")
+    return [float(x) for x in _require_finite(v, "seen_xyz_m")]
+
+
 class ObjectParams(Strict):
     object_id: str = Field(pattern=ID_PATTERN)
 
 
 class PickParams(ObjectParams):
-    """A pick may name the point the simulated camera measured. The controller then moves the named pick targets
-    onto that point and runs the usual IK and safety checks. It is not a free cartesian move."""
+    """A pick may name the point the simulated camera measured. The controller then puts the pick targets
+    over that point (taught height, camera XY) and runs the usual IK and safety checks."""
     seen_xyz_m: Optional[list[float]] = None
 
     @field_validator("seen_xyz_m")
     @classmethod
     def _seen_xyz(cls, v):
-        if v is None:
-            return None
-        if len(v) != 3:
-            raise ValueError("seen_xyz_m needs x, y, z in metres")
-        return [float(x) for x in _require_finite(v, "seen_xyz_m")]
+        return _camera_point(v)
+
+
+class PushParams(ObjectParams):
+    """A push may name where the camera saw the object. The taught push direction is kept; the path slides there."""
+    seen_xyz_m: Optional[list[float]] = None
+
+    @field_validator("seen_xyz_m")
+    @classmethod
+    def _seen_xyz(cls, v):
+        return _camera_point(v)
 
 
 class MoveObjectParams(Strict):
@@ -208,10 +223,22 @@ class MoveObjectParams(Strict):
 
 class DestinationParams(Strict):
     destination_id: str = Field(pattern=ID_PATTERN)
+    seen_xyz_m: Optional[list[float]] = None
+
+    @field_validator("seen_xyz_m")
+    @classmethod
+    def _seen_xyz(cls, v):
+        return _camera_point(v)
 
 
 class TargetParams(Strict):
     target_id: str = Field(pattern=ID_PATTERN)
+    seen_xyz_m: Optional[list[float]] = None
+
+    @field_validator("seen_xyz_m")
+    @classmethod
+    def _seen_xyz(cls, v):
+        return _camera_point(v)
 
 
 class ShakeParams(Strict):
@@ -239,7 +266,7 @@ PARAMS_BY_ACTION: dict[ActionName, type[Strict]] = {
     ActionName.MOVE_TO_TARGET: TargetParams,
     ActionName.SHAKE_OBJECT: ShakeParams,
     ActionName.PERFORM_MOTION: MotionParams,
-    ActionName.PUSH_OBJECT: ObjectParams,
+    ActionName.PUSH_OBJECT: PushParams,
     ActionName.GET_TASK_STATUS: TaskIdParams,
     ActionName.CANCEL_TASK: TaskIdParams,
     ActionName.STOP_ROBOT: NoParams,

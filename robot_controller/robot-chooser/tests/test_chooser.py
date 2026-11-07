@@ -24,7 +24,7 @@ def _y(p):
 def test_catalog_has_the_five_robots_with_official_links(ch):  # A01
     rows = ch.state()["catalog"]
     assert [r["id"] for r in rows] == ["ufactory_xarm5", "ur_ur3e", "ur_ur5e", "elite_cs63", "elite_cs66"]
-    assert all(r["library_url"].startswith("https://robodk.com/robot/") for r in rows)
+    assert all(r["library_url"].startswith("https://") for r in rows)
     assert {r["id"]: r["dof"] for r in rows}["ufactory_xarm5"] == 5
 
 
@@ -62,11 +62,12 @@ def test_switch_to_unconfigured_robot_and_back_never_mixes_configs(ch, repo):  #
     assert _y(cfg / "selection.yaml")["selection_version"] == v1 + 2
 
 
-def test_xarm5_without_model_file_is_blocked_on_robodk_sim(ch, repo):  # A05, A17
-    ch.update_hardware({"backend": "robodk_sim"})
+def test_xarm5_without_model_file_is_blocked_on_pybullet(ch, repo):  # A05, A17
+    ch.update_hardware({"backend": "pybullet"})
     s = ch.select("ufactory_xarm5")
-    assert {"MODEL_FILE_MISSING", "CONFIG_INCOMPLETE"} <= _codes(s)
-    assert s["report"]["label"] == "Model missing"
+    assert "CONFIG_INCOMPLETE" in _codes(s)
+    assert "MODEL_FILE_MISSING" in _codes(s, "warnings")
+    assert s["report"]["label"] == "Config incomplete"
     assert s["selection"]["files"] == []
     assert not (repo / "robot_controller" / "config" / "robot.yaml").exists()
 
@@ -76,7 +77,7 @@ def test_ur3e_becomes_ready_once_model_scene_and_workspace_exist(ch, repo):
     scenes = repo / "robot_controller" / "config" / "scenes"
     scenes.mkdir()
     (scenes / "ur_ur3e.yaml").write_text(yaml.safe_dump(UR3E_SCENE), encoding="utf-8")
-    ch.update_hardware({"backend": "robodk_sim"})
+    ch.update_hardware({"backend": "pybullet"})
     ch.update_component("main_tool", {"spec": {"mass_kg": 0.5}})
     ch.update_robot("ur_ur3e", {"scene_file": "ur_ur3e.yaml",
                                 "default_workspace": {"x_m": [-0.45, -0.15], "y_m": [-0.25, 0.25], "z_m": [0.015, 0.40]}})

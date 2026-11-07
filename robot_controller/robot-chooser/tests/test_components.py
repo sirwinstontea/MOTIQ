@@ -101,11 +101,11 @@ def test_attachment_cycles_are_refused(ch):
         ch.update_component("changer", {"attached_to": "ft"})
 
 
-def test_robot_dog_is_documented_not_driven(ch):
-    s = ch.add_component({"id": "dog", "type": "mobile_base", "name": "Robot dog", "driver": "groky_dog",
-                          "spec": {"kind": "legged"}})
-    dog = next(c for c in s["report"]["components"] if c["id"] == "dog")
-    assert "physical actuator" in dog["connection"] and s["report"]["status"] == "READY"
+def test_mobile_base_is_documented_not_driven(ch):
+    s = ch.add_component({"id": "base", "type": "mobile_base", "name": "Mobile base", "driver": "external",
+                          "spec": {"kind": "wheeled"}})
+    base = next(c for c in s["report"]["components"] if c["id"] == "base")
+    assert "physical actuator" in base["connection"] and s["report"]["status"] == "READY"
 
 
 def test_v1_hardware_yaml_is_migrated(repo):

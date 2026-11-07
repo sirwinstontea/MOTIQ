@@ -39,11 +39,11 @@ export function deviceOf(_doc: Pick<SkillDoc, 'robot'>): Device {
   return 'arm';
 }
 
-// A skill made for another robot (the old robot dog, or anything not the arm): never run it as an arm skill.
+// A skill made for another robot: never run it as an arm skill.
 export function foreignRobot(doc: unknown): string | null {
   const r = (doc as Partial<SkillDoc> | null)?.robot as { device?: string; model?: string } | undefined;
   if (r?.device && r.device !== 'arm') return r.device;
-  return /dog/i.test(r?.model ?? '') ? 'dog' : null;
+  return null;
 }
 
 // the skill's own primitive list if it has one, otherwise the robot profile's
@@ -154,7 +154,7 @@ export function realArmProblems(doc: SkillDoc): string[] {
 
 // "Run on real arm" while the PC stack is SIM=1: the PHYSICAL UR5e only does what it can on its own (camera + wrist
 // force sensor): look, locate, touch, push, small steps, joints. It has no gripper, and the controller (pick, place,
-// home, move above) drives the simulation only -> those skills run in RoboDK.
+// home, move above) drives the simulation only -> those skills run in the PyBullet sim.
 // (HOME is skipped on the real arm, see runner.ts: its locate / touch / push already go back to where they started)
 const PHYSICAL_ONLY_PRIMITIVES = REAL_ARM_PRIMITIVES.filter((p) => !['MOVE_ABOVE', 'OPEN_GRIPPER'].includes(p));
 export function physicalArmProblems(doc: SkillDoc): string[] {
@@ -163,14 +163,14 @@ export function physicalArmProblems(doc: SkillDoc): string[] {
     if (s.action === 'DETECT' || s.action === 'OVERVIEW') return;
     if (s.action === 'VERIFY') {
       if (doc.steps.slice(0, i).some((p) => p.action === 'PLACE'))
-        out.push(`Step ${i + 1}: checking a place needs pick and place, which run in RoboDK only.`);
+        out.push(`Step ${i + 1}: checking a place needs pick and place, which run in the simulation only.`);
       return;
     }
     if (['VISIT', 'TOUCH', 'PUSH'].includes(s.action) || s.physical_tool === 'ur_down_up' || s.physical_tool === 'ur_go_to_pose')
       return;
     if (['PICK', 'PLACE', 'SHAKE'].includes(s.action))
       return void out.push(
-        `Step ${i + 1}: ${s.action.toLowerCase()} runs in RoboDK only (the real arm has no gripper). ` +
+        `Step ${i + 1}: ${s.action.toLowerCase()} runs in the simulation only (the real arm has no gripper). ` +
           'On the real arm: locate, touch, push, small steps and joint moves.',
       );
     const bad = [
@@ -179,7 +179,7 @@ export function physicalArmProblems(doc: SkillDoc): string[] {
     if (bad.length || !s.primitive_sequence?.length)
       out.push(
         `Step ${i + 1}: ${bad.length ? bad.map((p) => p.toLowerCase().replace(/_/g, ' ')).join(', ') : s.action.toLowerCase()} ` +
-          'runs in RoboDK only. On the real arm: locate, touch, push, small steps and joint moves.',
+          'runs in the simulation only. On the real arm: locate, touch, push, small steps and joint moves.',
       );
   });
   return out;
@@ -188,13 +188,13 @@ export function physicalArmProblems(doc: SkillDoc): string[] {
 // ---------- safety gates ----------
 
 // why the skill may not move a real robot, or null
-// roboDK: the bridge runs SIM=1 (URSim + RoboDK, the physical arm is never used), so no real-robot approval is
+// sim: the bridge runs SIM=1 (the PyBullet cell, the physical arm is never used), so no real-robot approval is
 // needed; the bridge still refuses if it is in fact on the physical arm (X-Require-Sim)
-export function physicalBlock(doc: SkillDoc, real: boolean, roboDK = false): string | null {
+export function physicalBlock(doc: SkillDoc, real: boolean, inSim = false): string | null {
   if (!real) return null;
   const arm = realArmProblems(doc);
   if (arm.length) return `${arm[0]} Edit the skill (or ask Grok to change it) to run it on the arm.`;
-  if (fullAccess() || roboDK) {
+  if (fullAccess() || inSim) {
     // operator turned on full access: no per-skill approval, but a broken skill still doesn't run
     const errs = validateSkill(doc).errors;
     return errs.length ? `the skill has errors: ${errs[0]}` : null;
@@ -547,13 +547,13 @@ const PUSH_DIRECTION: Record<string, string> = {
   white_bucket_lid_04: 'sideways, away from the screw',
 };
 
-// Simulation first: robot_controller runs it in RoboDK / URSim on the object's taught push path. The path is a
+// Simulation first: robot_controller runs it in PyBullet on the object's taught push path. The path is a
 // placeholder for the demo station; teach it on the real table before running it on the physical arm.
 const push = (oid: string) =>
   makeSkill({
     id: `arm_push_${oid}`,
     name: `Push the ${objName(oid)}`,
-    description: `Real arm: the camera finds the ${objName(oid)}, the arm comes down beside it until it feels the table (force sensor), pushes it 5 cm ${PUSH_DIRECTION[oid]}, lifts and goes back (needs the touch offset taught once). SIM=1: RoboDK / URSim on the taught push path.`,
+    description: `The arm comes down beside the ${objName(oid)}, pushes it 5 cm ${PUSH_DIRECTION[oid]}, lifts and goes home. Run sim uses the taught path in the PyBullet cell.`,
     device: 'arm',
     icon: 'arrow-forward-circle-outline',
     builtin: true,
@@ -572,15 +572,15 @@ const push = (oid: string) =>
     ],
   });
 
-// Simulation only (the real UR5e has no gripper): RoboDK / URSim via robot_controller. PICK reads the screw's real
-// pose from the RoboDK station; PLACE blue_bucket_01 -> the bridge's blue_bucket_01_inside destination. The
+// Simulation only (the real UR5e has no gripper): PyBullet via robot_controller. PICK uses the screw's
+// pose in the cell; PLACE blue_bucket_01 -> the bridge's blue_bucket_01_inside destination. The
 // primitive_sequences are what the app's own simulator runs.
 const screwInBucket: SkillDoc = (() => {
   const doc = makeSkill({
     id: 'arm_sim_screw_in_bucket',
     name: 'Put the orange screw in the blue bucket',
     description:
-      'Simulation (RoboDK / URSim): the arm picks up the orange screw, drops it inside the blue bucket, checks it was released there and goes home. The real arm has no gripper, so this runs in RoboDK only.',
+      'Run sim: the arm picks up the orange screw, drops it inside the blue bucket, checks it was released there and goes home.',
     device: 'arm',
     icon: 'cube-outline',
     builtin: true,

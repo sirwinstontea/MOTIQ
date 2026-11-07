@@ -12,5 +12,5 @@
 | `primitives.py` | UR5e primitive catalog from `skill_pick_place_ur5e.json` |
 | `library.py` | Skill persistence and recursive expansion |
 | `validator.py` | Checks an expanded sequence against robot rules and limits |
-| [`executors/`](executors) | Mock and RoboDK execution |
+| [`executors/`](executors) | Mock and PyBullet execution |
 | `requirements.txt` | Dependencies |

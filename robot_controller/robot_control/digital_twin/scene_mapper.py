@@ -10,7 +10,7 @@ none updated), confidence, depth-valid ratio and depth points.
 
 Outcome per registered object: `valid` (update marker), `invalid` (keep last marker, mark STALE with a reason),
 `not_visible` (not in this view; never interpreted as "gone from the workspace"), `ambiguous`.
-Unknown labels are reported separately and never turned into RoboDK item names.
+Unknown labels are reported separately and never turned into PyBullet item names.
 """
 from __future__ import annotations
 

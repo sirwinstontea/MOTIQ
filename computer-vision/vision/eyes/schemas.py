@@ -78,22 +78,12 @@ class EyeObject(BaseModel):
         return (x + w / 2.0, y + h / 2.0)
 
 
-class DogTelemetry(BaseModel):
-    """Valori per l'inseguimento visivo del cane robot."""
-    target_id: int | None = None
-    target_visible: bool = False
-    error_x: float = Field(default=0.0, ge=-1.0, le=1.0, description="Errore orizzontale [-1=sinistra, 0=centro, +1=destra]")
-    error_y: float = Field(default=0.0, ge=-1.0, le=1.0, description="Errore verticale [-1=alto, 0=centro, +1=basso]")
-    bbox_height: float = Field(default=0.0, ge=0.0, le=1.0, description="Altezza normalizzata del riquadro (stima vicinanza)")
-
-
 class FramePayload(BaseModel):
     """Messaggio JSON completo emesso a ogni frame per App, Robotica e Visione B."""
     source: str
     frame_id: int
     ts: float
     objects: list[EyeObject] = Field(default_factory=list)
-    dog_telemetry: DogTelemetry | None = None
     safety_stop: bool = False
     safety_reason: str | None = None
 

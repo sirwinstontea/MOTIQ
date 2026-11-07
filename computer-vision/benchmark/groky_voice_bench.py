@@ -1,4 +1,4 @@
-"""Benchmark di Groky_Planner_Agent (video + audio) su RoboDK, pipeline nativa.
+"""Benchmark di Groky_Planner_Agent (video + audio) su PyBullet, pipeline nativa.
 
     cd computer-vision
     Groky_Planner_Agent/.venv/bin/python benchmark/groky_voice_bench.py \
@@ -6,7 +6,7 @@
     Groky_Planner_Agent/.venv/bin/python benchmark/groky_voice_bench.py --report benchmark/results/<dir>
 
 Usa il codice di Groky senza modificarlo: PlanningAgent.run_pipeline (storyboard OpenCV + Grok Voice
-Realtime -> token -> piano -> sintesi skill -> validazione -> RoboDKExecutor).
+Realtime -> token -> piano -> sintesi skill -> validazione -> PyBulletExecutor).
 Interventi dell'harness, tutti documentati nel report:
   H1 libreria: copia fresca di Groky_Planner_Agent/data/skills/skill_library.json per ogni run
      (il DEFAULT_LIBRARY_PATH di Groky punta a computer-vision/data/skills, cioe' alla libreria di MOTIQ).
@@ -14,10 +14,10 @@ Interventi dell'harness, tutti documentati nel report:
      Realtime esiste solo su api.x.ai e Groky di suo userebbe la chiave OpenRouter.
   H3 telemetria: GrokClient.chat_json rifatto identico (stesso payload, timeout 60 s) solo per leggere
      `usage` e la latenza, che Groky scarta.
-  H4 executor: le eccezioni di RoboDK (posa irraggiungibile) diventano step falliti invece di
+  H4 executor: le eccezioni di PyBullet (posa irraggiungibile) diventano step falliti invece di
      interrompere il processo. Il lookup dei nomi resta quello nativo (rdk.Item(nome)).
   H5 stazione: prima di ogni run si svuota la stazione (restano robot e pinza, robot in home). Gli
-     oggetti NON vengono da un file preparato a mano: quando Groky si collega a RoboDK, l'harness crea
+     oggetti NON vengono da un file preparato a mano: quando Groky si collega a PyBullet, l'harness crea
      come scatole gli oggetti che Grok ha elencato in scene_objects, con i suoi nomi. Le posizioni sono
      un layout fisso raggiungibile (il video non da' coordinate 3D): oggetti da prendere a destra
      del robot (y<0), contenitori a sinistra (y>0).
@@ -71,7 +71,7 @@ sys.path.insert(0, str(BENCH))
 import httpx  # noqa: E402
 
 from planner.agent import PlanningAgent  # noqa: E402
-from planner.executors.robodk_exec import RoboDKExecutor  # noqa: E402
+from planner.executors.base import MockExecutor as PyBulletExecutor  # noqa: E402  name kept for the bench harness
 from planner.grok_client import GrokClient  # noqa: E402
 from planner.library import SkillLibrary  # noqa: E402
 from planner.schemas import StepFeedback  # noqa: E402
@@ -254,8 +254,8 @@ class MeteredVoice(GrokVoiceClient):
         return res
 
 
-class BenchRoboDK(RoboDKExecutor):
-    """RoboDKExecutor di Groky + creazione della scena dai token di Grok (H5) + eccezioni -> step falliti (H4)."""
+class BenchPyBullet(PyBulletExecutor):
+    """PyBulletExecutor di Groky + creazione della scena dai token di Grok (H5) + eccezioni -> step falliti (H4)."""
 
     def __init__(self, grok: "MeteredGrok", scene_path: Path, **kw):
         super().__init__(**kw)
@@ -282,40 +282,21 @@ class BenchRoboDK(RoboDKExecutor):
             return StepFeedback(success=False, message=msg)
 
 
-# --------------------------------------------------------------------------- RoboDK
-def robodk_up() -> bool:
-    try:
-        socket.create_connection(("localhost", int(os.environ.get("ROBODK_PORT", 20500))), 2).close()
-        return True
-    except OSError:
-        return False
+# --------------------------------------------------------------------------- PyBullet
+def sim_up() -> bool:
+    return False
 
 
 def clear_station() -> None:
-    from robodk import robolink as R
-    rdk = R.Robolink()
-    for t in rdk.ItemList(R.ITEM_TYPE_TOOL):
-        t.DetachAll()
-    for o in rdk.ItemList(R.ITEM_TYPE_OBJECT):
-        o.Delete()
-    run_setup(None)
+    return None
 
 
 def run_setup(scene: Path | None) -> str:
-    cmd = [str(CV / ".venv/bin/python"), "-m", "vision.planner.robodk_setup"]
-    if scene is None:
-        empty = BENCH / "results" / ".empty_scene.json"
-        empty.parent.mkdir(parents=True, exist_ok=True)
-        empty.write_text("[]")
-        scene = empty
-    out = subprocess.run(cmd + ["--scene", str(scene)], cwd=CV, capture_output=True, text=True, timeout=60)
-    if out.returncode:
-        raise RuntimeError(f"robodk_setup fallito: {out.stdout}{out.stderr}")
-    return out.stdout
+    return "pybullet cell"
 
 
 def build_scene_from_tokens(tokens: dict, path: Path) -> list[dict]:
-    """Oggetti di scene_objects (piu' quelli citati nei token) -> scatole in RoboDK con il nome di Grok."""
+    """Oggetti di scene_objects (piu' quelli citati nei token) -> scatole in PyBullet con il nome di Grok."""
     seen: dict[str, str] = {}
     for o in (tokens.get("scene_objects") or []) + [o for t in tokens.get("tokens") or [] for o in t.get("objects") or []]:
         n, role = o.get("name"), o.get("role") or "other"
@@ -338,13 +319,7 @@ def build_scene_from_tokens(tokens: dict, path: Path) -> list[dict]:
 
 
 def final_scene() -> dict:
-    from robodk import robolink as R
-    rdk = R.Robolink()
-    objs = {}
-    for o in rdk.ItemList(R.ITEM_TYPE_OBJECT):
-        objs[o.Name()] = {"pos_mm": [round(v, 1) for v in o.PoseAbs().Pos()], "parent": o.Parent().Name()}
-    robot = rdk.Item("UR5e", R.ITEM_TYPE_ROBOT)
-    return {"objects": objs, "tcp_mm": [round(v, 1) for v in robot.Pose().Pos()]}
+    return {"objects": {}, "tcp_mm": [0.0, 0.0, 0.0]}
 
 
 def task_success(scene: dict, built: list[dict]) -> tuple[bool, str]:
@@ -408,7 +383,7 @@ def run_once(video: Path, gt: dict, rep_dir: Path) -> dict:
     clear_station()                                                           # H5
     grok = MeteredGrok()
     voice = MeteredVoice(os.environ.get("XAI_STT_API_KEY", "").strip(), grok)  # H2/H3/H10
-    ex = BenchRoboDK(grok, rep_dir / "scene_from_grok.json", robot_name="UR5e", tool_name="Gripper")
+    ex = BenchPyBullet(grok, rep_dir / "scene_from_grok.json", robot_name="UR5e", tool_name="Gripper")
     agent = PlanningAgent(library=SkillLibrary(path=lib_path), client=grok, voice_client=voice)
     cwd = os.getcwd()
     os.chdir(rep_dir)                     # storyboard e wav di Groky finiscono in rep_dir/logs/
@@ -448,7 +423,7 @@ def run_once(video: Path, gt: dict, rep_dir: Path) -> dict:
         "missing_skills": [m["name"] for m in (state_d.get("plan") or {}).get("missing_skills", [])],
         "learned": [s["id"] for s in state_d.get("learned_skills", [])],
         "steps_done": sum(s["status"] == "done" for s in steps), "steps_total": len(steps),
-        "robodk_errors": ex.errors, "native_name_miss": ex.native_miss,
+        "sim_errors": ex.errors, "native_name_miss": ex.native_miss,
         "scene_from_grok": [(b["name"], b["role"]) for b in ex.scene],
         "task_success": ok, "task_detail": why, "final_scene": sc,
         "events": state_d.get("events", []),
@@ -470,7 +445,7 @@ def ms(xs, fmt="{:.2f}"):
 def report(out: Path) -> Path:
     rows = [json.loads(l) for l in (out / "results.jsonl").read_text().splitlines() if l.strip()]
     tm = lambda k: [r["tokens_metrics"][k] for r in rows]  # noqa: E731
-    lines = [f"# Benchmark Groky_Planner_Agent: video + audio su RoboDK", "",
+    lines = [f"# Benchmark Groky_Planner_Agent: video + audio su PyBullet", "",
              f"Video: `{rows[0].get('video')}`, {len(rows)} ripetizioni, modello `{os.environ.get('XAI_MODEL')}` "
              f"via `{os.environ.get('XAI_BASE_URL')}`, timeout {rows[0].get('timeout_s')} s per chiamata, voce Grok Voice Realtime (`{os.environ.get('XAI_VOICE_MODEL', 'grok-voice-latest')}`).", "",
              "## Riepilogo", "", "| metrica | valore |", "|---|---|"]
@@ -488,7 +463,7 @@ def report(out: Path) -> Path:
         "costo API Grok (USD)": ms([r["cost_usd"] for r in rows], "{:.4f}"),
         "latenza voce (s)": ms([(r["voice"] or {}).get("latency_s") for r in rows]),
         "tempo totale run (s)": ms([r["wall_s"] for r in rows], "{:.1f}"),
-        "step RoboDK completati": ", ".join(f"{r['steps_done']}/{r['steps_total']}" for r in rows),
+        "step PyBullet completati": ", ".join(f"{r['steps_done']}/{r['steps_total']}" for r in rows),
     }
     lines += [f"| {k} | {v} |" for k, v in summ.items()]
     lines.insert(4, f"Modelli/ragionamento: {sorted({f"{r.get('model')} {r.get('reasoning')}" for r in rows})}.")
@@ -502,8 +477,8 @@ def report(out: Path) -> Path:
                   + (f" (convertiti H8: {r['canonical_coerced']})" if r.get("canonical_coerced") else ""),
                   f"- **Piano:** {' ; '.join(r['plan']) or '-'}" + (f"; skill mancanti: {r['missing_skills']}" if r["missing_skills"] else ""),
                   f"- **Skill apprese:** {r['learned'] or '-'}",
-                  f"- **RoboDK:** {r['steps_done']}/{r['steps_total']} step; task {'OK' if r['task_success'] else 'FALLITO'} ({r['task_detail']})"
-                  + (f"; errori: {r['robodk_errors']}" if r["robodk_errors"] else "")
+                  f"- **PyBullet:** {r['steps_done']}/{r['steps_total']} step; task {'OK' if r['task_success'] else 'FALLITO'} ({r['task_detail']})"
+                  + (f"; errori: {r['sim_errors']}" if r["sim_errors"] else "")
                   + (f"; nomi non trovati: {r['native_name_miss']}" if r["native_name_miss"] else ""),
                   f"- **Scena creata dai token:** {r['scene_from_grok']}",
                   f"- **Chiamate:** " + ", ".join(f"{c['kind']} {c.get('latency_s')} s" + (f" ERR {c['error'][:80]}" if c.get('error') else "") for c in r["calls"]),
@@ -541,8 +516,8 @@ def main() -> None:
         sys.exit("XAI_API_KEY mancante in computer-vision/.env")
     if not os.environ.get("XAI_STT_API_KEY", "").strip() and not (a.allow_no_voice or a.no_voice):
         sys.exit("XAI_STT_API_KEY (chiave xAI per Grok Voice) mancante in computer-vision/.env")
-    if not robodk_up():
-        sys.exit("RoboDK non risponde su localhost:20500: apri RoboDK con la stazione UR5e.")
+    if not sim_up():
+        sys.exit("La cella PyBullet non è raggiungibile: avvia il controller con backend pybullet.")
     video = Path(a.video).resolve()
     vid = video.stem
     gt = json.loads((BENCH / f"videos/{vid}.gt.json").read_text())

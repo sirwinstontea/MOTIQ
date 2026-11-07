@@ -3,7 +3,6 @@ pydantic>=2
 httpx>=0.27
 numpy>=1.26
 python-dotenv>=1
-robodk>=5.9
 # ffmpeg: usa quello di sistema (brew install ffmpeg) se presente, altrimenti il binario di imageio-ffmpeg
 imageio-ffmpeg>=0.5
 pytest>=8

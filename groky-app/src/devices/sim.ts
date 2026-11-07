@@ -17,6 +17,5 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function simulate(id: DeviceId, name: string, args: Record<string, unknown>): Promise<ToolResult> {
   await wait(400 + Math.random() * 600);
-  if (name === 'look') return { ok: true, sim: true, seen: 'a table with an old Commodore 64 and a keyboard' };
   return { ok: true, sim: true, device: id, did: name, args };
 }

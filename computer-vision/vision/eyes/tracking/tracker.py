@@ -245,7 +245,7 @@ class ObjectTracker:
         color_labels: dict[str, str] | None = None,
     ):
         # Solo con il rilevatore mock (per colore): colore italiano -> etichetta, es. {"arancione": "vite_arancione"}.
-        # Serve in simulazione (RoboDK), dove YOLO non riconosce gli oggetti renderizzati, e per il cubo rosso di prova.
+        # Serve in simulazione (PyBullet), dove YOLO non riconosce gli oggetti renderizzati, e per il cubo rosso di prova.
         self.color_labels = {k.lower(): v for k, v in (color_labels or {}).items()}
         self.model_name = model_name or os.getenv("YOLO_MODEL", str(DEFAULT_MODEL))
         self.conf_threshold = conf_threshold
@@ -270,6 +270,9 @@ class ObjectTracker:
         if not self.use_mock:
             # 1. Prova prima con Ultralytics YOLO se presente
             try:
+                from vision.boot import load_torchvision
+
+                load_torchvision()
                 from ultralytics import YOLO  # type: ignore
 
                 self._yolo_model = YOLO(self.model_name)

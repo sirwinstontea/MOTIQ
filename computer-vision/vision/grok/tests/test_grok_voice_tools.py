@@ -64,11 +64,11 @@ def test_describe_and_verify(state):
 
 
 def test_verify_without_action(state):
-    r = dispatch("verify_last_action", {"source": "dog"}, state)
+    r = dispatch("verify_last_action", {"source": "missing"}, state)
     assert not r["ok"] and r["say"]
 
 
-@pytest.mark.parametrize("name, args", [("boh", {}), ("list_objects", "non json"), ("list_objects", {"source": "dog"})])
+@pytest.mark.parametrize("name, args", [("boh", {}), ("list_objects", "non json"), ("list_objects", {"source": "missing"})])
 def test_errors_never_raise(state, name, args):
     r = dispatch(name, args, state)
     assert not r["ok"] and r["say"] and r["error"]

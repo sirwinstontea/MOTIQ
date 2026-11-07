@@ -22,6 +22,6 @@ fields:
 drivers:
   - id: controller_symbolic
     description: robot_controller simulates grasp/release (no device)
-    connects_via: robot_controller (mock / robodk_sim backends)
+    connects_via: robot_controller (mock / pybullet backends)
     physical: false
     actuates: false

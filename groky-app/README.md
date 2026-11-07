@@ -1,6 +1,6 @@
 # groky-app
 
-The MOTIQ client: a React Native app, run in Expo Go on a tablet or phone. You talk to **Motion**, a Grok Voice agent that drives a robot arm and a robot dog, looks through cameras to check its work, and saves tasks as skills.
+The MOTIQ client: a React Native app, run in Expo Go on a tablet or phone. You talk to **Motion**, a Grok Voice agent that drives a robot arm, looks through cameras to check its work, and saves tasks as skills.
 
 Built with Expo SDK 58, React Native 0.88, React 19 and TypeScript.
 
@@ -15,7 +15,7 @@ npx expo start            # scan the QR code with Expo Go
 npx expo start --tunnel   # on venue Wi-Fi
 ```
 
-With no robot URLs set, the arm and dog are simulated, so the whole app can be demoed without hardware. After changing `.env`, restart with `npx expo start -c`.
+With no robot URL set, the arm is simulated, so the whole app can be demoed without hardware. After changing `.env`, restart with `npx expo start -c`.
 
 Backend URLs must use the robot PC's **LAN IP**. `http://127.0.0.1` from Expo Go is the phone itself. Variables are listed in [`.env.example`](.env.example) and the [root README](../README.md#configuration).
 
@@ -49,7 +49,7 @@ flowchart LR
 
 Audio is 24 kHz PCM. Replies start playing while they stream in. The mic is off while Motion speaks so it can't hear itself, so use the stop button to interrupt. Hearing uses `grok-transcribe` with automatic language detection. `EXPO_PUBLIC_GROK_LANGUAGE_HINT` overrides it.
 
-Grok sees one flat tool list: `dog_*`, `arm_*`, `stop`, `camera_look`, `propose_plan`, `set_full_access`, `run_skill`, `edit_skill`, plus `vision_*` tools when the vision server is set.
+Grok sees one flat tool list: `arm_*`, `stop`, `camera_look`, `propose_plan`, `set_full_access`, `run_skill`, `edit_skill`, plus `vision_*` tools when the vision server is set.
 
 ### Arm approval
 
@@ -59,7 +59,7 @@ Full access is on at every start, which lets Motion run saved skills without Ski
 
 ## Skills
 
-Skills use the MOTIQ skill format, schema 1.1.0. [`pick_place_ur5e.json`](src/skills/templates/pick_place_ur5e.json) is the reference, and the arm's tools and limits are read straight from it. The app adds `robot.device` (`arm` or `dog`) and an `app` block. A skill file made for another robot is refused when run as an arm skill.
+Skills use the MOTIQ skill format, schema 1.1.0. [`pick_place_ur5e.json`](src/skills/templates/pick_place_ur5e.json) is the reference, and the arm's tools and limits are read straight from it. The app adds `robot.device` (`arm`) and an `app` block. A skill file made for another robot is refused.
 
 | Stage | How it works |
 |---|---|
@@ -90,7 +90,7 @@ Each robot sits behind a small HTTP server, so the app doesn't care which SDK dr
 | `POST /tools/stop` | Must always work and return fast |
 | `GET /camera.jpg` | Optional. Shows up as a camera automatically. |
 
-Requests carry `X-Bridge-Key` when one is set. Tool names and arguments are in [`tools.ts`](src/devices/tools.ts). Replies can include `tcp_pose`, `joints_deg` and `object_detected`, so the app tracks the real arm instead of its prediction. The arm implementation is [`robot_controller/bridge/`](../robot_controller/bridge). The dog bridge is not in this repository.
+Requests carry `X-Bridge-Key` when one is set. Tool names and arguments are in [`tools.ts`](src/devices/tools.ts). Replies can include `tcp_pose`, `joints_deg` and `object_detected`, so the app tracks the real arm instead of its prediction. The arm implementation is [`robot_controller/robot_control/arm_bridge.py`](../robot_controller/robot_control/arm_bridge.py).
 
 ## Code map
 
@@ -123,5 +123,4 @@ npm run test:voice     # multilingual hearing and yes/no checks, no Expo runtime
 - The mic is ignored while Motion talks, so you can't interrupt by voice.
 - `EXPO_PUBLIC_XAI_API_KEY` is bundled into the app. Use it on your own devices only.
 - The token endpoint's response format isn't documented. `src/voice/token.ts` accepts the likely shapes.
-- The dog profile is a placeholder until its hardware is confirmed.
 - Web works for development, but Expo Go on a device is the supported client.

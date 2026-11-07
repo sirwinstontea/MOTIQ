@@ -12,7 +12,7 @@ run_server.bat
 
 - Camera: la RealSense collegata in USB-C (colore + profondità) se c'è, se no la webcam del portatile.
   Per forzarla: `--mode realsense`, `--mode webcam --device 0`; `--mode synthetic` = scena finta, senza camera.
-- Solo la sorgente `arm`; `dog` si aggiunge con `--dog-target <indice o stream>`.
+- Sorgente `arm` (e `webcam` se la camera del PC è accesa).
 - Indirizzo base: `http://<IP-del-PC>:8000` (l'IP lo trovate con `ipconfig`, stessa Wi-Fi). Se dal telefono
   non risponde, è il firewall di Windows: va permesso Python sulla rete privata.
 - Prova veloce: `GET /health` → `{"ok": true, "sources": ["arm"]}`.
@@ -21,7 +21,7 @@ run_server.bat
 
 ## 2. Endpoint
 
-`source` è sempre `"arm"` (camera del braccio) o `"dog"` (cane robot).
+`source` è `"arm"` (camera del braccio) o `"webcam"` (camera del PC).
 
 | Metodo | Percorso | Cosa fa |
 |---|---|---|
@@ -31,7 +31,6 @@ run_server.bat
 | `GET` | `/frame/{source}.jpg?raw=false` | Un solo fotogramma JPEG |
 | `WS` | `/ws/objects/{source}?hz=15` | `FramePayload` continuo (default 15 al secondo) |
 | `GET` | `/state/{source}` | Un solo `FramePayload` |
-| `POST` | `/dog/target` | `{target_id?, target_label?}` → il cane insegue quell'oggetto |
 | `POST` | `/action/{source}/start` | `{action, target_id, destination_id?}`: segna lo stato "prima" dell'azione del robot |
 | `POST` | `/action/{source}/verify_local` | Confronta prima/dopo: l'oggetto è sparito / arrivato? |
 | `POST` | `/calibration/{source}/reset`, `/sample`, `/solve`, `/look_pose` | Calibrazione della camera sul braccio dall'app (skill, vedi `calibration_skill/README.md`): non muovono mai il robot |
@@ -43,7 +42,7 @@ run_server.bat
 ## 3. Tipi TypeScript
 
 ```ts
-export type Source = "arm" | "dog";
+export type Source = "arm" | "webcam";
 
 /** [x, y, w, h] normalizzati 0..1, (x, y) = angolo in alto a sinistra. Moltiplicate per la larghezza/altezza del video. */
 export type BBox = [number, number, number, number];
@@ -63,20 +62,11 @@ export interface VisionObject {
   yaw_base_deg: number | null;                  // asse lungo attorno a Z base, [-90, 90]; null se rotondo
 }
 
-export interface DogTelemetry {
-  target_id: number | null;
-  target_visible: boolean;
-  error_x: number;     // -1 sinistra .. 0 centro .. +1 destra
-  error_y: number;     // -1 alto .. +1 basso
-  bbox_height: number; // 0..1, più grande = più vicino
-}
-
 export interface FramePayload {
   source: Source;
   frame_id: number;
   ts: number;          // secondi Unix
   objects: VisionObject[];
-  dog_telemetry: DogTelemetry | null; // solo per "dog" con un target impostato
   safety_stop: boolean;
   safety_reason: string | null;
 }
@@ -124,11 +114,6 @@ ws.onmessage = (e) => {
   // frame.objects -> lista / overlay cliccabile (bbox * dimensioni dell'<img>)
 };
 
-// Il cane insegue l'oggetto 3
-await fetch(`${BASE}/dog/target`, {
-  method: "POST", headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ target_id: 3 }),
-});
 ```
 
 ### Grok Voice (realtime)
@@ -198,14 +183,12 @@ return [...grokTools(), lookTool, ...this.visionTools, ...(list.length ? [skillT
 {"source": "arm", "frame_id": 3, "ts": 1793787986.08,
  "objects": [{"id": 1, "label": "box", "name": null, "conf": 0.87, "bbox": [0.7188, 0.5208, 0.1266, 0.1479],
               "color": "verde", "coords_mm": null, "distance_m": 1.2}],
- "dog_telemetry": null, "safety_stop": false, "safety_reason": null}
+ "safety_stop": false, "safety_reason": null}
 
 // POST /voice/dispatch {"name": "select_object", "arguments": {"source": "arm", "description": "il numero 1"}}
 {"source": "local", "latency_ms": 0.6, "ok": true, "id": 1, "destination_id": null, "action": "none",
  "say": "Ho selezionato box verde."}
 
-// GET /state/dog (dopo POST /dog/target {"target_id": 1})
-{"dog_telemetry": {"target_id": 1, "target_visible": true, "error_x": 0.5642, "error_y": 0.1895, "bbox_height": 0.1479}}
 ```
 
 ## 6. Cosa ancora non c'è
@@ -312,45 +295,45 @@ sembrano valide:
 3. Vite e secchio **lontani dai bordi** dell'immagine: un oggetto tagliato dà `object_partially_visible`.
 4. Il braccio non deve fare ombra né entrare nell'inquadratura.
 
-Dopo la calibrazione, `calibrate-look-pose` stampa il rettangolo di tavolo inquadrato (X e Y in mm nel base). In RoboDK
-lo stampa `robodk-check` per la posa in cui si trova il robot, e dice se ogni oggetto è dentro o fuori.
+Dopo la calibrazione, `calibrate-look-pose` stampa il rettangolo di tavolo inquadrato (X e Y in mm nel base). In PyBullet
+lo stampa `pybullet-check` per la posa in cui si trova il robot, e dice se ogni oggetto è dentro o fuori.
 
-### Simulazione in RoboDK (senza robot vero, sola lettura)
+### Simulazione in PyBullet (senza robot vero, sola lettura)
 
-Serve RoboDK 5.4.3 o successivo avviato con la stazione UR5e. Il pacchetto Python `robodk` c'è già nell'installazione
-di RoboDK: basta `set PYTHONPATH=C:\RoboDK\Python` prima dei comandi (oppure `pip install robodk`). La visione **non
-muove mai il robot**: lo si sposta a mano nella finestra di RoboDK. La camera simulata è una D435 (640×480, campo
-verticale 42°) montata sulla flangia con `--robodk-mount "x,y,z,rx,ry,rz"` (mm, rad; di default 7 cm di lato e 3 cm
+Serve PyBullet 5.4.3 o successivo avviato con la stazione UR5e. Il pacchetto Python `pybullet` c'è già nell'installazione
+di PyBullet: basta `set PYTHONPATH=C:\PyBullet\Python` prima dei comandi (oppure `pip install pybullet`). La visione **non
+muove mai il robot**: lo si sposta a mano nella finestra di PyBullet. La camera simulata è una D435 (640×480, campo
+verticale 42°) montata sulla flangia con `--pybullet-mount "x,y,z,rx,ry,rz"` (mm, rad; di default 7 cm di lato e 3 cm
 avanti). Visto che YOLO non riconosce gli oggetti renderizzati, gli oggetti si riconoscono per colore con
 `--color-labels "arancione=vite_arancione,blu=secchio_blu"`.
 
 1. Nella stazione aggiungete una vite arancione e un secchio blu sul tavolo, con lo stesso nome dell'etichetta
    (`vite_arancione`, `secchio_blu`).
-2. Spostate il robot in una posa di osservazione candidata (nella finestra di RoboDK) e lanciate
-   `python -m vision.eyes.cli robodk-check`. Stampa dove si trova la camera, il rettangolo di tavolo inquadrato e se
+2. Spostate il robot in una posa di osservazione candidata (nella finestra di PyBullet) e lanciate
+   `python -m vision.eyes.cli pybullet-check`. Stampa dove si trova la camera, il rettangolo di tavolo inquadrato e se
    vite e secchio sono dentro. Ripetete finché la posa va bene: è il modo più rapido per **definire la posa di
    osservazione** prima di provarla sul braccio vero.
-3. `robodk-check --save-truth` salva come calibrazione la posa vera della camera, che RoboDK conosce. Così si prova la
+3. `pybullet-check --save-truth` salva come calibrazione la posa vera della camera, che PyBullet conosce. Così si prova la
    catena profondità → base anche senza il foglio ArUco nella scena.
-4. `robodk-check --record-empty` registra il tavolo vuoto, nascondendo un attimo gli oggetti, poi confronta ogni
-   `/locate` con la posizione vera di RoboDK (errore XY in mm; la Z di RoboDK è l'origine del CAD, non la cima). Bene
+4. `pybullet-check --record-empty` registra il tavolo vuoto, nascondendo un attimo gli oggetti, poi confronta ogni
+   `/locate` con la posizione vera di PyBullet (errore XY in mm; la Z di PyBullet è l'origine del CAD, non la cima). Bene
    se l'errore XY sta sotto i 5 mm. Senza tavolo vuoto le maschere usano GrabCut, che sugli oggetti grandi e uniformi
    (il secchio) può fallire con `invalid_depth`: registrate sempre il tavolo vuoto dalla posa di osservazione.
 5. Prova completa della calibrazione: mettete nella scena il foglio ArUco come immagine A4 sul tavolo e lanciate
-   `calibrate-look-pose --camera robodk`, con i centri dei marker nel base in `markers_mm.json`.
-6. Profondità di RoboDK verificata sulla 6.2: arriva via socket, è già la Z del piano e non è invertita. Se con un'altra
+   `calibrate-look-pose --camera pybullet`, con i centri dei marker nel base in `markers_mm.json`.
+6. Profondità di PyBullet verificata sulla 6.2: arriva via socket, è già la Z del piano e non è invertita. Se con un'altra
    versione il controllo del tavolo stampato da `calibrate-look-pose` è sbagliato di molto, provate
-   `--robodk-depth-invert` e/o `--robodk-depth-ray`.
+   `--pybullet-depth-invert` e/o `--pybullet-depth-ray`.
 
-**Risultato della prova del 4/11/2026 (RoboDK 6.2, UR5e, camera a 52 cm sopra il tavolo):** calibrazione dal foglio
+**Risultato della prova del 4/11/2026 (PyBullet 6.2, UR5e, camera a 52 cm sopra il tavolo):** calibrazione dal foglio
 ArUco con la camera stimata a meno di 1 mm da quella vera, riproiezione 0,81 px, tavolo dalla profondità a −0,1 mm.
 Vite: errore XY 2,6 mm. Secchio: 0,2 mm. Nella prima posa provata (flangia a 45 cm) la vite era fuori inquadratura e
 il secchio, alto 11,5 cm, veniva tagliato dal bordo (`object_partially_visible`). Per un oggetto alto serve una posa più
 alta o più centrata.
 
 Anche la hand-eye si prova in simulazione:
-`calibrate-hand-eye --camera robodk --tcp robodk`. La posa della flangia arriva da `SolveFK(Joints())`, senza TCP come
-chiede la specifica, e la `T_F_C` trovata si confronta con `--robodk-mount`.
+`calibrate-hand-eye --camera pybullet --tcp pybullet`. La posa della flangia arriva da `SolveFK(Joints())`, senza TCP come
+chiede la specifica, e la `T_F_C` trovata si confronta con `--pybullet-mount`.
 
 ### Cosa serve dalla parte del robot (robot_controller / bridge, non lo tocchiamo noi)
 

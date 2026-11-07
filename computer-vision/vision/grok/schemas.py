@@ -20,7 +20,7 @@ class TrackedObject(BaseModel):
 
 class Detections(BaseModel):
     """Messaggio completo di un frame: {"source", "frame_id", "ts", "objects"}."""
-    source: str                     # "arm" | "dog" | ...
+    source: str                     # "arm" | "webcam" | ...
     frame_id: int
     ts: float                       # unix time in secondi
     objects: list[TrackedObject]

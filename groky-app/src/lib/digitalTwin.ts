@@ -35,7 +35,7 @@ export type TwinStatus = {
     target_hz: number;
     q_deg: number[] | null;
     moving: boolean | null;
-    fk_consistency: { robodk_flange_vs_ur_nominal_dh_flange_mm: number; deg: number } | null;
+    fk_consistency: { sim_flange_vs_ur_nominal_dh_flange_mm: number; deg: number } | null;
   };
   camera: {
     source: string;
@@ -46,7 +46,7 @@ export type TwinStatus = {
     last_detail?: string | null;
     simulation?: boolean | null;
   };
-  robodk: { connected: boolean; station?: string; run_mode?: number; driver_state?: number; robot_item: string };
+  sim: { connected: boolean; station?: string; run_mode?: number; driver_state?: number; robot_item: string };
   alignment: { validated: boolean; validated_for: string | null };
   objects: {
     updated: number;
@@ -62,7 +62,7 @@ export type TwinStatus = {
 export type TwinCheck = {
   target: 'simulation' | 'physical';
   robot: { connected: boolean; source: string; q_deg?: number[]; moving?: boolean; reason?: string };
-  robodk: { ok: boolean; station?: string; status?: string; reason?: string };
+  sim: { ok: boolean; station?: string; status?: string; reason?: string };
   vision: { source: string; connected?: boolean; calibration_valid?: boolean | null; calibration_id?: string | null };
   alignment: { validated: boolean; validated_for: string | null };
   can_start_robot_only: boolean;

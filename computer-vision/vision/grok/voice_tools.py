@@ -28,8 +28,8 @@ from .tasks import describe_scene, select, verify_action
 
 SELECTION_PATH = Path("logs/selection.json")  # lo stesso file del demo, letto dal braccio
 
-_SOURCE = {"type": "string", "enum": ["arm", "dog"],
-           "description": "Telecamera da usare: arm = braccio robotico, dog = cane robot."}
+_SOURCE = {"type": "string", "enum": ["arm"],
+           "description": "Telecamera da usare: arm = braccio robotico."}
 
 # Formato Grok Voice: tool "piatti" (type/name/description/parameters).
 TOOLS = [

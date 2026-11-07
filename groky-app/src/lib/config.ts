@@ -7,14 +7,13 @@ const env = {
   // Optional BCP-47 hint for ASR (e.g. "it", "ja", "es-MX"). Empty = auto-detect all Grok Voice languages.
   // Spanish/Portuguese need a regional tag; bare "es" / "pt" are ignored by the API.
   languageHint: (process.env.EXPO_PUBLIC_GROK_LANGUAGE_HINT ?? '').trim(),
-  dogUrl: (process.env.EXPO_PUBLIC_DOG_URL ?? '').replace(/\/$/, ''),
   armUrl: (process.env.EXPO_PUBLIC_ARM_URL ?? '').replace(/\/$/, ''),
   bridgeKey: process.env.EXPO_PUBLIC_BRIDGE_KEY ?? '',
   visionModel: process.env.EXPO_PUBLIC_GROK_VISION_MODEL || 'grok-4.20-0309-non-reasoning',
   visionUrl: process.env.EXPO_PUBLIC_VISION_URL ?? '',
   // computer-vision server (../computer-vision/API_APP.md), used by DETECT for measured object positions
   visionServer: (process.env.EXPO_PUBLIC_VISION_SERVER ?? '').replace(/\/$/, ''),
-  // which vision sources to list as cameras (the server publishes 'arm', and 'dog' or 'webcam' when those cameras run)
+  // which vision sources to list as cameras (the server publishes 'arm', and 'webcam' when that camera runs)
   visionSources: (process.env.EXPO_PUBLIC_VISION_SOURCES || 'arm,webcam') as string,
   // teach server (../computer-vision/to-app/teach_server.py): demonstration video -> action tokens via vision/planner
   teachServer: (process.env.EXPO_PUBLIC_TEACH_SERVER ?? '').replace(/\/$/, ''),

@@ -186,8 +186,6 @@ def cmd_serve(a: argparse.Namespace) -> int:
     args = [venv_python(), "-m", "vision.eyes.cli", "run", "--port", str(a.port), "--host", a.host, "--mode", a.mode]
     if a.device is not None:
         args += ["--device", a.device]
-    if a.dog_target:
-        args += ["--dog-target", a.dog_target]
     args += a.extra
     ip = lan_ip()
     print(
@@ -241,9 +239,8 @@ def main() -> int:
     def serve_opts(sp: argparse.ArgumentParser) -> None:
         sp.add_argument("--port", type=int, default=8000)
         sp.add_argument("--host", default="0.0.0.0")
-        sp.add_argument("--mode", default="auto", choices=["auto", "realsense", "robodk", "webcam", "synthetic", "replay", "stream"])
+        sp.add_argument("--mode", default="auto", choices=["auto", "realsense", "pybullet", "webcam", "synthetic", "replay", "stream"])
         sp.add_argument("--device", default=None, help="webcam index (default 0)")
-        sp.add_argument("--dog-target", default=None, help="second camera (index or stream URL) to also publish as 'dog'")
         sp.add_argument("--teach-port", type=int, default=TEACH_PORT, help="teach server port (used by 'all')")
         sp.add_argument("extra", nargs="*", help="anything else is passed to the vision server")
 
@@ -261,7 +258,7 @@ def main() -> int:
     e.add_argument("--url", help="server address (default: this computer's network address)")
     e.add_argument("--port", type=int, default=8000)
     e.add_argument("--teach-port", type=int, default=TEACH_PORT)
-    e.add_argument("--sources", help="cameras to list in the app, e.g. arm,dog (default: arm)")
+    e.add_argument("--sources", help="cameras to list in the app, e.g. arm,webcam (default: arm)")
     e.set_defaults(func=cmd_env)
     c = sub.add_parser("check", help="test a running server")
     c.add_argument("--url")

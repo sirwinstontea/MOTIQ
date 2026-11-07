@@ -47,7 +47,7 @@ def test_select_contract(url):
 
 def test_add_and_remove_robot_over_http(url):
     body = {"id": "abb_irb1200", "brand": "ABB", "model": "IRB 1200", "dof": 6, "nominal_reach_m": 0.7,
-            "nominal_payload_kg": 5.0, "library_url": "https://robodk.com/library"}
+            "nominal_payload_kg": 5.0, "library_url": "https://www.kuka.com/library"}
     code, s = _call(url, "/api/robots", body)
     assert code == 200 and any(r["id"] == "abb_irb1200" for r in s["catalog"])
     assert _call(url, "/api/robots", body)[0] == 409

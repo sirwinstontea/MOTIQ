@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { bridgeIsSim, devices, stopDevice, ToolResult } from '../devices';
+import { devices, stopDevice, ToolResult } from '../devices';
 import {
   approved,
   builtinSkills,
@@ -255,7 +255,7 @@ export function useSkills() {
       notify({
         kind: 'info',
         title: `Running "${doc.skill.name}"`,
-        body: `${doc.steps.length} steps ${where === 'robot' ? 'on the REAL arm' : real ? (bridgeIsSim(device) ? 'in RoboDK (URSim, the physical arm does not move)' : 'on the real arm') : 'in the simulator'}`,
+        body: `${doc.steps.length} steps in sim`,
         silent: via === 'voice',
       });
 

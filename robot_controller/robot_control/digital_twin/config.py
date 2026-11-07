@@ -23,7 +23,7 @@ from .frames import rigid_problems
 LOOPBACK = {"127.0.0.1", "localhost", "::1"}
 MARKER_PREFIX = "MOTIQ_Detected_"
 OBJECT_ID_RE = re.compile(r"^[a-z0-9_]{1,64}$")
-ROBODK_NAME_RE = re.compile(r"^[A-Za-z0-9_\- .]{1,80}$")
+SIM_NAME_RE = re.compile(r"^[A-Za-z0-9_\- .]{1,80}$")
 _ENV_RE = re.compile(r"\$\{([A-Z0-9_]+)\}")
 
 
@@ -76,7 +76,7 @@ class Vision(Strict):
 
 class BaseAlignment(Strict):
     frame_from: Literal["ur_physical_base"] = "ur_physical_base"
-    frame_to: Literal["robodk_virtual_robot_base"] = "robodk_virtual_robot_base"
+    frame_to: Literal["sim_robot_base"] = "sim_robot_base"
     validated: bool = False
     validated_for: Literal["simulation", "physical"] | None = None
     validated_by: str = ""
@@ -102,7 +102,7 @@ class BaseAlignment(Strict):
         return np.asarray(self.T_R_B, dtype=float)
 
 
-class RoboDK(Strict):
+class PyBullet(Strict):
     host: Literal["127.0.0.1", "localhost"] = "127.0.0.1"
     port: int = Field(default=20500, ge=1, le=65535)
     station_name: str | None = None
@@ -118,8 +118,8 @@ class RoboDK(Strict):
     @field_validator("robot_item_name", "object_parent_frame", "station_name")
     @classmethod
     def _name(cls, v):
-        if v is not None and not ROBODK_NAME_RE.match(v):
-            raise ValueError(f"invalid RoboDK item name {v!r}")
+        if v is not None and not SIM_NAME_RE.match(v):
+            raise ValueError(f"invalid PyBullet item name {v!r}")
         return v
 
 
@@ -132,7 +132,7 @@ class Sync(Strict):
 
 
 class ObjectEntry(Strict):
-    robodk_item_name: str
+    pybullet_item_name: str
     marker_name: str
     class_labels: list[str] = Field(min_length=1)
     pose_policy: Literal["visible_surface_marker", "tabletop_contact_preserve_orientation"] = "visible_surface_marker"
@@ -140,17 +140,17 @@ class ObjectEntry(Strict):
     table_z_base_m: float | None = None
     tabletop_policy_validated: bool = False
 
-    @field_validator("robodk_item_name")
+    @field_validator("pybullet_item_name")
     @classmethod
     def _item(cls, v):
-        if not ROBODK_NAME_RE.match(v):
-            raise ValueError(f"invalid RoboDK item name {v!r}")
+        if not SIM_NAME_RE.match(v):
+            raise ValueError(f"invalid PyBullet item name {v!r}")
         return v
 
     @field_validator("marker_name")
     @classmethod
     def _marker(cls, v):
-        if not v.startswith(MARKER_PREFIX) or not ROBODK_NAME_RE.match(v):
+        if not v.startswith(MARKER_PREFIX) or not SIM_NAME_RE.match(v):
             raise ValueError(f"marker names must start with {MARKER_PREFIX!r} (got {v!r}) so they never collide "
                              "with station items")
         return v
@@ -168,7 +168,7 @@ class TwinConfig(Strict):
     target: Literal["simulation", "physical"]
     physical_robot: PhysicalRobot = Field(default_factory=PhysicalRobot)
     vision: Vision = Field(default_factory=Vision)
-    robodk: RoboDK = Field(default_factory=RoboDK)
+    sim: PyBullet = Field(default_factory=PyBullet)
     sync: Sync = Field(default_factory=Sync)
     service: dict = Field(default_factory=lambda: {"host": "127.0.0.1", "port": 8770})
     objects: dict[str, ObjectEntry] = Field(default_factory=dict)
@@ -225,9 +225,9 @@ class TwinConfig(Strict):
         return {lab.strip().lower(): oid for oid, e in self.objects.items() for lab in e.class_labels}
 
     def alignment_ok(self) -> tuple[bool, str | None]:
-        a = self.robodk.base_alignment
+        a = self.sim.base_alignment
         if not a.validated:
-            return False, "base alignment ^R T_B not validated (robodk.base_alignment.validated is false)"
+            return False, "base alignment ^R T_B not validated (sim.base_alignment.validated is false)"
         if a.validated_for != self.target:
             return False, f"base alignment validated for {a.validated_for}, not for this {self.target} target"
         return True, None

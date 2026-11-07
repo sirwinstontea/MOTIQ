@@ -4,7 +4,7 @@ Pytest suite for `robot_control`. By default it runs offline on the mock backend
 
 ```bash
 python -m pytest -q
-RUN_ROBODK_TESTS=1 python -m pytest -m integration -q                       # RoboDK GUI running
+RUN_PYBULLET_TESTS=1 python -m pytest -m integration -q                       # PyBullet GUI running
 RUN_URSIM_TESTS=1 python -m pytest -m integration tests/test_ursim_sync_smoke.py -q   # plus URSim
 ```
 
@@ -18,7 +18,7 @@ RUN_URSIM_TESTS=1 python -m pytest -m integration tests/test_ursim_sync_smoke.py
 | `test_api.py` | API flow, dashboard, operator reset, auth, speed |
 | `test_object_tasks.py` | Demo object tasks and URSim offline parts |
 | `test_sim_objects.py` | Geometry, STL export, dimensions, validators |
-| `test_robodk_smoke.py` | Opt-in RoboDK simulator tests |
-| `test_ursim_sync_smoke.py` | Opt-in URSim + RoboDK test |
+| `test_pybullet_smoke.py` | Opt-in PyBullet simulator tests |
+| `test_ursim_sync_smoke.py` | Opt-in URSim + PyBullet test |
 
 Integration tests never connect to hardware.

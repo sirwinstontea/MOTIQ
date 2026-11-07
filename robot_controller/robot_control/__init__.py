@@ -1,6 +1,6 @@
 """Robot-agnostic manipulation controller (simulation-only build).
 
-This revision can drive the Mock backend and the RoboDK *simulator* only.
+This revision can drive the Mock backend and the PyBullet *simulator* only.
 The physical backend exists as an interface but refuses every motion and
 gripper command with ``PHYSICAL_BACKEND_DISABLED``.
 """

@@ -103,7 +103,12 @@ export function useVoice({ onLevel, onAsked, onCommand, onToolError }: Options =
         Alert.alert('Microphone', 'Motion needs the mic to hear you.');
         return;
       }
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+        shouldRouteThroughEarpiece: false,
+        interruptionMode: 'duckOthers',
+      });
     }
     await session.start();
     if (session.status === 'off') return; // couldn't connect, the error is already in the log
@@ -131,7 +136,11 @@ export function useVoice({ onLevel, onAsked, onCommand, onToolError }: Options =
   const say = useCallback(
     (text: string) => {
       if (session.status === 'off') {
-        setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
+        setAudioModeAsync({
+          playsInSilentMode: true,
+          shouldRouteThroughEarpiece: false,
+          interruptionMode: 'duckOthers',
+        }).catch(() => {});
         session.start();
       }
       session.say(text); // queued until connected
@@ -158,7 +167,11 @@ export function useVoice({ onLevel, onAsked, onCommand, onToolError }: Options =
       // connects without the mic if needed (like typed chat); Motion still answers out loud
       teach: (d: Parameters<VoiceSession['teach']>[0]) => {
         if (session.status === 'off') {
-          setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
+          setAudioModeAsync({
+            playsInSilentMode: true,
+            shouldRouteThroughEarpiece: false,
+            interruptionMode: 'duckOthers',
+          }).catch(() => {});
           session.start();
         }
         session.teach(d); // queued until connected

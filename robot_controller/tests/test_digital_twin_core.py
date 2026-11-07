@@ -10,7 +10,7 @@ import pytest
 
 from robot_control.digital_twin.config import TwinConfig, load_config
 from robot_control.digital_twin.frames import (
-    joints_rad_to_robodk_deg, marker_T_R, point_B_to_R, pose_delta, pose_in_parent, rigid_inverse, rotz,
+    joints_rad_to_deg, marker_T_R, point_B_to_R, pose_delta, pose_in_parent, rigid_inverse, rotz,
     tabletop_contact_B, transl, ur5e_fk_flange)
 from robot_control.digital_twin.scene_mapper import map_frame
 from robot_control.digital_twin.vision_client import ReplaySource, parse_frame
@@ -37,7 +37,7 @@ def phys_dict():
 def phys_cfg(**vision) -> TwinConfig:
     d = phys_dict()
     d["vision"].update(vision)
-    d["robodk"]["base_alignment"].update(validated=True, validated_for="physical", validated_by="test")
+    d["sim"]["base_alignment"].update(validated=True, validated_for="physical", validated_by="test")
     return TwinConfig.model_validate(d)
 
 
@@ -60,11 +60,11 @@ def live_frame(**over):
 # ---- 1. joints ------------------------------------------------------------------------------------------------
 def test_joint_conversion_rad_to_deg_keeps_order():
     q = [0.0, -math.pi / 2, math.pi / 2, -math.pi / 2, -math.pi / 2, math.pi]
-    assert joints_rad_to_robodk_deg(q) == pytest.approx([0, -90, 90, -90, -90, 180])
+    assert joints_rad_to_deg(q) == pytest.approx([0, -90, 90, -90, -90, 180])
     with pytest.raises(ValueError):
-        joints_rad_to_robodk_deg(q[:5])
+        joints_rad_to_deg(q[:5])
     with pytest.raises(ValueError):
-        joints_rad_to_robodk_deg([float("nan")] * 6)
+        joints_rad_to_deg([float("nan")] * 6)
 
 
 def test_nominal_fk_zero_pose():
@@ -101,7 +101,7 @@ def test_rigid_inverse_and_delta():
 
 def test_T_R_B_must_be_rigid():
     d = phys_dict()
-    d["robodk"]["base_alignment"]["T_R_B"] = [[2, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+    d["sim"]["base_alignment"]["T_R_B"] = [[2, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
     with pytest.raises(ValueError, match="orthonormal"):
         TwinConfig.model_validate(d)
 
@@ -121,7 +121,7 @@ def test_config_target_rules():
     with pytest.raises(ValueError, match="non-loopback"):
         TwinConfig.model_validate(d)
     d = phys_dict()
-    d["robodk"]["base_alignment"]["validated"] = True          # no validated_for/by
+    d["sim"]["base_alignment"]["validated"] = True          # no validated_for/by
     with pytest.raises(ValueError, match="validated_for"):
         TwinConfig.model_validate(d)
     d = phys_dict()
@@ -139,7 +139,7 @@ def test_placeholder_identity_alignment_is_not_accepted():
     ok, why = cfg.alignment_ok()
     assert not ok and "not validated" in why
     d = phys_dict()
-    d["robodk"]["base_alignment"].update(validated=True, validated_for="simulation", validated_by="sim")
+    d["sim"]["base_alignment"].update(validated=True, validated_for="simulation", validated_by="sim")
     ok, why = TwinConfig.model_validate(d).alignment_ok()
     assert not ok and "simulation" in why             # a sim sign-off never counts for the physical robot
 

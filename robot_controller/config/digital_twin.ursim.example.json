@@ -28,7 +28,7 @@
     "update_only_when_stationary": true,
     "replay_file": "digital_twin_replay.example.json"
   },
-  "robodk": {
+  "sim": {
     "host": "127.0.0.1",
     "port": 20500,
     "station_name": null,
@@ -37,10 +37,10 @@
     "reject_connected_robot_driver": true,
     "base_alignment": {
       "frame_from": "ur_physical_base",
-      "frame_to": "robodk_virtual_robot_base",
+      "frame_to": "sim_robot_base",
       "validated": true,
       "validated_for": "simulation",
-      "validated_by": "replay fixture points are expressed in the RoboDK robot base",
+      "validated_by": "replay fixture points are expressed in the robot base",
       "T_R_B": [
         [
           1,
@@ -87,7 +87,7 @@
   },
   "objects": {
     "blue_bucket_01": {
-      "robodk_item_name": "Blue_Bucket_01",
+      "pybullet_item_name": "Blue_Bucket_01",
       "marker_name": "MOTIQ_Detected_blue_bucket_01",
       "class_labels": [
         "secchio_blu",
@@ -99,7 +99,7 @@
       "pose_policy": "visible_surface_marker"
     },
     "green_ring_02": {
-      "robodk_item_name": "Green_Ring_02",
+      "pybullet_item_name": "Green_Ring_02",
       "marker_name": "MOTIQ_Detected_green_ring_02",
       "class_labels": [
         "anello_verde",
@@ -111,7 +111,7 @@
       "pose_policy": "visible_surface_marker"
     },
     "orange_screw_03": {
-      "robodk_item_name": "Orange_Screw_03",
+      "pybullet_item_name": "Orange_Screw_03",
       "marker_name": "MOTIQ_Detected_orange_screw_03",
       "class_labels": [
         "vite_arancione",
@@ -124,7 +124,7 @@
       "pose_policy": "visible_surface_marker"
     },
     "white_bucket_lid_04": {
-      "robodk_item_name": "White_Bucket_Lid_04",
+      "pybullet_item_name": "White_Bucket_Lid_04",
       "marker_name": "MOTIQ_Detected_white_bucket_lid_04",
       "class_labels": [
         "tappo_bianco",

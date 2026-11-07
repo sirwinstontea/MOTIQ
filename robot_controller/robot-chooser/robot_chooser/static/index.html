@@ -39,10 +39,10 @@ ul{margin:4px 0 8px;padding-left:18px}li{margin:2px 0}.b li{color:var(--bad)}.w 
       <label>Axes (DOF)</label><input id="n_dof" type="number" min="1" max="12" value="6">
       <label>Nominal reach m</label><input id="n_reach" type="number" step="0.001">
       <label>Nominal payload kg</label><input id="n_payload" type="number" step="0.1">
-      <label>Library page</label><input id="n_url" placeholder="https://robodk.com/robot/...">
+      <label>Library page</label><input id="n_url" placeholder="https://...">
       <label>.robot file</label><input id="n_file" placeholder="optional, in robot_controller/stations/">
     </div>
-    <p class="mut">Any arm from the RoboDK library (or a manufacturer page). It stays blocked until you add its limits,
+    <p class="mut">Any arm from a manufacturer page. It stays blocked until you add its limits,
       scene and workspace below after selecting it.</p>
     <button class="primary" onclick="addRobot()">Add robot</button>
   </section>
@@ -67,7 +67,7 @@ ul{margin:4px 0 8px;padding-left:18px}li{margin:2px 0}.b li{color:var(--bad)}.w 
   </section>
   <section><h2>Selected robot specs (catalog.yaml)</h2>
     <div class="grid" id="robotform"></div>
-    <p class="mut">Limits: paste values from the manufacturer datasheet / RoboDK model, with a source. Tick
+    <p class="mut">Limits: paste values from the manufacturer datasheet, with a source. Tick
       <i>verified</i> only after checking them. Unknown robots stay blocked: never invent numbers.</p>
     <textarea id="limits" rows="12"></textarea>
     <div style="margin-top:10px"><button class="primary" onclick="saveRobot()">Save robot specs</button></div>
@@ -95,7 +95,7 @@ function render(){
     <span class="badge ${esc(r.status)}">${r.active?"Active · ":""}${esc(r.status)}</span></div>
     <div class="mut">${r.dof} DOF · reach ${r.nominal_reach_m} m · payload ${r.nominal_payload_kg} kg (nominal) ·
      model file ${r.model_file_available?"present":"missing"} · limits ${r.limits_verified?"verified":"not verified"}</div>
-    <div class="row" style="margin-top:6px"><a href="${esc(r.library_url)}" target="_blank" rel="noopener noreferrer">View in RoboDK Library</a>
+    <div class="row" style="margin-top:6px"><a href="${esc(r.library_url)}" target="_blank" rel="noopener noreferrer">Library page</a>
     <span>${r.active?"":`<button onclick="removeRobot('${esc(r.id)}')">Remove</button> `}<button ${r.active?"disabled":""} onclick="api('/api/select',{robot_id:'${esc(r.id)}'})">${r.active?"Selected":"Select"}</button></span></div></div>`).join("");
   const p=S.report, li=(a,c)=>a.length?`<ul class="${c}">${a.map(i=>`<li><b>${esc(i.code)}</b> ${esc(i.message)}</li>`).join("")}</ul>`:"";
   $("report").innerHTML=`<div class="row" style="display:flex;justify-content:space-between"><b>Selected: ${esc(p.robot||p.robot_id)} · ${esc(p.backend)} · ${p.dof??"?"} DOF</b>
@@ -106,13 +106,13 @@ function render(){
   const h=S.hardware,m=h.mounting;
   const f=(k,lab,v,type="text",opts)=>`<label>${lab}</label>`+(opts?`<select data-k="${k}">${opts.map(o=>`<option ${o===v?"selected":""}>${esc(o)}</option>`).join("")}</select>`
      :type==="checkbox"?`<input type="checkbox" data-k="${k}" ${v?"checked":""}>`:`<input data-k="${k}" data-t="${type}" value="${esc(Array.isArray(v)?v.join(", "):v)}">`);
-  $("hwform").innerHTML=[f("backend","Backend",h.backend,0,["mock","robodk_sim"]),f("speed_percent","Speed %",h.speed_percent,"num"),
+  $("hwform").innerHTML=[`<label>Backend</label><select data-k="backend"><option value="pybullet" selected>Run sim</option></select>`,f("speed_percent","Speed %",h.speed_percent,"num"),
    f("mounting.orientation","Mounting",m.orientation,0,["upright","wall","ceiling"]),f("mounting.base_in_world_m","Base x,y,z m",m.base_in_world_m,"list"),
    f("mounting.status","Base pose is",m.status,0,["assumed","measured"])].join("");
   renderComponents();
   const r=cat.find(x=>x.active);
   $("robotform").innerHTML=`<label>Robot</label><b>${esc(r.brand)} ${esc(r.model)} (${esc(r.id)})</b>
-   <label>RoboDK file</label><input id="r_lib" placeholder="UR3e.robot (in robot_controller/stations/)" value="${esc(r.library_file)}">
+   <label>Robot file</label><input id="r_lib" placeholder="UR3e.robot (in robot_controller/stations/)" value="${esc(r.library_file)}">
    <label>Scene file</label><input id="r_scene" placeholder="${esc(r.id)}.yaml (config/scenes/)" value="${esc(r.scene_file)}">
    <label>Workspace x,y,z (m)</label><input id="r_ws" placeholder="xmin,xmax,ymin,ymax,zmin,zmax" value="${r.default_workspace?[...r.default_workspace.x_m,...r.default_workspace.y_m,...r.default_workspace.z_m].join(", "):""}">`;
   $("limits").value=r.limits?JSON.stringify(r.limits,null,1):JSON.stringify({verified:false,source:"",joint_min_rad:Array(r.dof).fill(null),joint_max_rad:Array(r.dof).fill(null),
@@ -134,7 +134,7 @@ async function saveRobot(){
   if(await api(`/api/robots/${encodeURIComponent(r.id)}`,body))msg("catalog.yaml saved")}
 async function addRobot(){
   const v=id=>$(id).value.trim(), model=v("n_model");
-  const body={id:v("n_id"),brand:v("n_brand"),model,robodk_item_name:model,dof:Number(v("n_dof")),
+  const body={id:v("n_id"),brand:v("n_brand"),model,pybullet_item_name:model,dof:Number(v("n_dof")),
     nominal_reach_m:Number(v("n_reach")),nominal_payload_kg:Number(v("n_payload")),library_url:v("n_url"),library_file:v("n_file")||null};
   if(await api("/api/robots",body)){msg(`${body.id} added`);["n_id","n_brand","n_model","n_reach","n_payload","n_url","n_file"].forEach(i=>$(i).value="")}}
 async function removeRobot(id){if(confirm(`Remove ${id} from catalog.yaml?`)&&await api(`/api/robots/${encodeURIComponent(id)}/delete`,{}))msg(`${id} removed`)}

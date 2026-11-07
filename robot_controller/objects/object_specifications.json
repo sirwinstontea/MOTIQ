@@ -6,7 +6,7 @@
     "Blue_Bucket_01 outer diameter is 139 mm constant (old 115 mm is wrong)",
     "Green_Ring_02 through-hole is 78 mm (old 88 mm is wrong)"
   ],
-  "robodk": {
+  "sim": {
     "frame_name": "Objects_Frame",
     "parent_frame_candidates": [
       "UR5e Base"

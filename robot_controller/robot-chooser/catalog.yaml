@@ -6,10 +6,10 @@
 #  * nominal_reach_m / nominal_payload_kg are catalogue numbers for filtering only. They never prove a pose
 #    is reachable or a load is liftable; the controller (IK, path, payload checks) decides that.
 #  * limits: null  = not configured. A robot is only executable when limits are filled in WITH a source and
-#    `verified: true` was set by a person who checked them against the manufacturer / RoboDK model.
+#    `verified: true` was set by a person who checked them against the manufacturer / PyBullet model.
 #    Do not invent joint ranges or speeds. Accelerations that are not published are demo caps, not maxima.
 #  * library_file is a file NAME inside robot_controller/stations/ (allowlist; no other paths accepted).
-#    Download it once from the robot's RoboDK library page. Missing file -> robodk_sim selection is blocked.
+#    Optional model file. The PyBullet cell does not need it.
 #  * scene_file / default_workspace are per robot: a UR5e cell layout must never be reused for a smaller arm.
 #    Units: m, rad, kg.
 schema: motiq_robot_catalog/1
@@ -20,8 +20,8 @@ robots:
   dof: 6
   nominal_reach_m: 0.7
   nominal_payload_kg: 3.0
-  library_url: https://robodk.com/robot/uFactory/xArm5
-  robodk_item_name: xArm5
+  library_url: https://www.ufactory.cc/xarm5
+  pybullet_item_name: xArm5
   station_name: xArm5 Controller Demo
   library_file: xArm5.robot
   scene_file: ufactory_xarm5.yaml
@@ -32,7 +32,7 @@ robots:
     z_m: [0.015, 0.399]
   limits:
     verified: true
-    source: RoboDK library model joint limits (read from the .rdk via the API, 2026-11-05); speeds 180 deg/s and TCP 1 m/s = xArm5 published maximums, used as caps; accel caps are demo values. SIMULATION ONLY
+    source: PyBullet library model joint limits (read from the .rdk via the API, 2026-11-05); speeds 180 deg/s and TCP 1 m/s = xArm5 published maximums, used as caps; accel caps are demo values. SIMULATION ONLY
     joint_min_rad: [-6.2832, -2.0595, -3.927, -0.0002, -1.693, -6.2832]
     joint_max_rad: [6.2832, 2.0944, 0.192, 0.0002, 3.1416, 6.2832]
     max_joint_speed_rad_s: [3.1416, 3.1416, 3.1416, 3.1416, 3.1416, 3.1416]
@@ -41,15 +41,15 @@ robots:
     max_tcp_accel_m_s2: 2.0
     max_payload_kg: 3.0
     reach_m: 0.7
-  notes: Physically 5 joints. The RoboDK model has 6 with J4 locked at 0, so dof is 6 here (joint arrays match RoboDK). Not every 6-DOF tool pose is possible; IK decides per target. Demo cell = UR5e cell moved within reach (robot_controller/scripts/build_arm_stations.py).
+  notes: Physically 5 joints. The PyBullet model has 6 with J4 locked at 0, so dof is 6 here (joint arrays match PyBullet). Not every 6-DOF tool pose is possible; IK decides per target. Demo cell = UR5e cell moved within reach (robot_controller/scripts/build_arm_stations.py).
 - id: ur_ur3e
   brand: Universal Robots
   model: UR3e
   dof: 6
   nominal_reach_m: 0.5
   nominal_payload_kg: 3.0
-  library_url: https://robodk.com/robot/Universal-Robots/UR3e
-  robodk_item_name: UR3e
+  library_url: https://www.universal-robots.com/products/ur3e/
+  pybullet_item_name: UR3e
   station_name: UR3e Controller Demo
   library_file: UR3e.robot
   scene_file: ur_ur3e.yaml
@@ -77,8 +77,8 @@ robots:
   dof: 6
   nominal_reach_m: 0.85
   nominal_payload_kg: 5.0
-  library_url: https://robodk.com/robot/Universal-Robots/UR5e
-  robodk_item_name: UR5e
+  library_url: https://www.universal-robots.com/products/ur5e/
+  pybullet_item_name: UR5e
   station_name: UR5e Controller Demo
   library_file: UR5e.robot
   scene_file: scene.example.yaml
@@ -106,8 +106,8 @@ robots:
   dof: 6
   nominal_reach_m: 0.624
   nominal_payload_kg: 3.0
-  library_url: https://robodk.com/robot/Elite-Robots/CS63
-  robodk_item_name: CS63
+  library_url: https://www.eliterobots.com/cs63
+  pybullet_item_name: CS63
   station_name: CS63 Controller Demo
   library_file: CS63.robot
   scene_file: elite_cs63.yaml
@@ -118,7 +118,7 @@ robots:
     z_m: [0.015, 0.45]
   limits:
     verified: true
-    source: RoboDK library model joint limits (read from the .rdk via the API, 2026-11-05); speeds are conservative SIMULATION caps (180 deg/s joints, 1 m/s TCP), NOT checked against the Elite datasheet; accel caps are demo values
+    source: PyBullet library model joint limits (read from the .rdk via the API, 2026-11-05); speeds are conservative SIMULATION caps (180 deg/s joints, 1 m/s TCP), NOT checked against the Elite datasheet; accel caps are demo values
     joint_min_rad: [-6.2832, -6.2832, -6.2832, -6.2832, -6.2832, -6.2832]
     joint_max_rad: [6.2832, 6.2832, 6.2832, 6.2832, 6.2832, 6.2832]
     max_joint_speed_rad_s: [3.1416, 3.1416, 3.1416, 3.1416, 3.1416, 3.1416]
@@ -134,8 +134,8 @@ robots:
   dof: 6
   nominal_reach_m: 0.914
   nominal_payload_kg: 6.0
-  library_url: https://robodk.com/robot/Elite-Robots/CS66
-  robodk_item_name: CS66
+  library_url: https://www.eliterobots.com/cs66
+  pybullet_item_name: CS66
   station_name: CS66 Controller Demo
   library_file: CS66.robot
   scene_file: elite_cs66.yaml
@@ -146,7 +146,7 @@ robots:
     z_m: [0.015, 0.45]
   limits:
     verified: true
-    source: RoboDK library model joint limits (read from the .rdk via the API, 2026-11-05); speeds are conservative SIMULATION caps (180 deg/s joints, 1 m/s TCP), NOT checked against the Elite datasheet; accel caps are demo values
+    source: PyBullet library model joint limits (read from the .rdk via the API, 2026-11-05); speeds are conservative SIMULATION caps (180 deg/s joints, 1 m/s TCP), NOT checked against the Elite datasheet; accel caps are demo values
     joint_min_rad: [-6.2832, -6.2832, -6.2832, -6.2832, -6.2832, -6.2832]
     joint_max_rad: [6.2832, 6.2832, 6.2832, 6.2832, 6.2832, 6.2832]
     max_joint_speed_rad_s: [3.1416, 3.1416, 3.1416, 3.1416, 3.1416, 3.1416]

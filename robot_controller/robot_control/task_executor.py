@@ -246,6 +246,33 @@ class TaskExecutor:
         self._cancel.set()
         self.c.stop()
 
+    def reset_cell(self, operator: str) -> dict:
+        """Stop, clear a latched fault, and put the simulation back to the start.
+
+        Works while the gripper is holding a part. The arm goes home, the gripper opens, and the
+        parts return to the spots they had when the cell started.
+        """
+        self.stop_robot()
+        self.wait(4)
+        if self._thread and self._thread.is_alive():
+            self.stop_robot()
+            self.wait(2)
+        restore = getattr(self.c, "reset_to_start", None)
+        if restore:
+            restore()
+        with self._lock:
+            if not (self._thread and self._thread.is_alive()):
+                self._active = None
+        try:
+            self.reset_fault(operator or "reset")
+        except RobotControlError:
+            with self._lock:
+                if self._active:
+                    raise RobotControlError(ErrorCode.BUSY, "the arm is still moving; press Reset again")
+                self.state = S.IDLE
+                self._latched = None
+        return {"reset": True, "did": "arm is home, gripper is open, parts are back on their spots"}
+
     def robot_state(self) -> dict:
         st = self.c.get_state()
         d = st.model_dump(mode="json")
@@ -324,6 +351,13 @@ class TaskExecutor:
         for aid, st in status.actions.items():
             if st == ActionStatus.PENDING:      # never started
                 status.actions[aid] = ActionStatus.CANCELLED
+        going_home = (
+            action is not None
+            and action.action == ActionName.PERFORM_MOTION
+            and (action.parameters or {}).get("motion_id") == "go_home"
+        )
+        if e.code not in (ErrorCode.CANCELLED, ErrorCode.STOPPED) and not going_home:
+            self._go_home_after_error()
         with self._lock:
             self._go(final)                     # FAULT/CANCELLED reachable from every active state
             self._latched = info
@@ -333,7 +367,25 @@ class TaskExecutor:
         safety = SafetyChecks(approved=False, reasons=list(e.decision.reasons)) if isinstance(e, _Veto) else None
         self._emit(status, action, astatus, error=info, safety=safety,
                    message="task stopped; operator reset required before the next task")
+        log.warning("task %s stopped: %s: %s", status.task_id, info.code.value, info.message)
         self._notify(f"STOPPED: {info.code.value}: {info.message}")
+
+    def _go_home_after_error(self) -> None:
+        """A failed task returns the arm to home before the fault is latched."""
+        try:
+            motion = self.scene.motion("go_home")
+        except RobotControlError:
+            return
+        for tid in motion.targets:
+            try:
+                seg = self.c.plan_segment(tid, "joint")
+                if seg.end_joints is None:
+                    return
+                ctx = MotionContext(cancel=threading.Event(), timeout_s=self.safety_cfg.action_timeout_s)
+                self.c.move_to_named_target(seg, ctx)
+            except Exception:
+                log.warning("could not return home after the error", exc_info=True)
+                return
 
     def _check_cancel(self):
         if self._cancel.is_set():
@@ -386,6 +438,10 @@ class TaskExecutor:
                 d = sc.destination(p["destination_id"])
                 if not holding:
                     raise RobotControlError(ErrorCode.PRECONDITION_FAILED, f"{a.action_id}: place_object requires a held object")
+                seen = p.get("seen_xyz_m")
+                if seen and self.c.retarget_place(p["destination_id"], seen) is None and self.c.backend_name == "pybullet":
+                    raise RobotControlError(ErrorCode.PRECONDITION_FAILED,
+                                            f"{a.action_id}: camera point given but the place targets are not in the station")
                 targets += [d.approach_target, d.place_target, d.retreat_target]
                 holding, gripper = None, "open"
             elif n == ActionName.RELEASE_OBJECT:
@@ -401,10 +457,18 @@ class TaskExecutor:
                 if holding:
                     raise RobotControlError(ErrorCode.PRECONDITION_FAILED,
                                             f"{a.action_id}: push_object needs an empty gripper (holding '{holding}')")
+                seen = p.get("seen_xyz_m")
+                if seen and self.c.retarget_push(p["object_id"], seen) is None and self.c.backend_name == "pybullet":
+                    raise RobotControlError(ErrorCode.PRECONDITION_FAILED,
+                                            f"{a.action_id}: camera point given but the push path is not in the station")
                 targets += [o.push.above_target, o.push.start_target, o.push.end_target, o.push.lift_target]
                 gripper = "closed"
             elif n == ActionName.MOVE_TO_TARGET:
                 sc.target(p["target_id"])
+                seen = p.get("seen_xyz_m")
+                if seen and self.c.retarget_point(p["target_id"], seen) is None and self.c.backend_name == "pybullet":
+                    raise RobotControlError(ErrorCode.PRECONDITION_FAILED,
+                                            f"{a.action_id}: camera point given but '{p['target_id']}' is not a pose")
                 targets.append(p["target_id"])
             elif n == ActionName.SHAKE_OBJECT:
                 pat = sc.pattern(p["pattern_id"])
@@ -516,7 +580,7 @@ class TaskExecutor:
         return {"object_id": det.object_id, "class_label": det.class_label, "confidence": det.confidence,
                 "source": det.source, "is_mock": det.is_mock, "timestamp_utc": det.timestamp_utc,
                 "note": "MOCK detection for demo purposes — not real vision" if det.is_mock else
-                        "vision detection; camera coordinates ignored (no calibration), taught targets used"}
+                        "vision detection; the arm moves to the point the camera measured"}
 
     def _grip(self):
         return self.c.get_gripper_state()

@@ -33,7 +33,7 @@ def test_object_tasks_succeed_on_mock(make_executor, path):
 def test_scene_slots_match_imported_object_positions(scene_cfg):
     """Grasp targets must sit on the objects as placed by scripts/import_all.py."""
     spec = json.loads((ROOT / "objects/object_specifications.json").read_text())
-    fx, fy, fz, _, _, frz = spec["robodk"]["frame_pose_mm_deg_when_created"]
+    fx, fy, fz, _, _, frz = spec["sim"]["frame_pose_mm_deg_when_created"]
     c, s = math.cos(math.radians(frz)), math.sin(math.radians(frz))
     for e in spec["objects"]:
         x, y = e["display_pose_mm_deg"][:2]
@@ -45,7 +45,7 @@ def test_scene_slots_match_imported_object_positions(scene_cfg):
 
 
 def test_symbolic_grasp_heights_within_attach_rule(scene_cfg):
-    """RoboDK attaches only if the TCP is within 15 mm of the object's mid-height on its axis."""
+    """PyBullet attaches only if the TCP is within 15 mm of the object's mid-height on its axis."""
     for oid in OBJ_IDS:
         o = scene_cfg.objects[oid]
         gz = scene_cfg.targets[o.grasp_target].pose_m_rad[2]

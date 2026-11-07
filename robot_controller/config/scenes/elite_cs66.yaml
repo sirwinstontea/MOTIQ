@@ -1,6 +1,6 @@
 # Demo scene for the CS66 (elite_cs66): the UR5e demo cell (scene.example.yaml) moved within this arm's
 # reach by scripts/build_arm_stations.py: cell shifted +0 mm along base X, heights above
-# 60 mm scaled by 1.0. Every target was IK + collision checked in RoboDK (150 mm TCP).
+# 60 mm scaled by 1.0. Every target was IK + collision checked in PyBullet (150 mm TCP).
 # SIMULATION PLACEHOLDERS: re-teach every target on a real cell. Units: m, rad (rotation vector).
 home_target: home
 targets:
@@ -19,7 +19,7 @@ targets:
     - 3.14159
     - -0.0
     - -0.0
-    description: safe home posture (tool down above the table, solved by RoboDK IK for the CS66)
+    description: safe home posture (tool down above the table, solved by PyBullet IK for the CS66)
   shake_center:
     pose_m_rad:
     - -0.45

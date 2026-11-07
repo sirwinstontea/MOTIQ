@@ -11,9 +11,9 @@ export type Health = {
   info?: Record<string, unknown>; // whatever the bridge returns on /health
 };
 
-// last /health answer per device: is that bridge on SIM=1 (URSim mirrored into RoboDK, physical arm never used)?
+// last /health answer per device: is that bridge on SIM=1 (PyBullet cell, physical arm never used)?
 const bridgeSim: Partial<Record<DeviceId, boolean>> = {};
-/** true when the PC stack runs SIM=1, so "real" runs go to URSim + RoboDK and never to the physical arm */
+/** true when the PC stack runs SIM=1, so "real" runs go to the PyBullet cell and never to the physical arm */
 export const bridgeIsSim = (id: DeviceId) => bridgeSim[id] === true;
 
 // SIM=1 stacks also hold the PHYSICAL UR5e for "Run on real arm": its last /health status (null = no physical arm)
@@ -22,7 +22,7 @@ const bridgeReal: Partial<Record<DeviceId, RealArmStatus | null>> = {};
 export const bridgeRealArm = (id: DeviceId): RealArmStatus | null => bridgeReal[id] ?? null;
 
 // while a "Run on real arm" skill runs, every arm-bridge request carries X-Arm-Target: real (and never X-Require-Sim):
-// the SIM=1 bridge then runs that tool on the physical arm. Everything else (voice, RoboDK runs) stays on URSim.
+// the SIM=1 bridge then runs that tool on the physical arm. Everything else (voice, Run sim) stays in PyBullet.
 let armTargetReal = false;
 export const setArmTargetReal = (on: boolean) => {
   armTargetReal = on;
@@ -31,7 +31,7 @@ export const setArmTargetReal = (on: boolean) => {
 async function request(url: string, init: RequestInit = {}, timeout = 15000) {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeout);
-  // the app trusts the bridge's SIM flag (it skips the real-robot approval for RoboDK runs), so it also tells the
+  // the app trusts the bridge's SIM flag (it skips the real-robot approval for sim runs), so it also tells the
   // bridge: if that bridge turns out to drive the physical arm, it refuses instead of moving it
   const toArm = url.startsWith(devices.arm.url ?? '\0');
   const simOnly: Record<string, string> =
@@ -57,13 +57,21 @@ async function post(url: string, body: unknown, timeout?: number): Promise<ToolR
   }
 }
 
+// Puts the PyBullet cell back to the start: arm home, gripper open, parts on their spots.
+// Works when a move faulted while the gripper was still holding something.
+export async function resetArm(): Promise<ToolResult> {
+  const url = devices.arm.url;
+  if (!url) return { ok: true, sim: true, did: 'no arm connected' };
+  return post(`${url}/tools/reset`, {}, 20000);
+}
+
 export async function stopDevice(id: DeviceId): Promise<ToolResult> {
   const url = devices[id].url;
   return url ? post(`${url}/tools/stop`, {}, 3000) : { ok: true, sim: true };
 }
 
 // opts.armReal: the user approved this voice plan on the REAL arm while the bridge runs SIM=1, so the arm calls
-// carry X-Arm-Target: real. Without it, a SIM=1 bridge runs them on URSim + RoboDK.
+// carry X-Arm-Target: real. Without it, a SIM=1 bridge runs them in the PyBullet cell.
 export async function runTool(
   fullName: string,
   args: Record<string, unknown>,
@@ -134,7 +142,7 @@ async function runArmTool(name: string, args: Record<string, unknown>, url: stri
     return { ok: d.ok, sim: !url || undefined, object: id, seen: d.note, measured: d.measured, error: d.error };
   }
   if (ARM_TASK_TOOLS.has(name)) {
-    // whole tasks run in robot_controller; a pick can take a while in RoboDK, so wait up to 3 minutes
+    // whole tasks run in robot_controller; a pick can take a while in the sim, so wait up to 3 minutes
     if (url) return post(`${url}/tools/${name}`, args, 180000);
     return simulate('arm', name, args);
   }

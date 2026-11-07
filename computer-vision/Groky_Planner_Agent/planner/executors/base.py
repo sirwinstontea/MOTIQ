@@ -24,7 +24,7 @@ class BaseExecutor(ABC):
 
 
 class MockExecutor(BaseExecutor):
-    """In-memory simulated executor for testing without RoboDK installation."""
+    """In-memory simulated executor for testing without PyBullet installation."""
     def __init__(self):
         self.connected = False
         self.tcp_pose = [0.40, 0.0, 0.20, 3.1415, 0.0, 0.0]  # x, y, z, rx, ry, rz

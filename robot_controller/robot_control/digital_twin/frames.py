@@ -1,13 +1,13 @@
 """Frames and units for the digital twin, in one place.
 
 Conventions: `T_A_B` (4x4) maps points expressed in frame B into frame A. Inside this module every translation is in
-METERS and every joint angle in RADIANS unless the name says otherwise (`_deg`, `_mm`). RoboDK's millimeters and
-degrees appear only at the two conversion helpers `joints_rad_to_robodk_deg` and `T_m_to_mm` / `T_mm_to_m`.
+METERS and every joint angle in RADIANS unless the name says otherwise (`_deg`, `_mm`). PyBullet's millimeters and
+degrees appear only at the two conversion helpers `joints_rad_to_deg` and `T_m_to_mm` / `T_mm_to_m`.
 
 Frames (spec section 4):
     B  physical UR5e base               F  physical UR5e flange (never the active TCP)
-    R  RoboDK virtual UR5e base         S  RoboDK station root
-    P  RoboDK parent of a marker/object O  CAD model origin
+    R  PyBullet virtual UR5e base         S  PyBullet station root
+    P  PyBullet parent of a marker/object O  CAD model origin
 """
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ UR5E_DH_A = (0.0, -0.425, -0.3922, 0.0, 0.0, 0.0)
 UR5E_DH_ALPHA = (math.pi / 2, 0.0, 0.0, math.pi / 2, -math.pi / 2, 0.0)
 
 
-def joints_rad_to_robodk_deg(q_rad: Sequence[float]) -> list[float]:
-    """UR actual joints (rad, base..wrist3 order) -> RoboDK joint values (deg, same order). The ONLY place it happens."""
+def joints_rad_to_deg(q_rad: Sequence[float]) -> list[float]:
+    """UR actual joints (rad, base..wrist3 order) -> PyBullet joint values (deg, same order). The ONLY place it happens."""
     q = [float(v) for v in q_rad]
     if len(q) != 6:
         raise ValueError(f"UR5e has 6 joints, got {len(q)}")

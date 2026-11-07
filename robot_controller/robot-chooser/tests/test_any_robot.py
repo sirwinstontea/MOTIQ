@@ -6,7 +6,7 @@ from robot_chooser.core import Chooser, ChooserError
 
 IIWA = {"id": "kuka_lbr_iiwa7", "brand": "KUKA", "model": "LBR iiwa 7 R800", "dof": 7,
         "nominal_reach_m": 0.8, "nominal_payload_kg": 7.0,
-        "library_url": "https://robodk.com/robot/KUKA/LBR-iiwa-7-R800", "library_file": "iiwa7.robot"}
+        "library_url": "https://www.kuka.com/products/lbr-iiwa-7", "library_file": "iiwa7.robot"}
 TEST_LIMITS = {"verified": True, "source": "TEST ONLY - not real iiwa data",
                "joint_min_rad": [-1.0] * 7, "joint_max_rad": [1.0] * 7, "max_joint_speed_rad_s": [1.0] * 7,
                "max_joint_accel_rad_s2": 1.0, "max_tcp_speed_m_s": 0.5, "max_tcp_accel_m_s2": 1.0,
@@ -20,7 +20,7 @@ def _y(p):
 def test_any_robot_can_be_added_configured_and_selected(ch, repo):
     s = ch.add_robot(IIWA)
     row = next(r for r in s["catalog"] if r["id"] == "kuka_lbr_iiwa7")
-    assert row["status"] == "Config incomplete" and row["robodk_item_name"] == "LBR iiwa 7 R800"
+    assert row["status"] == "Config incomplete" and row["pybullet_item_name"] == "LBR iiwa 7 R800"
     assert ch.filter_catalog(brand="KUKA") == ["kuka_lbr_iiwa7"] and ch.filter_catalog(dof=7) == ["kuka_lbr_iiwa7"]
     scenes = repo / "robot_controller" / "config" / "scenes"
     scenes.mkdir()
@@ -44,7 +44,7 @@ def test_add_robot_validation(ch):
         ch.add_robot(IIWA)
     assert e.value.code == "DUPLICATE_ROBOT" and e.value.http == 409
     for bad in ({"id": "Bad Id!"}, {"dof": 0}, {"dof": 13}, {"nominal_reach_m": -1},
-                {"library_url": "javascript:alert(1)"}, {"library_url": "http://robodk.com/x"},
+                {"library_url": "javascript:alert(1)"}, {"library_url": "http://example.com/x"},
                 {"library_file": "../x.robot"}):
         with pytest.raises(ChooserError):
             ch.add_robot({**IIWA, "id": "x_robot", **bad})

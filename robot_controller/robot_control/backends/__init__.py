@@ -11,9 +11,9 @@ def create_controller(robot: RobotConfig, scene: SceneConfig, backend: str | Non
     if name == "mock":
         from .mock import MockController
         return MockController(robot, scene, **kwargs)
-    if name == "robodk_sim":
-        from .robodk_sim import RoboDKSimController
-        return RoboDKSimController(robot, scene, **kwargs)
+    if name == "pybullet":
+        from .pybullet_sim import PyBulletSimController
+        return PyBulletSimController(robot, scene, **kwargs)
     if name == "ursim_sync":
         from .ursim_sync import URSimSyncController
         return URSimSyncController(robot, scene, **kwargs)

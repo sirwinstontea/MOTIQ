@@ -1,5 +1,4 @@
 """The app adds / selects arms through the bridge's /robots/* proxy -> a real robot-chooser server."""
-import importlib.util
 import threading
 from http.server import ThreadingHTTPServer
 
@@ -12,14 +11,12 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from robot_chooser.server import make_handler  # noqa: E402
 
-_spec = importlib.util.spec_from_file_location("motiq_bridge", REPO / "robot_controller" / "bridge" / "motiq_bridge.py")
-bridge_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(bridge_mod)
+import robot_control.arm_bridge as bridge_mod
 
 KEY = "test-key-123"
 H = {"X-Bridge-Key": KEY}
 ARM = {"id": "kuka_kr3_r540", "brand": "KUKA", "model": "KR 3 R540", "dof": 6, "nominal_reach_m": 0.541,
-       "nominal_payload_kg": 3, "library_url": "https://robodk.com/robot/KUKA/KR-3-R540",
+       "nominal_payload_kg": 3, "library_url": "https://www.kuka.com/products/kr-3-r540",
        "library_file": "KR 3 R540.robot"}
 
 

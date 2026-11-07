@@ -8,7 +8,7 @@ Generates, validates and imports the four demo objects. Lengths are in millimetr
 | `build.py` | Build and validate one object, export its STL |
 | `generate.py` | Write all STL files |
 | `validate.py` | Check configs, meshes, STLs and cavities. `--json` writes a report. |
-| `robodk_import.py` | Add objects to the current RoboDK station. Simulation only. |
+| `pybullet_import.py` | Add objects to the current PyBullet station. Simulation only. |
 | [`shapes/`](shapes) | One profile generator per object |
 
-Install with `pip install -e ".[objects,robodk]"`. Usage and options are in [`objects/`](../../objects).
+Install with `pip install -e ".[objects,pybullet]"`. Usage and options are in [`objects/`](../../objects).

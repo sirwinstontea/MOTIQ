@@ -64,7 +64,7 @@ def make_synthetic_frame(
     frame = np.full((height, width, 3), (235, 235, 235), dtype=np.uint8)
 
     # Oggetto 1: Tazza rossa (rettangolo + manico) che oscilla leggermente o resta stabile
-    dx = int(8 * math.sin(step * 0.05)) if source == "dog" else 0
+    dx = 0
     # BGR rosso: (30, 30, 220)
     x1, y1 = 110 + dx, 140
     cv2.rectangle(frame, (x1, y1), (x1 + 75, y1 + 85), (30, 30, 220), -1)

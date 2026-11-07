@@ -1,9 +1,9 @@
-# Benchmark: tokenizzazione A (MOTIQ) e B (Groky) per creare skill su RoboDK
+# Benchmark: tokenizzazione A (MOTIQ) e B (Groky) per creare skill su PyBullet
 
 Il contesto, l'ambiente e i bug noti sono in [HANDOFF.md](HANDOFF.md).
 
 ## Domanda
-Quale dei due metodi di tokenizzazione produce token che portano a **skill corrette ed eseguibili su RoboDK**, e a quale costo (immagini inviate, token API, tempo)?
+Quale dei due metodi di tokenizzazione produce token che portano a **skill corrette ed eseguibili su PyBullet**, e a quale costo (immagini inviate, token API, tempo)?
 
 ## Struttura: due livelli
 
@@ -20,12 +20,12 @@ L'unica variabile è la tokenizzazione:
    | ruolo `container` | ruolo `dest` |
 3. Entrambi i file di token passano nella **stessa** pipeline di A:
    ```
-   .venv/bin/python -m vision.planner run --tokens <T.json> --executor robodk \
+   .venv/bin/python -m vision.planner run --tokens <T.json> --executor pybullet \
        --library <libreria nuova per ogni run> --runs-dir benchmark/results/<run>/
    ```
-4. Le posizioni degli oggetti vengono dalla stazione RoboDK, uguale per i due metodi.
+4. Le posizioni degli oggetti vengono dalla stazione PyBullet, uguale per i due metodi.
 
-### Livello 2 (secondario): ogni pipeline nativa su RoboDK
+### Livello 2 (secondario): ogni pipeline nativa su PyBullet
 B gira con il proprio planner ed executor, con le sole correzioni minime documentate nell'harness (vedi i bug in HANDOFF). Serve a misurare quanto B funziona così com'è. Non serve a confrontare la tokenizzazione.
 
 ## Dataset
@@ -50,14 +50,14 @@ I video reali vanno chiesti all'utente, che deve registrarli. Non generarli e no
 
 Per ogni video servono due file:
 - `<id>.gt.json`, la ground truth: `{"actions": [{"t_start", "t_end", "canonical", "verb", "target", "dest"}], "objects": [...], "expected_new_skills": [...]}`. Va annotata a mano o fatta confermare all'utente.
-- `<id>.scene.json`, la scena RoboDK: lista di `SceneObject` (`name`, `color`, `label`, `position_mm` nel frame base) che riproduce la scena del video. Si usa con `python -m vision.planner.robodk_setup --scene`.
+- `<id>.scene.json`, la scena PyBullet: lista di `SceneObject` (`name`, `color`, `label`, `position_mm` nel frame base) che riproduce la scena del video. Si usa con `python -m vision.planner.pybullet_setup --scene`.
 
 Regole di matching per la ground truth:
 - Le azioni con `"optional": true` non contano nel recall.
 - Un token che si sovrappone a un'azione opzionale con una `canonical` presente in `accept_canonical` non conta come falso positivo.
 - Gli oggetti si abbinano tramite `objects[].synonyms`.
 
-Nota sulla scena: `robodk_setup` non conosce il colore `arancione` né la label `cylinder`, quindi crea una scatola di 50 mm con il colore di default. Va bene così; non modificare il codice di A.
+Nota sulla scena: `pybullet_setup` non conosce il colore `arancione` né la label `cylinder`, quindi crea una scatola di 50 mm con il colore di default. Va bene così; non modificare il codice di A.
 
 ## Equità tra i due metodi
 - **Modello:** lo stesso per entrambi, `XAI_MODEL=x-ai/grok-4.7` via OpenRouter.
@@ -65,7 +65,7 @@ Nota sulla scena: `robodk_setup` non conosce il colore `arancione` né la label 
 - **Temperatura:** A usa 0.2, B usa 0.1. Nel Livello 1 conta solo quella della tokenizzazione: annota la differenza nel report.
 - **Risoluzione:** A manda frame HQ a 720p, B a 640 px sul lato lungo. Annotalo, oppure allinea A con `TokenizerConfig(hq_height=360)` per 640×360 se l'harness lo importa da Python.
 - **Audio:** sempre `--no-voice` con A.
-- **Libreria e stazione:** a ogni run una libreria nuova (solo builtin) e una stazione resettata (cancella gli oggetti, rilancia `robodk_setup`, robot in home).
+- **Libreria e stazione:** a ogni run una libreria nuova (solo builtin) e una stazione resettata (cancella gli oggetti, rilancia `pybullet_setup`, robot in home).
 - **Ripetizioni:** 3 per ogni combinazione video × metodo, perché Grok non è deterministico. Riporta media e deviazione standard.
 
 ## Metriche
@@ -92,9 +92,9 @@ Registra tutto in `benchmark/results/<YYYYMMDD_HHMM>/results.jsonl`, una riga pe
 - `synth_ok`: skill sintetizzate che superano la validazione;
 - errori del validatore.
 
-**Esecuzione su RoboDK**
+**Esecuzione su PyBullet**
 - `run_status` e step completati sul totale;
-- `task_success`: posizione finale dell'oggetto letta con `RoboDKExecutor.object_pose()`, cioè dentro il contenitore in xy entro metà del lato e alla quota attesa;
+- `task_success`: posizione finale dell'oggetto letta con `PyBulletExecutor.object_pose()`, cioè dentro il contenitore in xy entro metà del lato e alla quota attesa;
 - errori di IK.
 
 ## Harness da scrivere (in `computer-vision/benchmark/`)
@@ -102,7 +102,7 @@ Registra tutto in `benchmark/results/<YYYYMMDD_HHMM>/results.jsonl`, una riga pe
 2. **`motiq_tokenize.py`:** usa `VideoTokenizer` di A con `use_voice=False` e salva le stesse metriche.
 3. **`adapt_groky_tokens.py`:** conversione dallo schema di B a quello di A.
 4. **`run_benchmark.py`:** cicla su video × metodo × ripetizione.
-   - Prima di ogni run resetta la stazione RoboDK.
+   - Prima di ogni run resetta la stazione PyBullet.
    - Lancia la pipeline di A con `--tokens` (Livello 1) e, separatamente, B nativo (Livello 2).
    - Calcola le metriche rispetto alla ground truth e scrive `results.jsonl`.
    - Ha un'opzione `--dry-run` che stima numero di chiamate e costo senza chiamare Grok.

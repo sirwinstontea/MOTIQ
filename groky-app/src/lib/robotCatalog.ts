@@ -76,7 +76,7 @@ export const robotCatalog = {
   list: () => call<{ robots: CatalogArm[] }>('GET', 'catalog'),
   active: () => call<{ report: ActiveReport }>('GET', 'active'),
   select: (robot_id: string) => call<Mutation>('POST', 'select', { robot_id }),
-  add: (arm: NewArm) => call<Mutation>('POST', 'add', { ...arm, robodk_item_name: arm.model }),
+  add: (arm: NewArm) => call<Mutation>('POST', 'add', { ...arm, pybullet_item_name: arm.model }),
 };
 
 // same rule as robot-chooser's RobotEntry.id

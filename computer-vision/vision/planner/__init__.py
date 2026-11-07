@@ -1,4 +1,4 @@
-"""Parte C — Agente di pianificazione: video -> token (Grok vision + STT) -> skill JSON -> RoboDK.
+"""Parte C — Agente di pianificazione: video -> token (Grok vision + STT) -> skill JSON -> PyBullet.
 
 Indipendente da vision/eyes e vision/grok (nessun OpenCV).
 """

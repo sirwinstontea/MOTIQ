@@ -134,8 +134,20 @@ class RobotController(ABC):
 
     def retarget_pick(self, object_id: str, xyz_m: Optional[list[float]] = None) -> Optional[list[float]]:
         """Simulation only: move the object's approach/grasp/lift targets over where the object is and return that
-        point (m, base frame). `xyz_m` is a point the camera measured (the visible surface). Without it, a RoboDK
+        point (m, base frame). `xyz_m` is a point the camera measured (the visible surface). Without it, a PyBullet
         backend reads the station item. Default (mock / real hardware): no-op, None, so picks keep the taught targets."""
+        return None
+
+    def retarget_point(self, target_id: str, xyz_m: list[float]) -> Optional[list[float]]:
+        """Move one target's XY onto a camera point. Height stays taught. Default: no-op."""
+        return None
+
+    def retarget_push(self, object_id: str, xyz_m: list[float]) -> Optional[list[float]]:
+        """Slide the push path so it meets the object where the camera saw it. Default: no-op."""
+        return None
+
+    def retarget_place(self, destination_id: str, xyz_m: list[float]) -> Optional[list[float]]:
+        """Move a place onto the container the camera saw. Default: no-op."""
         return None
 
     @abstractmethod

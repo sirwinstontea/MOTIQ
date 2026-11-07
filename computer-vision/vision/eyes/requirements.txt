@@ -11,3 +11,5 @@ websockets>=13.0
 python-dotenv>=1.0.0
 pytest>=8.0.0
 httpx>=0.27.0
+# Simulated cell and flange camera (--mode pybullet). Color and depth, no separate license.
+pybullet>=3.2.6

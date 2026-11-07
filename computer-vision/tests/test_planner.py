@@ -500,7 +500,7 @@ def test_video_pipeline_end_to_end_mock(moving_video: Path, tmp_path: Path, lib:
 
 
 # ---------------------------------------------------------------------------
-# Executor RoboDK: mapping delle primitive con un robot finto (senza RoboDK)
+# Executor PyBullet: mapping delle primitive con un robot finto (senza PyBullet)
 # ---------------------------------------------------------------------------
 
 class _FakeItem:
@@ -565,41 +565,6 @@ class _FakeTool:
 
     def DetachAll(self, parent=0):
         self.attached = None
-
-
-def _robodk_exec(reachable=True):
-    pytest.importorskip("robodk")
-    from robodk import robolink, robomath
-    from vision.planner.executors.robodk_exec import RoboDKExecutor
-    ex = RoboDKExecutor()
-    ex._rl, ex._rm = robolink, robomath
-    ex.robot, ex.tool = _FakeRobot(robomath, reachable), _FakeTool()
-    return ex
-
-
-def test_robodk_mapping_units_and_frames():
-    ex = _robodk_exec()
-    P = ConcretePrimitive
-    assert ex.execute(P(primitive="MOVE_DOWN", args={"distance_m": 0.05, "speed_mps": 0.05})).ok
-    assert [round(c, 3) for c in ex.robot.moves[-1][1]] == [400, 0, 250]  # metri -> mm, frame base
-    assert ex.execute(P(primitive="MOVE_ABOVE", args={"target": "c", "target_mm": [420, -120, 20],
-                                                     "height_m": 0.15})).ok
-    assert ex.robot.moves[-1][0] == "J"  # trasferimento in spazio giunti
-    assert [round(c, 3) for c in ex.robot.pose.Pos()] == [420, -120, 170]
-    assert ex.execute(P(primitive="ROTATE_YAW", args={"angle_deg": 90})).ok
-    assert [round(c, 3) for c in ex.robot.moves[-1][1]] == [420, -120, 170]  # ruota nel frame tool
-    fb = ex.execute(P(primitive="CLOSE_GRIPPER", args={"force_pct": 70}))
-    assert fb.ok and fb.attached == "white_cap" and fb.gripper == "closed"
-    assert ex.execute(P(primitive="OPEN_GRIPPER")).attached is None
-    assert ex.execute(P(primitive="HOME")).ok
-    assert ex.robot.moves[-1] == ("J", [0.0, -90.0, 90.0, -90.0, -90.0, 0.0])
-
-
-def test_robodk_ik_failure_is_reported():
-    ex = _robodk_exec(reachable=False)
-    fb = ex.execute(ConcretePrimitive(primitive="MOVE_UP", args={"distance_m": 0.05, "speed_mps": 0.1}))
-    assert not fb.ok and "IK" in fb.message
-    assert ex.robot.moves == []
 
 
 def test_merge_keeps_distinct_moves():

@@ -1,7 +1,7 @@
 # Conservative EXAMPLE software limits. This is software risk reduction only,
 # NOT a certified safety configuration. Real cells rely on the robot's certified
 # safety functions, protective devices, risk assessment and a responsible operator.
-allowed_backends: [mock, robodk_sim, ursim_sync]   # ursim_sync = URSim on localhost; physical motion is not possible in this build
+allowed_backends: [mock, pybullet, ursim_sync]   # ursim_sync = URSim on localhost, mirrored into PyBullet
 # Speed: ONE percentage of the robot model's maximums (limits in robot.*.yaml).
 # This is the startup default; change it live with POST /robot/speed (dashboard or app).
 # UR5e @ 10%: TCP 0.10 m/s, 0.2 m/s^2; joints 0.314 rad/s (18 deg/s), 0.4 rad/s^2.
@@ -23,5 +23,5 @@ min_detection_confidence: 0.6
 max_detection_age_s: 60
 max_shake_cycles: 3
 require_path_check: true
-require_collision_geometry: true   # RoboDK: reject if the station has no geometry to test
+require_collision_geometry: true   # PyBullet: reject if the station has no geometry to test
 allow_mock_detector: true          # demo only; every mock detection is labelled

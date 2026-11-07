@@ -5,13 +5,12 @@ import json
 from pathlib import Path
 from .agent import PlanningAgent
 from .executors.base import MockExecutor
-from .executors.robodk_exec import RoboDKExecutor, ROBODK_AVAILABLE
 from .library import SkillLibrary
 from .schemas import VideoTokens
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Groky_App: Video + Audio Demonstration to Robot Skills via Grok Vision, Grok Voice & RoboDK")
+    parser = argparse.ArgumentParser(description="Groky_App: Video + Audio Demonstration to Robot Skills via Grok Vision and Grok Voice")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # 1. run command
@@ -19,8 +18,8 @@ def main():
     run_parser.add_argument("--video", type=str, help="Path to demonstration mp4 video")
     run_parser.add_argument("--tokens", type=str, help="Path to pre-computed VideoTokens JSON")
     run_parser.add_argument("--voice-prompt", type=str, default=None, help="Optional voice override if video has no audio track")
-    run_parser.add_argument("--executor", choices=["mock", "robodk"], default="mock", help="Execution backend")
-    run_parser.add_argument("--robot", default="UR5e", help="RoboDK robot item name")
+    run_parser.add_argument("--executor", choices=["mock", "pybullet"], default="mock", help="Execution backend")
+    run_parser.add_argument("--robot", default="UR5e", help="Arm model name")
 
     # 2. skills command
     skills_parser = subparsers.add_parser("skills", help="Inspect available skills in the library")
@@ -72,13 +71,7 @@ def main():
             with open(args.tokens, "r", encoding="utf-8") as f:
                 tokens_data = VideoTokens.model_validate_json(f.read())
 
-        if args.executor == "robodk":
-            if not ROBODK_AVAILABLE:
-                print("Error: robodk python package is not installed. Install it with 'pip install robodk'")
-                return
-            executor = RoboDKExecutor(robot_name=args.robot)
-        else:
-            executor = MockExecutor()
+        executor = MockExecutor()
 
         agent = PlanningAgent(library=lib)
         runs_dir = Path(__file__).resolve().parent.parent.parent / "logs" / "runs"

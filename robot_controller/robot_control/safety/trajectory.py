@@ -1,6 +1,6 @@
 """Path check adapters.
 
-The default delegates to the backend's ``test_segment`` (RoboDK: MoveJ_Test /
+The default delegates to the backend's ``test_segment`` (PyBullet: MoveJ_Test /
 MoveL_Test with snapshot/restore of the simulated joints). A digital-twin check
 is NOT proof of physical clearance.
 """

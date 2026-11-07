@@ -3,7 +3,7 @@
   python -m vision.planner index    --video data/replays/sample_arm.mp4 --debug   (solo keyframe, senza Grok)
   python -m vision.planner tokenize --video data/replays/sample_arm.mp4 --out logs/tokens.json
   python -m vision.planner run      --tokens tests/fixtures/planner/tokens_unscrew.json --executor mock
-  python -m vision.planner run      --video <mp4> --executor robodk [--robot "UR5e"] [--tool "Gripper"]
+  python -m vision.planner run      --video <mp4> --executor pybullet
   python -m vision.planner skills   [--show svitare] [--approve svitare]
 """
 from __future__ import annotations
@@ -146,12 +146,12 @@ def main(argv: list[str] | None = None) -> int:
     src.add_argument("--video")
     src.add_argument("--tokens")
     p.add_argument("--goal")
-    p.add_argument("--executor", choices=["mock", "robodk"], default="mock")
-    p.add_argument("--robot", help="nome del robot nella stazione RoboDK (default: il primo)")
-    p.add_argument("--tool", help="nome del tool RoboDK (default: quello attivo)")
-    p.add_argument("--gripper", help="meccanismo pinza RoboDK (opzionale)")
-    p.add_argument("--record-program", help="registra anche un programma RoboDK con questo nome")
-    p.add_argument("--collisions", action="store_true", help="controllo collisioni RoboDK (MoveL_Test)")
+    p.add_argument("--executor", choices=["mock", "pybullet"], default="mock")
+    p.add_argument("--robot", help=argparse.SUPPRESS)
+    p.add_argument("--tool", help=argparse.SUPPRESS)
+    p.add_argument("--gripper", help=argparse.SUPPRESS)
+    p.add_argument("--record-program", help=argparse.SUPPRESS)
+    p.add_argument("--collisions", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--mock-scene", help="JSON lista di SceneObject per l'executor mock")
     p.add_argument("--step-delay", type=float, default=0.0, help="ritardo per step (mock)")
     p.add_argument("--library", default=str(DEFAULT_LIBRARY_PATH))

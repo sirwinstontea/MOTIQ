@@ -1,4 +1,4 @@
-// Skills -> Sync Digital Twin: read-only control surface for the RoboDK mirror of the UR5e + RealSense objects.
+// Skills -> Sync Digital Twin: read-only control surface for the PyBullet mirror of the UR5e + camera objects.
 // Check / Snapshot / Start Live Sync / Stop Sync / status. MIRROR ONLY — NO PHYSICAL MOTION: this component only uses
 // lib/digitalTwin (bridge /digital-twin/*). Stop Sync stops the mirroring loop; it is NOT the robot stop.
 import { useCallback, useEffect, useState } from 'react';
@@ -78,12 +78,12 @@ export default function DigitalTwinPanel({ onClose }: { onClose: () => void }) {
             <View style={[s.banner, { borderColor: c.warn }]}>
               <Ionicons name="eye-outline" size={18} color={c.warn} />
               <Text style={[s.bannerText, { color: c.warn }]}>{MIRROR_LABEL}</Text>
-              <Pill label={status?.target === 'physical' ? 'REAL ROBOT → ROBODK' : 'SIMULATION'} tone="neutral" />
+              <Pill label={status?.target === 'physical' ? 'REAL ROBOT → SIM' : 'SIMULATION'} tone="neutral" />
             </View>
 
             <ScrollView contentContainerStyle={{ gap: 12, paddingBottom: 8 }}>
               <Text style={s.caption}>
-                Real world → RoboDK only. Move the UR5e from its pendant; RoboDK (simulation mode, no driver) follows.
+                Real world → simulation only. Move the UR5e from its pendant; the PyBullet cell follows.
                 Objects appear as magenta markers at the measured visible-surface point (grey = last known, not
                 current). Stop Sync stops mirroring only — it does not stop or move the robot.
               </Text>
@@ -123,7 +123,7 @@ export default function DigitalTwinPanel({ onClose }: { onClose: () => void }) {
                 <View style={s.box}>
                   <Text style={s.label}>PREREQUISITES</Text>
                   <Line ok={check.robot.connected} text={`Robot telemetry (${check.robot.source})${check.robot.reason ? `: ${check.robot.reason}` : ''}`} />
-                  <Line ok={check.robodk.ok} text={`RoboDK ${check.robodk.station ?? ''} ${check.robodk.ok ? 'simulate mode, no driver' : `${check.robodk.status}: ${check.robodk.reason}`}`} />
+                  <Line ok={check.sim.ok} text={`Sim ${check.sim.station ?? ''} ${check.sim.ok ? 'running' : `${check.sim.status}: ${check.sim.reason}`}`} />
                   <Line ok={check.vision.source === 'none' ? null : !!check.vision.connected && check.vision.calibration_valid !== false}
                     text={`Vision ${check.vision.source}${check.vision.calibration_id ? ` · ${check.vision.calibration_id}` : ''}`} />
                   <Line ok={check.alignment.validated} text={`Base alignment ${check.alignment.validated ? `validated (${check.alignment.validated_for})` : 'NOT validated'}`} />
@@ -135,8 +135,8 @@ export default function DigitalTwinPanel({ onClose }: { onClose: () => void }) {
                 <View style={s.stats}>
                   <Stat label="Robot" value={status.robot.connected ? `${status.robot.hz.toFixed(1)} Hz` : 'offline'}
                     sub={status.robot.last_joint_sample_age_ms == null ? '–' : `sample ${status.robot.last_joint_sample_age_ms.toFixed(0)} ms ago`} />
-                  <Stat label="RoboDK" value={status.robodk.connected ? (status.robodk.station ?? 'connected') : '–'}
-                    sub={status.robodk.robot_item} />
+                  <Stat label="Sim" value={status.sim.connected ? (status.sim.station ?? 'connected') : '–'}
+                    sub={status.sim.robot_item} />
                   <Stat label="Camera" value={status.camera.calibration_id ?? status.camera.source}
                     sub={status.camera.last_reason ?? (status.camera.last_frame_age_ms == null ? '–' : `frame ${status.camera.last_frame_age_ms.toFixed(0)} ms ago`)} />
                   <Stat label="Objects" value={`${status.objects.updated} upd · ${status.objects.stale} stale`}

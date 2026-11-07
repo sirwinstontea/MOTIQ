@@ -1,4 +1,4 @@
-"""Deterministic in-memory simulator with fault injection. No RoboDK needed.
+"""Deterministic in-memory simulator with fault injection. No PyBullet needed.
 
 All feedback is ``feedback_source=simulated``. The mock has no real kinematics:
 Cartesian targets get deterministic pseudo-joints so limit checks have input.

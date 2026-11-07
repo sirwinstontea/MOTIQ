@@ -1,5 +1,5 @@
 # robot_control API + live dashboard (simulation only, Mock backend).
-# RoboDK is a desktop GUI app and does not run in this container, so BACKEND defaults to mock.
+# BACKEND defaults to mock in this container.
 #
 #   docker build -t robot-controller .
 #   docker run -p 8765:8765 -e ROBOT_API_PASSWORD=change-me-long-secret robot-controller

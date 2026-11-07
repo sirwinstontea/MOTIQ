@@ -3,10 +3,10 @@
 # no code changes are needed. Units: m, rad, kg.
 model: UR5e
 dof: 6
-backend: mock                    # mock | robodk_sim | physical_disabled (motion refused)
+backend: mock                    # mock | pybullet | physical_disabled (motion refused)
 station_name: UR5e Controller Demo
 station_path: stations/UR5e_demo.rdk
-robot_library_file: stations/UR5e.robot   # from https://robodk.com/robot/Universal-Robots/UR5e
+robot_library_file: stations/UR5e.robot   # from https://www.universal-robots.com/products/ur5e/
 robot_item_name: UR5e
 base_frame: UR5e Base
 tool_frame: Gripper TCP

@@ -15,7 +15,7 @@ from vision.eyes.calibration import (
 )
 from vision.eyes.capture import VideoReader, generate_sample_video, make_synthetic_frame
 from vision.eyes.depth import DepthSmoother, estimate_distance_m, format_distance
-from vision.eyes.dog import DogNavigator, check_person_safety_stop, compute_dog_telemetry
+from vision.eyes.safety import check_person_safety_stop
 from vision.eyes.marks import draw_marks
 from vision.eyes.pipeline import EyePipeline
 from vision.eyes.schemas import EyeObject
@@ -159,37 +159,15 @@ def test_aruco_calibration_homography_and_grasp_angle(tmp_path: Path):
     assert abs(angle - 30.0) <= 5.0
 
 
-def test_dog_telemetry_and_safety_stop():
+def test_person_near_the_camera_stops_the_arm():
     objs = [
-        EyeObject(id=1, label="cup", conf=0.9, bbox=(0.05, 0.4, 0.1, 0.2), color="rosso"),   # a sinistra
-        EyeObject(id=2, label="bottle", conf=0.85, bbox=(0.45, 0.3, 0.1, 0.4), color="blu"),  # al centro
-        EyeObject(id=3, label="box", conf=0.8, bbox=(0.80, 0.4, 0.1, 0.15), color="verde"),   # a destra
+        EyeObject(id=1, label="cup", conf=0.9, bbox=(0.05, 0.4, 0.1, 0.2), color="rosso"),
+        EyeObject(id=2, label="bottle", conf=0.85, bbox=(0.45, 0.3, 0.1, 0.4), color="blu"),
     ]
-
-    t_left = compute_dog_telemetry(objs, target_id=1)
-    assert t_left.target_visible is True
-    assert t_left.error_x < -0.5
-
-    t_center = compute_dog_telemetry(objs, target_id=2)
-    assert t_center.target_visible is True
-    assert abs(t_center.error_x) < 0.05
-    assert abs(t_center.bbox_height - 0.4) < 1e-3
-
-    t_right = compute_dog_telemetry(objs, target_id=3)
-    assert t_right.error_x > 0.5
-
-    # Nessuna persona -> safety_stop False
     stop, _ = check_person_safety_stop(objs)
     assert stop is False
-
-    # Persona vicina (bbox alto 0.65) -> safety_stop True
-    objs_with_person = objs + [
-        EyeObject(id=9, label="person", conf=0.88, bbox=(0.3, 0.1, 0.4, 0.65))
-    ]
-    nav = DogNavigator()
-    nav.set_target(target_id=2)
-    tel, stop_now, reason = nav.evaluate(objs_with_person)
-    assert tel.target_visible is True
+    near = objs + [EyeObject(id=9, label="person", conf=0.88, bbox=(0.3, 0.1, 0.4, 0.65))]
+    stop_now, reason = check_person_safety_stop(near)
     assert stop_now is True
     assert reason is not None and "Persona vicina" in reason
 
@@ -244,7 +222,6 @@ def test_fastapi_server_endpoints_and_websocket(monkeypatch):
     monkeypatch.setenv("GROK_MOCK", "1")
     pipeline = EyePipeline()
     pipeline.add_source("arm", mode="synthetic", use_mock_tracker=True)
-    pipeline.add_source("dog", mode="synthetic", use_mock_tracker=True)
     app = create_app(pipeline)
 
     with TestClient(app) as client:
@@ -265,12 +242,6 @@ def test_fastapi_server_endpoints_and_websocket(monkeypatch):
         assert r_jpg.status_code == 200
         assert r_jpg.headers["content-type"] == "image/jpeg"
         assert len(r_jpg.content) > 1000
-
-        # Dog target & state
-        target_id = data["objects"][0]["id"]
-        client.post("/dog/target", json={"target_id": target_id})
-        r_dog = client.get("/state/dog").json()
-        assert r_dog["dog_telemetry"]["target_visible"] is True
 
         # Voice dispatch bridge
         r_voice = client.post(
@@ -385,7 +356,7 @@ def test_cli_run_auto_opens_only_arm_on_default_camera(monkeypatch):
     monkeypatch.setattr(cli, "default_camera", lambda cam=0: ("synthetic", None))
     monkeypatch.setattr(cli.uvicorn, "run", lambda app, **kw: seen.append(sorted(app.state.pipeline.nodes)))
     assert cli.main(["run", "--mock-tracker"]) == 0
-    assert seen == [["arm"]]                                                    # niente "dog" senza --dog-target
+    assert seen == [["arm"]]
 
 
 def test_calibration_markers_file_and_resolution_guard(tmp_path):
@@ -463,7 +434,7 @@ def test_tracker_keeps_id_on_weak_frame_and_drops_unconfirmed():
 
 
 def test_hands_stop_the_arm_and_are_never_sent_to_robot(tmp_path):
-    from vision.eyes.dog.telemetry import check_hand_safety_stop
+    from vision.eyes.safety import check_hand_safety_stop
     from vision.grok.handoff import send_selection
 
     hand = EyeObject(id=4, label="mano", conf=0.8, bbox=(0.4, 0.4, 0.2, 0.2))
@@ -476,6 +447,29 @@ def test_hands_stop_the_arm_and_are_never_sent_to_robot(tmp_path):
     path = tmp_path / "selection.json"
     assert send_selection(path, hand.model_dump(), "prendi la mano") is None and not path.exists()
     assert send_selection(path, cap.model_dump(), "prendi il tappo")["target"]["label"] == "tappo_bianco"
+
+
+def test_sim_camera_requests_use_the_arm_when_no_webcam_is_running(monkeypatch):
+    """In the simulation the app's Sim camera asks for `webcam`, and that picture is the arm camera."""
+    monkeypatch.setenv("GROK_MOCK", "1")
+    arm_only = EyePipeline()
+    arm_only.add_source("arm", mode="synthetic", use_mock_tracker=True)
+    with TestClient(create_app(arm_only)) as client:
+        assert client.get("/frame/webcam.jpg").status_code == 200
+        assert client.get("/state/webcam").json()["source"] == "arm"
+        status = client.get("/models/status?source=webcam").json()
+        assert status["ok"] is True and status["source"] == "arm"
+        found = client.post("/grok/detect?source=webcam").json()
+        assert found["ok"] is True and found["count"] >= 1
+        described = client.post("/grok/describe?source=webcam").json()
+        assert described["ok"] is True and described["description"]
+
+    both = EyePipeline()
+    both.add_source("arm", mode="synthetic", use_mock_tracker=True)
+    both.add_source("webcam", mode="synthetic", use_mock_tracker=True)
+    with TestClient(create_app(both)) as client:
+        assert client.get("/state/arm").json()["source"] == "arm"
+        assert client.get("/state/webcam").json()["source"] == "webcam"
 
 
 def test_color_comes_from_class_name_not_pixels():
