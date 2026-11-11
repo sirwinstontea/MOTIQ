@@ -517,7 +517,7 @@ Issues and pull requests are welcome.
   <img src="https://contrib.rocks/image?repo=sirwinstontea/MOTIQ" alt="MOTIQ contributors">
 </a>
 
-Built by [sirwinstontea](https://github.com/sirwinstontea), [piniz-dev](https://github.com/piniz-dev), [aman-abeb](https://github.com/aman-abeb), [filippodinoia-svg](https://github.com/filippodinoia-svg) and [r-46n0](https://github.com/r-46n0).
+Built by [sirwinstontea](https://github.com/sirwinstontea), [piniz-dev](https://github.com/piniz-dev), [aman-abeb](https://github.com/aman-abeb), [filippodinoia-svg](https://github.com/filippodinoia-svg), [r-46n0](https://github.com/r-46n0) and [josefariasfuentes](https://github.com/josefariasfuentes).
 
 MOTIQ builds on [xAI Grok](https://x.ai), [Expo](https://expo.dev), [Ultralytics YOLO](https://github.com/ultralytics/ultralytics), [ByteTrack](https://github.com/ifzhang/ByteTrack), [OpenCV](https://opencv.org), [RoboDK](https://robodk.com), [URSim](https://www.universal-robots.com/download/) and [Intel RealSense](https://www.intelrealsense.com). Thanks to the Ctrl+Alt Museum in Pavia for hosting the hackathon.
 
