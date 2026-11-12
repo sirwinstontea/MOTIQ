@@ -448,6 +448,16 @@ cd groky-app && npm run typecheck && npm run lint && npm run test:voice
 
 RoboDK and URSim integration tests are opt-in with `RUN_ROBODK_TESTS=1` and `RUN_URSIM_TESTS=1`. The repository has no CI yet.
 
+> [!TIP]
+> **Before you run the suites**, a few things keep the results clean:
+>
+> - **Windows:** the digital twin service uses Linux file locking. Run the controller suite with `--ignore=tests/test_digital_twin_service.py`, or use Linux or WSL if you need the digital twin.
+> - **No URSim or `ur_jog` driver on this PC:** add `--deselect tests/test_bridge_push_overview.py`. Those tests expect Docker with URSim and the physical-arm driver.
+> - **App checks:** use `npm run typecheck` and `npm run test:voice`. `npm run lint` applies strict React hook rules that some screens don't follow yet.
+> - **Benchmark:** `benchmark/cross_tokenize.py` looks for `Groky_Planner_Agent/` at the repo root. Copy or link `computer-vision/Groky_Planner_Agent` there first. That folder is the earlier standalone planner kept for the benchmark. The live one is `computer-vision/vision/planner`.
+> - **Faster clone:** the detector models make the full history about 70 MB. `git clone --depth 1` is enough to run everything.
+> - **Contributing:** add `__pycache__/`, `*.pyc` and `.DS_Store` to your global gitignore so they don't end up in commits.
+
 ## Troubleshooting
 
 | Symptom | Fix |
