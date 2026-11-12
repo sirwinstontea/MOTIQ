@@ -1,5 +1,5 @@
 ﻿<p align="center">
-  <img src="demonstration%20video/motiq-logo.jpg" alt="motiq logo" width="720">
+  <img src="assets/motiq-logo.jpg" alt="motiq logo" width="720">
 </p>
 
 <h1 align="center">MOTIQ:Intelligent Motion</h1>
@@ -30,7 +30,7 @@
 
 MOTIQ is an end-to-end robot control stack driven by natural language and demonstration. You talk to **Motion**, a real-time Grok voice agent running in a React Native app on a tablet. Motion plans the task, asks for your approval, runs it through a typed and safety-gated controller, looks through a camera to confirm the result, and reports back. Show it a task on video and it writes a skill you can review, edit and run again.
 
-The project was built at the Grok Hackathon (SpaceX AI / xAI) at the Ctrl+Alt Museum in Pavia, 4–5 November 2026. The reference cell is a Universal Robots UR5e with a wrist-mounted Intel RealSense camera and a four-object tabletop scene.
+The reference cell is a Universal Robots UR5e with a wrist-mounted Intel RealSense camera and a four-object tabletop scene.
 
 > [!IMPORTANT]
 > MOTIQ is a hackathon prototype, not a certified safety system. The controller runs in simulation only (mock, RoboDK or URSim). A separate, small set of direct step tools in the bridge can move a real UR arm when an external driver is installed. Read [Safety](#safety) before connecting hardware.
@@ -187,7 +187,7 @@ MOTIQ/
 ├── computer-vision/         Perception server, Grok vision toolkit, video planner
 ├── computer-vision-to-app/  One-command vision setup and the teach server
 ├── robot-chooser/           Robot catalog and cell description → controller config
-└── demonstration video/     Logo and demo video
+└── assets/                  Logo
 ```
 
 | Component | Role | Stack | Default port |
