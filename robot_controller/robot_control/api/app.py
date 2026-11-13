@@ -140,4 +140,10 @@ def create_app(ex: TaskExecutor, *, auth: tuple[str, str] | None = None) -> Fast
         ex.reset_fault(operator=operator)
         return {"reset": True, "operator": operator, "executor_state": ex.state.value}
 
+    @app.post("/robot/simulation/reset")
+    def simulation_reset(request: Request):
+        if not request.client or request.client.host not in ("127.0.0.1", "::1", "testclient"):
+            raise HTTPException(403, "simulation reset is accepted only from the local Bridge/operator")
+        return ex.reset_simulation_fault()
+
     return app

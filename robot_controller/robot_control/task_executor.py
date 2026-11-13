@@ -137,6 +137,30 @@ class TaskExecutor:
             self._latched = None
 
     # ------------------------------------------------------------------ speed
+    def reset_simulation_fault(self) -> dict:
+        """Explicit UI recovery, never motion or automatic retry. Hardware/URSim excluded."""
+        with self._lock:
+            if self.c.backend_name != "robodk_sim":
+                raise RobotControlError(ErrorCode.MODE_VIOLATION, "reset is restricted to robodk_sim")
+            if self._active:
+                raise RobotControlError(ErrorCode.BUSY, "cannot reset while a task is active")
+            self._require(self.policy.check_backend(self.c))
+            st = self.c.get_state()
+            self._require(self.policy.check_state(st))
+            if st.busy:
+                raise RobotControlError(ErrorCode.BUSY, "simulated robot is still moving")
+            reasons = joints_within_limits(st.joints.values, self.robot_cfg)
+            if st.tcp_pose is None:
+                reasons.append("TCP feedback unavailable")
+            else:
+                reasons += pose_within_workspace(st.tcp_pose, self.safety_cfg.workspace, self.robot_cfg)
+            if reasons:
+                raise RobotControlError(ErrorCode.SAFETY_VETO, "; ".join(reasons))
+            self.reset_fault("simulation UI")
+            self._emit(None, None, "INFO", message="simulation fault reset explicitly; no motion or retry")
+            return {"reset": True, "executor_state": self.state.value, "simulation": True,
+                    "robot_model": self.robot_cfg.model, "moved": False}
+
     @property
     def speed_percent(self) -> Optional[float]:
         """Current speed as % of the model maximums (None if the config uses absolute values)."""
