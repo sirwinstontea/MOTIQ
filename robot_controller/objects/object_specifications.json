@@ -15,15 +15,14 @@
     "frame_pose_mm_deg_when_created": [
       -620,
       0,
-      0,
+      1,
       0,
       0,
       90
     ],
-    "frame_pose_note": "DISPLAY-ONLY layout. Applied only when Objects_Frame is first created (an existing frame is never moved unless --reset-frame-pose). With rz=90 the row of objects runs along the robot base Y axis at X=-620 mm, beside the demo table's cube/pad. Does NOT prove free space in the real cell.",
-    "no_collision_with": [
-      "table"
-    ]
+    "frame_pose_note": "DISPLAY-ONLY layout with 1 mm table clearance. Applied only when Objects_Frame is first created (an existing frame is never moved unless --reset-frame-pose). With rz=90 the row of objects runs along the robot base Y axis at X=-620 mm, beside the demo table's cube/pad. Does NOT prove free space in the real cell.",
+    "no_collision_with": [],
+    "protected_collision_items": ["table"]
   },
   "objects": [
     {

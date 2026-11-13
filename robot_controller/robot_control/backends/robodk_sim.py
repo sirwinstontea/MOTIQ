@@ -128,6 +128,7 @@ class RoboDKSimController(RobotController):
 
         self._enforce_simulate()
         self._select_robot()
+        self.ensure_table_collision_pairs()
         self._add_missing_targets()
         self._hide_markers()
         self.connected = True
@@ -470,6 +471,99 @@ class RoboDKSimController(RobotController):
             raise RobotControlError(ErrorCode.CONFIG_ERROR,
                                     f"'{item.Name()}'/'{self.scene.table_geometry}' collision pair is disabled; "
                                     "enable it in the RoboDK collision map before pickup or carried-object motion")
+
+    def _station_setup_guard(self):
+        """Configuration edits only, never switch mode or connect a driver here."""
+        if self.RDK.RunMode() != self.rl.RUNMODE_SIMULATE:
+            raise RobotControlError(ErrorCode.MODE_VIOLATION, "station preparation requires RUNMODE_SIMULATE")
+        if self.robot.ConnectedState()[0] != self.rl.ROBOTCOM_DISCONNECTED:
+            raise RobotControlError(ErrorCode.MODE_VIOLATION, "station preparation requires a disconnected robot driver")
+        if self.robot.Busy():
+            raise RobotControlError(ErrorCode.BUSY, "station preparation refused while robot is moving")
+
+    def _station_objects(self):
+        items = self.RDK.ItemList(self.rl.ITEM_TYPE_OBJECT)
+        result = []
+        for oid, obj in self.scene.objects.items():
+            if not obj.station_item:
+                continue
+            matches = [i for i in items if i.Name() == obj.station_item]
+            if len(matches) != 1:
+                raise RobotControlError(ErrorCode.CONFIG_ERROR,
+                                        f"expected one station object '{obj.station_item}', found {len(matches)}")
+            result.append((oid, matches[0]))
+        return result
+
+    def ensure_table_collision_pairs(self):
+        """Idempotent startup policy: enable protection, never disable other pairs or move geometry.
+
+        Saved legacy stations may predate the protected-table import policy. Reapply it on each connection
+        rather than relying on an operator saving a one-off map edit. Partial updates fail closed.
+        """
+        self._station_setup_guard()
+        self._validated_table()
+        table = self.RDK.Item(self.scene.table_geometry, self.rl.ITEM_TYPE_OBJECT)
+        objects = self._station_objects()
+        original = self._collision_pairs()
+        required = [(item, table, 0, 0) for _, item in objects]
+        before = self._pair_keys(original)
+        missing = [p for p in required if not self._pair_keys([p]).issubset(before)]
+        if missing:
+            self._write_collision_pairs(self.rl.COLLISION_ON, missing)
+        self._verify_collision_map(before | self._pair_keys(required))
+        log.info("protected object/table collision pairs verified (%d enabled)", len(missing))
+        return len(missing)
+
+    def repair_resting_contacts(self):
+        """Explicit offline station edit, NOT a robot move or motion-planning fallback.
+
+        Raise only unheld upright objects within 0.5 mm of table contact to the same 1 mm clearance
+        used by table placement. Refuse deeper penetration, attached objects or ambiguous geometry.
+        Preserve XY, orientation and parents. Validate all candidates before editing; roll back on failure.
+        """
+        self._station_setup_guard()
+        table_cfg = self._validated_table()
+        top = table_cfg.pose_m_rad[2] + table_cfg.size_m[2]
+        table = self.RDK.Item(self.scene.table_geometry, self.rl.ITEM_TYPE_OBJECT)
+        plans = []
+        objects = self._station_objects()
+        for oid, item in objects:
+            parent = item.Parent()
+            while parent.Valid():
+                if parent.Type() in (self.rl.ITEM_TYPE_ROBOT, self.rl.ITEM_TYPE_TOOL):
+                    raise RobotControlError(ErrorCode.PRECONDITION_FAILED,
+                                            f"'{oid}' is attached to a robot/tool; station repair refused")
+                parent = parent.Parent()
+            relative, yaw = self._upright_object(oid)
+            x, y, z = (v / 1000 for v in relative.Pos())
+            table_surface(self.scene, x, y, self.scene.objects[oid].dimensions_m, yaw)
+            if z < top - 0.0005:
+                raise RobotControlError(ErrorCode.SAFETY_VETO,
+                                        f"'{oid}' penetrates the table; requires operator geometry repair")
+            if z <= top + 0.0005:
+                original = item.PoseAbs()
+                desired = self.base.PoseAbs() * self.rm.transl(0, 0, (top + 0.001 - z) * 1000) * relative
+                plans.append((oid, item, original, desired))
+        try:
+            for _, item, _, desired in plans:
+                self._station_setup_guard()
+                item.setPoseAbs(desired)
+            for oid, item in objects:
+                if self.RDK.Collision(item, table):
+                    raise RobotControlError(ErrorCode.SAFETY_VETO,
+                                            f"'{oid}' still collides with table after resting-contact repair")
+        except Exception as error:
+            rollback_errors = []
+            for _, item, original, _ in plans:
+                try:
+                    item.setPoseAbs(original)
+                except Exception as rollback_error:
+                    rollback_errors.append(str(rollback_error))
+            if rollback_errors:
+                raise RobotControlError(ErrorCode.BACKEND_ERROR,
+                                        f"station repair failed ({error}); pose rollback incomplete: {rollback_errors}") from error
+            raise
+        return [oid for oid, _, _, _ in plans]
 
     def validate_pick(self, object_id):
         self._require()

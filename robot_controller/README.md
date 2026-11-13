@@ -5,12 +5,12 @@
 | Backend | What it is | Motion |
 |---|---|---|
 | `mock` | Deterministic pure-Python simulator with fault injection. No RoboDK needed. | Simulated |
-| `robodk_sim` | RoboDK digital twin: a UR5e forced to `RUNMODE_SIMULATE` | Simulated |
+| `robodk_sim` | Selected robot's RoboDK model, forced to `RUNMODE_SIMULATE` | Simulated |
 | `ursim_sync` | RoboDK plans and collision-checks each segment, URSim in Docker executes it over RTDE, RoboDK mirrors the live joints | Simulated, two simulators in sync |
 | `physical_disabled` | The interface a future hardware adapter plugs into | **Refused** with `PHYSICAL_BACKEND_DISABLED` |
 
 > [!WARNING]
-> **This controller cannot move robot hardware.** Simulation results, including RoboDK collision checks, do **not** show that physical operation is safe. See [docs/SAFETY_BOUNDARIES.md](docs/SAFETY_BOUNDARIES.md). The direct steps in [`bridge/`](../bridge) are a separate path that does not go through this controller.
+> **This controller cannot move robot hardware.** Simulation results, including RoboDK collision checks, do **not** show that physical operation is safe. See [docs/SAFETY_BOUNDARIES.md](docs/SAFETY_BOUNDARIES.md). Generic RoboDK Cartesian/joint motion goes through this controller; legacy physical-UR steps remain a separate Bridge path.
 
 ## Quick start
 
@@ -112,7 +112,7 @@ Each task is expanded into a step plan before any motion. Follow it in four plac
 
 ## Speed
 
-`config/safety.example.yaml` sets `speed_percent_of_model_max: 10`. At 10% a UR5e runs at TCP 0.10 m/s and 0.2 m/s², joints 0.314 rad/s (18°/s) and 0.4 rad/s². Override with `--speed-percent 25`, the dashboard, the app's arm card, or `POST /robot/speed`. Every task records `speed_percent`. RoboDK plays simulations at 5× by default, so set it to 1× under Tools → Options → Motion to see real time.
+`config/safety.example.yaml` sets `speed_percent_of_model_max: 10`. The percentage scales the selected model's verified limits. Override the default with `--speed-percent 25`, the dashboard, the app's arm card, or `POST /robot/speed`; set top-level task `speed_percent` for one atomic task only. Every task records its percentage and applied limits. RoboDK playback speed is separate from commanded speed, so set it to 1× under Tools → Options → Motion when comparing duration.
 
 ## URSim + RoboDK (`ursim_sync`)
 

@@ -210,6 +210,37 @@ def cmd_setup_station(args) -> int:
     return 0
 
 
+def cmd_prepare_simulation(args) -> int:
+    """Explicit station configuration, never submit tasks or issue robot movements."""
+    import socket
+    # Offline maintenance: do not race a running executor, including one whose RoboDK socket is broken.
+    try:
+        with socket.create_connection(('127.0.0.1', 8765), timeout=1):
+            pass
+    except OSError:
+        pass
+    else:
+        raise RobotControlError(ErrorCode.BUSY, "stop the Robot Controller before preparing the station")
+    from .backends.robodk_sim import RoboDKSimController
+    robot = load_robot_config(args.config or _default_config("robot"))
+    if robot.backend != "robodk_sim":
+        raise RobotControlError(ErrorCode.MODE_VIOLATION, "station preparation requires selected backend robodk_sim")
+    scene = load_scene_config(args.scene or _default_config("scene"))
+    controller = RoboDKSimController(robot, scene)
+    try:
+        controller.connect()  # also enables/verifies required table pairs; never moves geometry
+        problems = controller.check_ready()
+        if problems:
+            raise RobotControlError(ErrorCode.CONFIG_ERROR, "; ".join(problems))
+        corrected = controller.repair_resting_contacts() if args.repair_resting_contacts else []
+        print(json.dumps({"backend": "robodk_sim", "robot_model": robot.model,
+                          "table_pairs_verified": True, "resting_contacts_corrected": corrected,
+                          "robot_motion_requested": False, "station_saved": False}))
+        return 0
+    finally:
+        controller.disconnect()
+
+
 def cmd_serve(args) -> int:
     import uvicorn
     from .api.app import create_app
@@ -250,6 +281,13 @@ def main(argv=None) -> int:
     s.add_argument("--scene", default=None)
     s.add_argument("--no-objects", action="store_true", help="don't import the 4 demo objects (objects/)")
     s.set_defaults(fn=cmd_setup_station)
+
+    prep = sub.add_parser("prepare-simulation", help="offline station setup; no robot movements or station save")
+    prep.add_argument("--config", default=None)
+    prep.add_argument("--scene", default=None)
+    prep.add_argument("--repair-resting-contacts", action="store_true",
+                      help="explicitly raise unheld objects at table contact to 1 mm clearance; refuses deeper penetration")
+    prep.set_defaults(fn=cmd_prepare_simulation)
 
     t = sub.add_parser("tools", help="print the AI tool allowlist")
     t.set_defaults(fn=lambda a: (print(json.dumps(tool_specs(), indent=2)), 0)[1])
