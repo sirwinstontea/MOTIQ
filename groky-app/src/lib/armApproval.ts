@@ -9,6 +9,14 @@
 // 'sim' (URSim + RoboDK) or 'real' (the physical UR5e). A bare "yes" is then not enough: the user picks one.
 import { useSyncExternalStore } from 'react';
 
+// Keep queries/speed management separate from approved motion and explicit fault recovery.
+const ARM_NO_MOTION = new Set([
+  'arm_verify', 'arm_wait', 'arm_stop', 'arm_touch_teach_save', 'arm_get_speed', 'arm_set_speed', 'arm_status',
+  'arm_scene',
+]);
+export const needsArmApproval = (name: string) =>
+  (name.startsWith('arm_') && !ARM_NO_MOTION.has(name)) || name === 'run_skill';
+
 export type Plan = {
   id: string;
   say: string; // what Motion told the user it will do

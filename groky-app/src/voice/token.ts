@@ -3,7 +3,12 @@ import env from '../lib/config';
 
 export async function getToken(): Promise<string> {
   if (env.tokenUrl) {
-    const r = await fetch(env.tokenUrl, { method: 'POST' });
+    let r: Response;
+    try {
+      r = await fetch(env.tokenUrl, { method: 'POST' });
+    } catch {
+      throw new Error('No se pudo conectar al servidor local de voz. Inicia el servidor de tokens y recarga la app. Comprueba su puerto y que permita CORS desde esta app.');
+    }
     if (!r.ok) throw new Error(`token server ${r.status}`);
     const j = await r.json();
     // response shape isn't documented, accept the usual suspects

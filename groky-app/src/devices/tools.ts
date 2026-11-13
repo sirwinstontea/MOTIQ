@@ -67,17 +67,76 @@ const dogTools: Tool[] = fromPrimitives(DOG_PRIMITIVES, 'dog');
 export const ARM_TASK_TOOLS = new Set([
   'pick_and_place', 'pick', 'place', 'shake', 'find', 'scan', 'check_placed', 'overview', 'push',
   'touch', 'touch_teach_start', 'touch_teach_save',
+  'move_up', 'move_down', 'move_left', 'move_right', 'move_forward', 'move_backward', 'move_joint',
+  'home', 'move_above', 'open_gripper',
+  'get_speed', 'set_speed', 'status', 'reset_simulation_fault',
+  'scene', 'follow_path', 'circle_object', 'place_on_table', 'move_object_on_table',
 ]);
+const genericMotionNames = new Set([
+  'move_up', 'move_down', 'move_left', 'move_right', 'move_forward', 'move_backward', 'move_joint',
+]);
+const speedParam = { type: 'number', minimum: 1, maximum: 100, description: 'optional task-only percentage of this robot model maximum; does not change the default' };
+const frameParam = { type: 'string', enum: ['base', 'tool', 'world'], description: 'reference frame; defaults to base' };
+const genericMotionTools: Tool[] = [
+  ...['up', 'down', 'left', 'right', 'forward', 'backward'].map((direction) => ({
+    name: `move_${direction}`,
+    description: `Move the selected robot TCP ${direction} on a validated straight Cartesian path, preserving orientation. RoboDK simulation only.`,
+    parameters: params({
+      distance_m: { type: 'number', exclusiveMinimum: 0, description: 'metres; reachability, workspace and path checks determine the limit' },
+      reference_frame: frameParam,
+      speed_percent: speedParam,
+    }, ['distance_m']),
+  })),
+  {
+    name: 'move_joint',
+    description: 'Move one joint of the selected robot, using its actual DOF and configured limits. RoboDK simulation only. Give exactly one of delta_deg or target_deg.',
+    parameters: params({
+      joint_index: { type: 'integer', minimum: 1, description: 'one-based joint index; query arm_status for the active DOF' },
+      delta_deg: { type: 'number', description: 'relative angle in degrees' },
+      target_deg: { type: 'number', description: 'absolute angle in degrees' },
+      speed_percent: speedParam,
+    }, ['joint_index']),
+  },
+];
 const objectParam = {
   type: 'string',
   description: 'object name ("orange screw", "blue bucket", "green ring", "white bucket lid") or the number the vision server shows on it',
 };
 const destParam = {
   type: 'string',
-  description: 'where to put it: "delivery zone", "blue bucket" (drops it into the bucket), or the spot an object came from like "orange_screw_03_slot"',
+  description: 'where to put it: "delivery zone", "blue bucket" (RoboDK symbolic release above its current opening, not gravity-confirmed insertion), or an original named slot such as "orange_screw_03_slot"',
 };
 
 const armTools: Tool[] = [
+  {
+    name: 'scene',
+    description: 'Read registered objects, collision tags, table dimensions/base-frame pose, and named destinations. No movement.',
+    parameters: params({}),
+  },
+  {
+    name: 'follow_path',
+    description: 'Follow explicit base-frame XYZ waypoints in metres with current tool orientation fixed. All linear segments are checked before the first move. Simulation only; not global obstacle avoidance.',
+    parameters: params({ waypoints: { type: 'array', minItems: 1, maxItems: 256,
+      items: params({ x: { type: 'number' }, y: { type: 'number' }, z: { type: 'number' } }, ['x', 'y', 'z']) },
+      speed_percent: speedParam }, ['waypoints']),
+  },
+  {
+    name: 'circle_object',
+    description: 'Draw a checked polygonal circle around a registered object at explicit radius and absolute base-frame TCP height. Includes checked straight entry from current TCP. Preserves orientation; ask for radius and height if unspecified. Simulation only.',
+    parameters: params({ object: objectParam, radius_m: { type: 'number', exclusiveMinimum: 0 },
+      z_m: { type: 'number' }, clockwise: { type: 'boolean' },
+      max_chord_error_m: { type: 'number', exclusiveMinimum: 0,
+        description: 'Optional user-approved maximum circle-to-polygon deviation in metres. Never invent or increase it for speed. Omitting preserves the existing 1 cm arc spacing. Does not change collision-check resolution.' },
+      speed_percent: speedParam }, ['object', 'radius_m', 'z_m']),
+  },
+  ...['place_on_table', 'move_object_on_table'].map((name) => ({
+    name,
+    description: `${name === 'move_object_on_table' ? 'Pick a registered object and place it' : 'Place the already held object'} on the configured table. Specify location=center for the middle, OR base-frame x_m+y_m, OR direction+distance_m relative to the object. Footprint must remain on table. Simulation only.`,
+    parameters: params({ ...(name === 'move_object_on_table' ? { object: objectParam } : {}),
+      location: { type: 'string', enum: ['center'], description: 'Use center for the middle of the table. Controller resolves coordinates; do not guess them.' },
+      x_m: { type: 'number' }, y_m: { type: 'number' }, direction: { type: 'string', enum: ['left', 'right', 'forward', 'backward'] },
+      distance_m: { type: 'number', exclusiveMinimum: 0 }, speed_percent: speedParam }, name === 'move_object_on_table' ? ['object'] : []),
+  })),
   {
     name: 'pick_and_place',
     description:
@@ -87,6 +146,7 @@ const armTools: Tool[] = [
         object: objectParam,
         destination: destParam,
         shake_cycles: { type: 'integer', minimum: 0, maximum: 3, description: 'gentle shakes before placing, default 0' },
+        speed_percent: speedParam,
       },
       ['object'],
     ),
@@ -94,12 +154,12 @@ const armTools: Tool[] = [
   {
     name: 'pick',
     description: 'Find the object with the camera and pick it up (verifies the grip).',
-    parameters: params({ object: objectParam }, ['object']),
+    parameters: params({ object: objectParam, speed_percent: speedParam }, ['object']),
   },
   {
     name: 'place',
     description: 'Place the held object at a destination and release it.',
-    parameters: params({ destination: destParam }),
+    parameters: params({ destination: destParam, speed_percent: speedParam }),
   },
   {
     name: 'find',
@@ -120,7 +180,7 @@ const armTools: Tool[] = [
   {
     name: 'shake',
     description: 'Gently shake the held object side to side.',
-    parameters: params({ cycles: { type: 'integer', minimum: 1, maximum: 3, description: 'default 2' } }),
+    parameters: params({ cycles: { type: 'integer', minimum: 1, maximum: 3, description: 'default 2' }, speed_percent: speedParam }),
   },
   {
     name: 'touch',
@@ -138,8 +198,10 @@ const armTools: Tool[] = [
   {
     name: 'push',
     description:
-      'Push an object about 5 cm (blue bucket, orange screw or white lid; the ring is too flat). Real arm: the camera finds it, the arm comes down beside it until it feels the table, pushes, lifts and goes back. Needs the touch offset taught once.',
-    parameters: params({ object: objectParam }, ['object']),
+      'In RoboDK, push a registered object in an explicit base-frame direction for distance_m, using its taught push posture. Supply direction and distance together. Contact allowed only by the scene policy; table and protected obstacles remain checked. Omit both only to run the legacy taught path. Never split into repeated 5 cm pushes.',
+    parameters: params({ object: objectParam,
+      direction: { type: 'string', enum: ['left', 'right', 'forward', 'backward'] },
+      distance_m: { type: 'number', exclusiveMinimum: 0 }, speed_percent: speedParam }, ['object']),
   },
   {
     name: 'touch_teach_start',
@@ -152,7 +214,43 @@ const armTools: Tool[] = [
     description: 'Teach the touch offset, step 2: save where the touching part is now relative to where the camera was centred. Does not move the arm.',
     parameters: params({}),
   },
-  ...fromPrimitives(ARM_PRIMITIVES, 'arm'),
+  ...fromPrimitives(ARM_PRIMITIVES, 'arm')
+    .filter((t) => !genericMotionNames.has(t.name))
+    .map((t) =>
+      ['home', 'move_above'].includes(t.name)
+        ? {
+            ...t,
+            parameters: {
+              ...t.parameters,
+              properties: {
+                ...((t.parameters.properties as Record<string, unknown>) ?? {}),
+                speed_percent: speedParam,
+              },
+            },
+          }
+        : t,
+    ),
+  ...genericMotionTools,
+  {
+    name: 'reset_simulation_fault',
+    description: 'Explicitly clear a latched RoboDK simulation fault after user approval and controller readiness checks. Never moves the robot, retries a command, changes limits, or resets physical hardware. If refused, report the actual reason.',
+    parameters: params({}),
+  },
+  {
+    name: 'get_speed',
+    description: 'Get the selected robot default velocity percentage and the controller-applied motion limits.',
+    parameters: params({}),
+  },
+  {
+    name: 'set_speed',
+    description: 'Set the selected robot default velocity for subsequent tasks, as 1 to 100 percent of its verified model limits.',
+    parameters: params({ percent: { type: 'number', minimum: 1, maximum: 100 } }, ['percent']),
+  },
+  {
+    name: 'status',
+    description: 'Get the active robot model, DOF, backend, simulation mode, capabilities, current speed and state.',
+    parameters: params({}),
+  },
   {
     name: 'detect',
     description: 'Look for an object in the arm workspace before moving to it.',

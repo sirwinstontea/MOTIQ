@@ -748,26 +748,39 @@ class PhysicalArm:
 
 class Bridge:
     def __init__(self, controller: str, vision: str, scene_path: Path, vision_file: Path,
-                 task_timeout_s: float = 180.0, min_conf: float = 0.6, sim: bool = False, sim_arm: str = "UR5e"):
+                 task_timeout_s: float = 180.0, min_conf: float = 0.6, sim: bool = False, sim_arm: str = "UR5e",
+                 sim_vision: bool = False):
         self.controller = controller.rstrip("/")
         self.vision = vision.rstrip("/")
         self.vision_file = vision_file
         self.task_timeout_s = task_timeout_s
         self.min_conf = min_conf      # same as the controller's safety min_detection_confidence
+        self.sim_vision = sim_vision
         self.scene = yaml.safe_load(scene_path.read_text(encoding="utf-8"))
         self.http = httpx.Client(timeout=10.0)
         self.active_task: Optional[str] = None
+        try:
+            controller_health = self._get("/health")
+        except Exception:
+            controller_health = {}
+        controller_robodk = (controller_health.get("backend") == "robodk_sim"
+                              and controller_health.get("simulation") is True)
+        if sim_vision and (not controller_robodk or not self.vision):
+            raise Refused("--sim-vision requires a running RoboDK simulation controller and --vision URL")
+        self.controller_backend = str(controller_health.get("backend") or "")
         # Missing ur_jog must not stop the bridge: controller tools still run (NullPhysicalArm).
-        self._physical = PhysicalArm.open(sim, sim_arm)
+        # A robodk_sim controller is authoritative for all motion: never initialize URSim or a hardware jog driver.
+        self._physical = NullPhysicalArm(sim=True) if controller_robodk else PhysicalArm.open(sim, sim_arm)
         # SIM=1 on the UR5e: the physical UR5e as well, for "Run on real arm" (requests with X-Arm-Target: real).
         # Only camera/force moves (locate, touch, push, small steps): the controller drives the simulation only.
-        real = (PhysicalArm.open(False) if sim and sim_arm == "UR5e" and os.environ.get("REAL_ARM", "1") == "1"
+        real = (PhysicalArm.open(False) if not controller_robodk and sim and sim_arm == "UR5e"
+                and os.environ.get("REAL_ARM", "1") == "1"
                 else None)
         self.real_arm = real if isinstance(real, PhysicalArm) else None
         # SIM=1 on the UR5e: URSim is started / powered on on demand before every motion (see tool())
         self.ursim = (URSimLauncher(os.environ.get("URSIM_CONTAINER", "ursim-ur5e"),
                                     open_ui=os.environ.get("URSIM_OPEN_UI", "1") == "1")
-                      if sim and sim_arm == "UR5e" else None)
+                      if not controller_robodk and sim and sim_arm == "UR5e" else None)
         self.directions = load_direction_mapping()
         import threading
         self.search_cancel = threading.Event()   # set by stop: ends an arm-camera search between poses
@@ -933,6 +946,8 @@ class Bridge:
             frame = self.vision_frame()
         except Exception as e:
             raise Refused(f"can't reach the vision server ({e.__class__.__name__}); not moving without it")
+        if getattr(self, "sim_vision", False):
+            self._validate_sim_frame(frame)
         objs, seen, weak = [], None, None
         for v in frame.get("objects") or []:
             oid = self.match_vision(v)
@@ -947,7 +962,7 @@ class Bridge:
                          "color": v.get("color"), "bbox": v.get("bbox")})
             if oid == need and (seen is None or v.get("conf", 0) > seen.get("conf", 0)):
                 seen = v
-        payload = {"source": "arm", "frame_id": frame.get("frame_id"), "ts": frame.get("ts", time.time()),
+        payload = {"source": "simulated_camera" if getattr(self, "sim_vision", False) else "arm", "frame_id": frame.get("frame_id"), "ts": frame.get("ts", time.time()),
                    "objects": objs, "written_by": "motiq_bridge"}
         self.vision_file.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile("w", dir=self.vision_file.parent, delete=False, suffix=".tmp") as f:
@@ -1285,6 +1300,14 @@ class Bridge:
                                   float(push.get("distance_m", 0.05)) * 1000, down, force)
 
     def push(self, oid: str, a: Optional[dict] = None) -> dict:
+        if a and any(k in a for k in ("direction", "distance_m")):
+            if self._controller_backend() != "robodk_sim":
+                raise Refused("directional push is restricted to RoboDK simulation")
+            self.ensure_visible(oid)
+            return self.run_task([("identify_object", {"object_id": oid}),
+                                  ("push_object", {"object_id": oid, "direction": a.get("direction"),
+                                                   "distance_m": a.get("distance_m")})],
+                                 f"pushed {oid} in the requested direction", a.get("speed_percent"))
         push = (self.objects.get(oid) or {}).get("push")
         if not push:
             raise Refused(f"the {oid.replace('_', ' ')} can't be pushed (no push path taught for it)")
@@ -1293,12 +1316,19 @@ class Bridge:
             return self._physical_push(oid, push, a or {})
         self.ensure_visible(oid)
         how = push.get("description") or f"{float(push.get('distance_m', 0)) * 100:g} cm"
+        if a and a.get("speed_percent") is not None:
+            return self.run_task([("identify_object", {"object_id": oid}), ("push_object", {"object_id": oid})],
+                                 f"pushed the {oid.replace('_', ' ')} {how}", a["speed_percent"])
         return self.run_task([("identify_object", {"object_id": oid}), ("push_object", {"object_id": oid})],
                              f"pushed the {oid.replace('_', ' ')} {how}")
 
     def ensure_visible(self, oid: str) -> Optional[dict]:
         """sync_vision for a pick, but with the camera on the arm: if it's not in view, go look for it first."""
         if self.physical.sim:
+            if getattr(self, "sim_vision", False):
+                if self._controller_backend() != "robodk_sim":
+                    raise Refused("simulated-camera recognition requires RoboDK simulation")
+                return self.sync_vision(need=oid)
             # SIM=1: the objects are RoboDK's station items, which the real camera can't see; the controller runs
             # with its (labelled) mock detector in this mode, see start_stack.sh
             return None
@@ -1313,9 +1343,28 @@ class Bridge:
             raise Refused(r["error"])
         return self.sync_vision(need=oid)   # the arm is now where the camera sees it: write it for the controller
 
+    def _validate_sim_frame(self, frame):
+        import math
+        ts = float(frame.get("ts") or 0)
+        if not math.isfinite(ts) or not -0.5 <= time.time() - ts <= 2.0:
+            raise Refused("simulated camera frame missing/stale; no fresh recognition available")
+        if frame.get("safety_stop"):
+            raise Refused(f"vision safety stop: {frame.get('safety_reason') or 'workspace obstruction'}")
+
     def check_placed(self, oid: str, dest: str) -> dict:
         """After a place: look at the destination with the arm camera. Inside a container the object can be hidden,
         so there it also counts if the object is gone from its own spot and the gripper is empty."""
+        if self.physical.sim and self._controller_backend() == "robodk_sim":
+            from urllib.parse import urlencode
+            result = self._get('/scene/placement?' + urlencode({'object_id': oid, 'destination_id': dest}))
+            result.update({"simulation": True, "camera_verified": False})
+            if getattr(self, "sim_vision", False):
+                frame = self.vision_frame()
+                self._validate_sim_frame(frame)
+                result["camera_object_visible"] = any(self.match_vision(v) == oid and
+                    float(v.get("conf") or 0) >= self.min_conf for v in frame.get("objects", []))
+            result["did"] = "checked actual simulator placement geometry; not camera-confirmed placement" if result.get("ok") else "object is not at the resolved destination"
+            return result
         if not self.vision and not self.physical.sim:
             raise Refused("no vision server configured, so the arm can't check")
         self.search_cancel.clear()
@@ -1343,19 +1392,25 @@ class Bridge:
         r.raise_for_status()
         return r.json()
 
-    def run_task(self, actions: list[tuple[str, dict]], did: str) -> dict:
+    def run_task(self, actions: list[tuple[str, dict]], did: str, speed_percent: Any = None) -> dict:
         task_id = f"app_{int(time.time() * 1000)}_{secrets.token_hex(2)}"
         task = {"schema_version": "1.0", "task_id": task_id,
                 "actions": [{"action_id": f"a{i + 1}", "action": a, "parameters": p}
                             for i, (a, p) in enumerate(actions)]}
+        if speed_percent is not None:
+            task["speed_percent"] = speed_percent
         r = self.http.post(f"{self.controller}/tasks", content=json.dumps(task))
         if r.status_code >= 400:
             err = (r.json().get("error") or {}) if r.headers.get("content-type", "").startswith("application/json") else {}
             code = err.get("code", str(r.status_code))
             msg = err.get("message", r.text[:200])
             if code == "FAULT_LATCHED":
-                msg += (" An operator must reset it on the robot PC: "
-                        "curl -X POST localhost:8765/operator/reset -d '{\"operator\":\"<name>\"}'")
+                if self.controller_backend == "robodk_sim":
+                    msg += (" This new task was not executed. Request reset_simulation_fault with explicit approval; "
+                            "reset does not retry the failed movement.")
+                else:
+                    msg += (" An operator must reset it on the robot PC: "
+                            "curl -X POST localhost:8765/operator/reset -d '{\"operator\":\"<name>\"}'")
             return {"ok": False, "error": msg, "code": code, "task_id": task_id}
 
         self.active_task = task_id
@@ -1374,7 +1429,8 @@ class Bridge:
             self.active_task = None
 
         out: dict[str, Any] = {"ok": st["status"] == "SUCCEEDED", "task_id": task_id, "status": st["status"],
-                               "state": st["state"], "speed_percent": st.get("speed_percent")}
+                               "state": st["state"], "speed_percent": st.get("speed_percent"),
+                               "motion_limits": st.get("motion_limits"), "execution": st.get("execution")}
         if out["ok"]:
             out["did"] = did
             # the controller can't drive the physical UR in this build (mock / RoboDK / URSim backends only):
@@ -1403,6 +1459,12 @@ class Bridge:
         except Exception:
             pass
         return out
+
+    def _controller_backend(self) -> str:
+        h = self._get("/health")
+        if not h.get("simulation"):
+            raise Refused("robot_controller is not in simulation mode")
+        return str(h.get("backend") or "")
 
     def speed(self, percent: Any = None) -> tuple[int, dict]:
         """Read (percent=None) or set the controller's speed. Returns (http status, body)."""
@@ -1434,24 +1496,69 @@ class Bridge:
             res.update(ok=False, error=f"controller stop failed: {e}")
         return res
 
+    def reset_simulation(self) -> tuple[int, dict]:
+        """Shared explicit UI/voice recovery; controller enforces all simulation readiness checks."""
+        r = self.http.post(f"{self.controller}/robot/simulation/reset", json={})
+        body = r.json()
+        if r.status_code >= 400:
+            error = body.get("error") or {}
+            return r.status_code, {"ok": False, "error": error.get("message", "reset refused"),
+                                   "code": error.get("code")}
+        return 200, {"ok": True, **body,
+                     "did": "Simulation fault reset; no motion executed and no failed command retried."}
+
     # ------------------------------------------------------------------ tools
     def tool(self, name: str, a: dict, target: str = "") -> dict:
         name = name.lower()
+        if name == "reset_simulation_fault":
+            if target == "real" or _ARM.get() is not None:
+                raise Refused("fault reset is simulation-only; physical robot reset is not available")
+            if a:
+                raise Refused("reset_simulation_fault takes no parameters")
+            _code, body = self.reset_simulation()
+            return body
         if target == "real" and self._physical.sim:
             return self._real_tool(name, a)
-        if self.ursim and name != "status" and _ARM.get() is None:   # (not for a physical-arm tool)
+        if name == "scene":
+            return {"ok": True, **self._get("/scene")}
+        if name in ("follow_path", "circle_object", "place_on_table", "move_object_on_table"):
+            if target == "real" or _ARM.get() is not None or self._controller_backend() != "robodk_sim":
+                raise Refused("custom paths and tabletop placement are RoboDK simulation-only")
+            params = {k: v for k, v in a.items() if k != "speed_percent"}
+            if name == "circle_object":
+                params["object_id"] = self.resolve_object(params.pop("object", None))
+            if name == "move_object_on_table":
+                oid = self.resolve_object(params.pop("object", None))
+                self.ensure_visible(oid)
+                actions = [("identify_object", {"object_id": oid}), ("pick_object", {"object_id": oid}),
+                           ("place_on_table", params)]
+            else:
+                actions = [(name, params)]
+            return self.run_task(actions, f"completed {name.replace('_', ' ')} in simulation", a.get("speed_percent"))
+        if name == "get_speed":
+            _code, body = self.speed()
+            return body
+        if name == "set_speed":
+            _code, body = self.speed(a.get("percent"))
+            return body
+        controller_backend = self.controller_backend
+        if name in STEP_MOVES or name in ("move_joint", "rotate_yaw"):
+            controller_backend = self._controller_backend()
+            self.controller_backend = controller_backend
+        if self.ursim and controller_backend == "ursim_sync" and name != "status" and _ARM.get() is None:
             self.ursim.ensure()
             self._clear_sim_fault()           # SIM=1: start / power on URSim if it isn't ready (raises Refused)
         if name in ("pick", "pick_object"):
             oid = self.resolve_object(a.get("object") or a.get("target"))
             self.ensure_visible(oid)
             return self.run_task([("identify_object", {"object_id": oid}), ("pick_object", {"object_id": oid})],
-                                 f"picked up the {oid.replace('_', ' ')}")
+                                 f"picked up the {oid.replace('_', ' ')}", a.get("speed_percent"))
         if name in ("place", "place_object"):
             dest = self.resolve_destination(a.get("destination"))
-            return self.run_task([("place_object", {"destination_id": dest})], f"placed it at {dest.replace('_', ' ')}")
+            return self.run_task([("place_object", {"destination_id": dest})],
+                                 f"placed it at {dest.replace('_', ' ')}", a.get("speed_percent"))
         if name in ("shake", "shake_object"):
-            return self.run_task([("shake_object", self._shake(a))], "shook it")
+            return self.run_task([("shake_object", self._shake(a))], "shook it", a.get("speed_percent"))
         if name == "pick_and_place":
             oid = self.resolve_object(a.get("object") or a.get("target"))
             dest = self.resolve_destination(a.get("destination"))
@@ -1460,7 +1567,8 @@ class Bridge:
             if int(a.get("shake_cycles") or 0) > 0:
                 steps.append(("shake_object", self._shake({"cycles": a["shake_cycles"]})))
             steps.append(("place_object", {"destination_id": dest}))
-            return self.run_task(steps, f"moved the {oid.replace('_', ' ')} to {dest.replace('_', ' ')}")
+            return self.run_task(steps, f"moved the {oid.replace('_', ' ')} to {dest.replace('_', ' ')}",
+                                 a.get("speed_percent"))
         if name in ("find", "find_object", "detect"):
             return self.find(self.resolve_object(a.get("object") or a.get("target")))
         if name in ("scan", "look_around"):
@@ -1482,9 +1590,10 @@ class Bridge:
             oid = self.resolve_object(a.get("object") or a.get("target"))
             return self.check_placed(oid, self.resolve_destination(a.get("destination")))
         if name == "home":
-            return self.run_task([("perform_motion", {"motion_id": "go_home"})], "went home")
+            return self.run_task([("perform_motion", {"motion_id": "go_home"})], "went home",
+                                 a.get("speed_percent"))
         if name in ("open_gripper", "release"):
-            return self.run_task([("release_object", {})], "opened the gripper")
+            return self.run_task([("release_object", {})], "opened the gripper", a.get("speed_percent"))
         if name == "move_above":
             tgt = str(a.get("target") or "")
             try:
@@ -1492,7 +1601,7 @@ class Bridge:
             except Refused:
                 t = self.resolve_destination(tgt)
             return self.run_task([("move_to_target", {"target_id": self.approach_target(t)})],
-                                 f"moved above the {t.replace('_', ' ')}")
+                                 f"moved above the {t.replace('_', ' ')}", a.get("speed_percent"))
         if name == "ur_down_up":
             if self.active_task:
                 raise Refused("a controller task is running; wait for it to finish")
@@ -1514,6 +1623,29 @@ class Bridge:
         if name in STEP_MOVES or name in ("move_joint", "rotate_yaw"):
             if self.active_task:
                 raise Refused("a controller task is running; wait for it to finish")
+            if controller_backend == "robodk_sim" and name in STEP_MOVES:
+                d = name.removeprefix("move_")
+                distance = float(a.get("distance_m"))
+                frame = str(a.get("reference_frame") or "base")
+                return self.run_task([("move_relative", {"direction": d, "distance_m": distance,
+                                                          "reference_frame": frame})],
+                                     f"moved {distance:g} m {d} in the {frame} frame", a.get("speed_percent"))
+            if controller_backend == "robodk_sim" and name == "move_joint":
+                raw_index = a.get("joint_index")
+                if raw_index is None and str(a.get("joint") or "").isdigit():
+                    raw_index = int(str(a["joint"]))
+                if raw_index is None:
+                    raise Refused("move_joint requires joint_index (one-based for the selected robot)")
+                params: dict[str, Any] = {"joint_index": int(raw_index)}
+                if a.get("target_deg") is not None:
+                    params["target_rad"] = math.radians(float(a["target_deg"]))
+                elif a.get("delta_deg") is not None:
+                    params["delta_rad"] = math.radians(float(a["delta_deg"]))
+                else:
+                    raise Refused("move_joint requires delta_deg or target_deg")
+                return self.run_task([("move_joint", params)], f"moved joint {raw_index}", a.get("speed_percent"))
+            if controller_backend == "robodk_sim" and name == "rotate_yaw":
+                raise Refused("rotate_yaw is model-specific; use move_joint with an explicit joint_index")
             if name in STEP_MOVES:
                 d = name.removeprefix("move_")
                 return self.physical.step(d, a.get("distance_m"), self.directions[d])
@@ -1529,7 +1661,7 @@ class Bridge:
                 delta = float(a.get("delta_deg") or 10)
             return self.physical.joint(i, j.replace("_", " "), round(delta, 2))
         if name == "status":
-            return {"ok": True, **self._get("/status")}
+            return {"ok": True, **self._get("/robot/state")}
         if name in REFUSED_PRIMITIVES:
             raise Refused(f"'{name}' isn't available on the real arm. Small steps (move_up/down/left/right/"
                           "forward/backward), move_joint, rotate_yaw, pick, place, shake, pick_and_place, move_above "
@@ -1592,10 +1724,16 @@ class Bridge:
             out["model"] = f"{h.get('model', 'unknown')} (robot_controller)"
             out["dof"] = h.get("dof")
             out["simulation"] = h.get("simulation")
+            out["perception"] = {"detector": h.get("detector"),
+                                 "simulated_camera_required": bool(getattr(self, "sim_vision", False)),
+                                 "position_source": "robodk_station_geometry" if h.get("backend") == "robodk_sim" else "backend"}
             st = self._get("/robot/state")
             out["controller"] = {"backend": h.get("backend"), "state": st.get("executor_state"),
                                  "mode": st.get("mode"), "gripper": st.get("gripper_state"),
-                                 "fault": (st.get("latched_error") or {}).get("message")}
+                                 "fault": (st.get("latched_error") or {}).get("message"),
+                                 "capabilities": st.get("capabilities"),
+                                 "motion_limits": st.get("motion_limits"),
+                                 "workspace": st.get("workspace"), "busy": st.get("busy")}
             out["speed_percent"] = st.get("speed_percent")
         except Exception as e:
             out.update(ok=False, controller={"error": f"unreachable: {e.__class__.__name__}"})
@@ -1761,6 +1899,15 @@ def create_app(bridge: Bridge, key: str, twin: Optional[DigitalTwinProxy] = None
             return JSONResponse({"ok": False, "error": f"controller unreachable: {e.__class__.__name__}"}, status_code=502)
         return JSONResponse(body, status_code=code)
 
+    @app.post("/simulation/reset")
+    def simulation_reset():
+        # Same guarded recovery as the explicit voice tool. Never automatic.
+        try:
+            code, body = bridge.reset_simulation()
+            return JSONResponse(body, status_code=code)
+        except httpx.HTTPError:
+            return JSONResponse({"ok": False, "error": "controller unreachable"}, status_code=502)
+
     @app.post("/speed")
     async def set_speed(request: Request):
         try:
@@ -1858,11 +2005,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--robot-chooser", default=os.environ.get("ROBOT_CHOOSER_URL", "http://127.0.0.1:8771"),
                     help="local robot-chooser (arm catalog) service ('' = disabled)")
     ap.add_argument("--sim", action="store_true", default=os.environ.get("SIM", "0") == "1",
-                    help="simulation only: step/joint/down-up moves go to URSim (127.0.0.1, mirrored into RoboDK) "
-                         "instead of the physical UR (env SIM=1)")
+                    help="legacy URSim mode; robodk_sim is detected from robot_controller and needs no flag")
     ap.add_argument("--sim-arm", default=os.environ.get("SIM_ARM", "UR5e"),
-                    help="with --sim: model of the simulated arm (robot-chooser selection). Only UR5e runs on URSim; "
-                         "any other arm gets named moves only (set by start_stack.sh)")
+                    help="legacy URSim model selector; ignored when robot_controller uses robodk_sim")
+    ap.add_argument("--sim-vision", action="store_true", help="require recognition from the explicitly configured simulated camera")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -1872,7 +2018,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         ap.error("set BRIDGE_KEY (8+ chars) before exposing the bridge on the network; "
                  "the app sends it as EXPO_PUBLIC_BRIDGE_KEY")
     bridge = Bridge(args.controller, args.vision, args.scene, args.vision_file, args.task_timeout, args.min_conf,
-                    sim=args.sim, sim_arm=args.sim_arm)
+                    sim=args.sim, sim_arm=args.sim_arm, sim_vision=args.sim_vision)
     log.info("controller=%s vision=%s vision_file=%s arm=%s", bridge.controller, bridge.vision or "-",
              bridge.vision_file, (("SIMULATION (URSim -> RoboDK)" if args.sim_arm == "UR5e" else f"SIMULATION ({args.sim_arm} in RoboDK)")
                                      if args.sim else f"physical {bridge.physical.ip}"))

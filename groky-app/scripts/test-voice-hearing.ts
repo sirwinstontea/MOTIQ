@@ -7,6 +7,7 @@ import {
   isNo,
   isYes,
   normalizeUtterance,
+  needsArmApproval,
   propose,
   userSaid,
 } from '../src/lib/armApproval';
@@ -22,6 +23,14 @@ const check = (name: string, fn: () => void) => {
     console.error(`FAIL ${name}\n  ${e.message}`);
   }
 };
+
+check('simulation motion, paths and reset require approval; scene queries do not', () => {
+  for (const tool of ['arm_push', 'arm_follow_path', 'arm_circle_object', 'arm_place_on_table',
+    'arm_move_object_on_table', 'arm_reset_simulation_fault', 'arm_move_joint', 'run_skill'])
+    assert.equal(needsArmApproval(tool), true, tool);
+  for (const tool of ['arm_scene', 'arm_status', 'arm_get_speed', 'arm_set_speed', 'arm_stop'])
+    assert.equal(needsArmApproval(tool), false, tool);
+});
 
 check('transcription enables grok-transcribe without language lock', () => {
   const t = inputTranscription('');

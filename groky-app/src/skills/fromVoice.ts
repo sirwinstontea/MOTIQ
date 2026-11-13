@@ -50,7 +50,7 @@ export const voiceSignature = (calls: VoiceCommand['calls']) =>
   calls.map((c) => `${c.name}:${JSON.stringify(c.args ?? {})}`).join('|').toLowerCase();
 
 // robot tools that become steps (stop, vision_, camera_look and run_skill are not robot actions)
-export const isRobotTool = (name: string) => /^arm_/.test(name) && name !== 'stop';
+export const isRobotTool = (name: string) => /^arm_/.test(name) && name !== 'stop' && name !== 'arm_reset_simulation_fault';
 
 type Ctx = { objects: EnvObject[]; uncertain: string[] };
 

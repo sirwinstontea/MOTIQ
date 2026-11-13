@@ -1,6 +1,10 @@
 # MOTIQ bridge
 
-The only robot service exposed on the LAN. It turns the app's tool calls into `robot_controller` tasks, feeds vision detections to the controller, searches for objects with the arm camera, and hosts a small set of direct step tools for a real UR arm.
+RoboDK table placement, explicit-distance pushing, contact tags and generated paths are documented in
+[Table contact and paths](../robot_controller/docs/TABLE_CONTACT_PATHS.md). They use controller tasks,
+one task-specific speed and the existing Voice approval flow, never direct Bridge-to-RoboDK movement.
+
+The only robot service exposed on the LAN. It turns the app's tool calls into `robot_controller` tasks, feeds vision detections to the controller, searches for objects with the arm camera, and hosts a small legacy set of direct step tools for a real UR arm. When the controller backend is `robodk_sim`, generic Cartesian and joint tools always route through the controller and never initialize URSim or the hardware jog driver.
 
 ```mermaid
 flowchart LR
@@ -29,7 +33,7 @@ BRIDGE_KEY=pick-a-secret BACKEND=mock VISION=0 ./bridge/start_stack.sh     # no 
 | `VISION_MODE` | `auto` | `realsense`, `webcam`, `synthetic`, ... |
 | `BRIDGE_PORT`, `TEACH_PORT`, `CTRL_PORT` | `8080`, `8001`, `8765` | Ports |
 
-Any backend except `mock` starts RoboDK from `~/RoboDK/RoboDK-Start.sh` if it isn't running, and loads `stations/UR5e_demo.rdk`. Create that file first with `setup-station`.
+Any backend except `mock` starts RoboDK from `~/RoboDK/RoboDK-Start.sh` if it isn't running, and loads the station selected by the generated robot configuration. Create it first with `setup-station`.
 
 **Any OS**, bridge alone. It runs in the controller's venv:
 
@@ -82,6 +86,12 @@ Grok sees these tools with an `arm_` prefix: `arm_pick_and_place` becomes `POST 
 | `scan` | | Visit every scan pose and report which objects are on the table |
 | `check_placed` | `object`, `destination` | Look at the destination after a place |
 | `status` | | Controller `GET /status` |
+| `move_up/down/left/right/forward/backward` | `distance_m`, `reference_frame?`, `speed_percent?` | `move_relative` (`MoveL`, RoboDK only) |
+| `move_joint` | `joint_index`, `delta_deg` or `target_deg`, `speed_percent?` | `move_joint` (`MoveJ`, RoboDK only) |
+| `get_speed`, `set_speed` | `percent` for set | Controller default speed API |
+
+All task tools accept optional `speed_percent`; the Bridge puts it on the single task request so it cannot race with
+the controller default. See [generic motion](../robot_controller/docs/GENERIC_ROBODK_MOTION.md).
 
 `object` can be a scene ID (`orange_screw_03`), a name (`orange screw`, `vite arancione`) or a vision track number (`3`). Destinations are `delivery_zone`, `blue bucket` (`blue_bucket_01_inside`, a drop into the bucket) or `<object>_slot`.
 

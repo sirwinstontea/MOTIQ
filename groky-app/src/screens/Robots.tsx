@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { devices, DeviceId, getArmSpeed, setArmSpeed, stopDevice } from '../devices';
+import { devices, DeviceId, getArmSpeed, setArmSpeed, stopDevice, resetArmSimulation } from '../devices';
 import { useDevices } from '../hooks/useDevices';
 import type { Line } from '../voice/types';
 import { Button, IconButton, IconChip, Pill, Slider } from '../components/ui';
@@ -251,8 +251,15 @@ function Card({ id, lines }: { id: DeviceId; lines: Line[] }) {
   const s = useStyles(makeStyles);
   const { status, ready } = useDevices();
   const [stopping, setStopping] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetMessage, setResetMessage] = useState('');
   const d = devices[id];
   const st = status[id];
+  const controller = st.info?.controller as {
+    backend?: string; state?: string; fault?: string; busy?: boolean;
+    workspace?: { mode?: 'box' | 'kinematic'; frame_id: string; x_m: number[]; y_m: number[]; z_m: number[] };
+  } | undefined;
+  const workspace = controller?.workspace;
 
   const actions = lines.filter((l): l is ToolLine => l.kind === 'tool' && l.name.startsWith(`${id}_`));
   const done = actions.filter((a) => a.ok !== undefined);
@@ -304,6 +311,30 @@ function Card({ id, lines }: { id: DeviceId; lines: Line[] }) {
       </View>
 
       {id === 'arm' && <ArmSpeed online={st.state === 'online'} busy={!!running} />}
+      {id === 'arm' && workspace && (
+        <Text style={s.url}>
+          {workspace.mode === 'kinematic'
+            ? `Workspace: robot kinematics + collision checking. TCP minimum Z: ${workspace.z_m[0]} m (${workspace.frame_id}). No lateral box restriction.`
+            : `TCP workspace (${workspace.frame_id}, m): X [${workspace.x_m.join(', ')}], Y [${workspace.y_m.join(', ')}], Z [${workspace.z_m.join(', ')}]. Destinations outside this box are refused before motion.`}
+        </Text>
+      )}
+      {id === 'arm' && controller?.backend === 'robodk_sim' && (
+        <View style={{ gap: 8 }}>
+          {!!controller.fault && <Text style={{ color: c.bad }}>{controller.fault}</Text>}
+          {['FAULT', 'CANCELLED'].includes(controller.state ?? '') && (
+            <Button label={resetting ? 'Checking simulation...' : 'Reset simulation fault'}
+              disabled={resetting || !!running || controller.busy === true}
+              onPress={async () => {
+                setResetting(true);
+                try {
+                  const result = await resetArmSimulation();
+                  setResetMessage(result.ok ? 'Simulation reset. No motion was executed; submit a new request.' : String(result.error ?? 'Reset refused'));
+                } finally { setResetting(false); }
+              }} />
+          )}
+          {!!resetMessage && <Text style={s.url}>{resetMessage}</Text>}
+        </View>
+      )}
 
       <View>
         {battery != null && (
@@ -359,7 +390,7 @@ function Card({ id, lines }: { id: DeviceId; lines: Line[] }) {
 const PRESETS = [10, 25, 50, 100];
 const STEP = 5;
 
-// arm speed as % of the UR5e maximums (default 10). The controller applies it from the next task
+// arm speed as % of the selected robot's verified maximums. The controller applies it from the next task
 // and refuses changes while a task is moving.
 function ArmSpeed({ online, busy }: { online: boolean; busy: boolean }) {
   const { c } = useTheme();
@@ -451,7 +482,7 @@ function ArmSpeed({ online, busy }: { online: boolean; busy: boolean }) {
         ))}
       </View>
       <Text style={[s.speedHint, msg?.bad && { color: c.bad }]}>
-        {busy ? 'task running - change the speed when it finishes' : (msg?.text ?? '% of the UR5e maximum speed')}
+        {busy ? 'task running - change the speed when it finishes' : (msg?.text ?? '% of the selected robot maximum speed')}
       </Text>
     </View>
   );

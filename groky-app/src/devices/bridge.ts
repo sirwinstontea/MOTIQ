@@ -62,6 +62,12 @@ export async function stopDevice(id: DeviceId): Promise<ToolResult> {
   return url ? post(`${url}/tools/stop`, {}, 3000) : { ok: true, sim: true };
 }
 
+// Operator UI recovery; voice uses the same guarded controller reset through its approved tool.
+export async function resetArmSimulation(): Promise<ToolResult> {
+  const url = devices.arm.url;
+  return url ? post(`${url}/simulation/reset`, {}, 10000) : { ok: false, error: 'No arm bridge configured' };
+}
+
 // opts.armReal: the user approved this voice plan on the REAL arm while the bridge runs SIM=1, so the arm calls
 // carry X-Arm-Target: real. Without it, a SIM=1 bridge runs them on URSim + RoboDK.
 export async function runTool(
@@ -118,7 +124,7 @@ export async function armPhysical(tool: 'ur_down_up' | 'ur_visit' | 'go_to_pose'
   return post(`${url}/tools/${tool}`, body, tool === 'ur_visit' ? 180000 : 60000);
 }
 
-// arm: every primitive is checked against the UR5e model first, so nothing outside the limits reaches the bridge
+// Generic controller tasks are validated by robot_controller against the selected RoboDK model.
 async function runArmTool(name: string, args: Record<string, unknown>, url: string): Promise<ToolResult> {
   // camera on the arm head: on the real arm the bridge moves the camera around until it sees the object
   if (name === 'detect' && url) return post(`${url}/tools/find`, { object: args.target ?? args.object }, 180000);
@@ -136,6 +142,8 @@ async function runArmTool(name: string, args: Record<string, unknown>, url: stri
   if (ARM_TASK_TOOLS.has(name)) {
     // whole tasks run in robot_controller; a pick can take a while in RoboDK, so wait up to 3 minutes
     if (url) return post(`${url}/tools/${name}`, args, 180000);
+    if (['follow_path', 'circle_object', 'place_on_table', 'move_object_on_table'].includes(name))
+      return { ok: false, error: 'This action needs the RoboDK simulation controller; no arm bridge is configured.' };
     return simulate('arm', name, args);
   }
   if (name === 'verify') {
@@ -145,7 +153,7 @@ async function runArmTool(name: string, args: Record<string, unknown>, url: stri
   return runArm(name.toUpperCase(), args, armSend());
 }
 
-// arm speed lives in robot_controller (% of the UR5e maximums, default 10). Changes apply from the next task.
+// Arm speed lives in robot_controller (% of the selected robot's verified maximums). Changes apply from the next task.
 export async function getArmSpeed(): Promise<ToolResult & { speed_percent?: number }> {
   const url = devices.arm.url;
   if (!url) return { ok: false, sim: true, error: 'arm is simulated' };

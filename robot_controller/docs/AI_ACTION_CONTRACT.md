@@ -1,14 +1,18 @@
 # AI action contract (schema 1.0)
 
 The planner produces a **task**: an ordered list of allowlisted actions. Requests are strictly validated
-(Pydantic, `extra="forbid"`). The planner has **no** tool for raw XYZ, joint arrays, moveJ/moveL, IP
-addresses, scripts or code. `python -m robot_control.cli tools` prints the machine-readable tool list.
+(Pydantic, `extra="forbid"`). Explicit XYZ waypoints are permitted only through the validated simulation
+`follow_path` contract; there is no raw moveJ/moveL, arbitrary joint-array, IP, script or code execution tool.
+`python -m robot_control.cli tools` prints the machine-readable tool list.
+See [table contact and paths](TABLE_CONTACT_PATHS.md) for `place_on_table`, `circle_object`, directional
+`push_object`, configuration tags and the corresponding Bridge/Voice tools.
 
 ```json
 {
   "schema_version": "1.0",
   "task_id": "demo_001",
   "idempotency_key": "optional-client-key",
+  "speed_percent": 25,
   "actions": [
     {"action_id": "a1", "action": "identify_object", "parameters": {"object_id": "orange_screw_03"}},
     {"action_id": "a2", "action": "pick_object",     "parameters": {"object_id": "orange_screw_03"}},
@@ -31,6 +35,8 @@ measured `mass_kg` yet. Drop the shake step (see `examples/pick_place.json`) or 
 | `place_object` | `destination_id` | yes | approach → place → open → verify → retreat |
 | `release_object` | – | yes | open gripper; refused while holding (use `place_object`) |
 | `move_to_target` | `target_id` | yes | joint move to a registered target |
+| `move_relative` | `direction`, `distance_m`, `reference_frame?` | yes | straight Cartesian translation in base/tool/world frame; orientation preserved |
+| `move_joint` | `joint_index`, exactly one of `delta_rad`/`target_rad` | yes | one-based relative or absolute joint move using selected-model limits |
 | `shake_object` | `pattern_id`, `cycles` (int 1–10, and ≤ pattern/safety max) | yes | approved pattern made of named targets |
 | `perform_motion` | `motion_id` | yes | pre-validated macro (e.g. `go_home`) |
 | `push_object` | `object_id` | yes | empty gripper, closed (if needed) → above → down beside it → push `distance_m` → lift, on the object's taught `push:` path; needs a fresh detection; objects without a push path (the 7 mm ring) are refused. Simulation: the RoboDK object moves only on the push segment, and only if it is still beside the gripper |
@@ -55,5 +61,6 @@ open, and `release_object` on an open gripper sends no command.
 |---|---|
 | unknown action name, extra fields, wrong types, NaN/Inf, negative or > 10 cycles, bad ID format, duplicate `action_id`, control calls inside a task, wrong `schema_version` | unknown object/target/pattern, target missing in the station, unreachable target, joint-limit / workspace violation, plan inconsistency (place before pick), excess cycles for the pattern, low-confidence or stale detection, collision predicted, path check inconclusive |
 
-Repeating the same `idempotency_key` returns the original task without running it again. Re-using a
+Top-level `speed_percent` is optional (1–100) and applies atomically to this task only; it does not change the
+controller default. Repeating the same `idempotency_key` returns the original task without running it again. Re-using a
 `task_id` gives `DUPLICATE_TASK`.

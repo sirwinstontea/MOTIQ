@@ -5,6 +5,7 @@ import {
   approvedNow,
   approvedTarget,
   currentPlan,
+  needsArmApproval as needsApproval,
   propose,
   reject,
   userSaid,
@@ -29,7 +30,7 @@ type Events = {
 
 const pretty = (name: string) => name.replace(/_/g, ' ');
 
-// Arm motion + run_skill: always locked until the user approves Motion's plan (lib/armApproval.ts),
+// Arm motion, simulation fault reset + run_skill: locked until the user approves Motion's plan,
 // including in the simulator — never auto-run after Show Motion / a voice ask.
 // arm_touch_teach_save only records an offset; it does not move the arm.
 
@@ -634,6 +635,6 @@ export class VoiceSession {
   }
 }
 
-// the arm bridge reports the speed each task ran at (% of the UR5e maximums)
+// the arm bridge reports the speed each task ran at (% of the selected robot's verified maximums)
 const speedOf = (res: Record<string, unknown>) =>
   typeof res.speed_percent === 'number' ? (res.speed_percent as number) : undefined;
