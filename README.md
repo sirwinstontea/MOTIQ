@@ -44,19 +44,13 @@ The original concept also included coordination with a **CyberDog quadruped**. T
 
 Start here for the overall MOTIQ demo: an introduction to the application and its natural-language robotics workflow.
 
-**[▶ Watch the general showcase](demonstration%20video/MOTIQ%20Original%20%E2%80%94%20Working%20Timeline.mp4)**
-
-<!-- Inline GitHub player: paste the uploaded general-showcase attachment URL on its own line here.
-     Keep the watch link above as a repository-file fallback. See demonstration video/README.md for publishing notes. -->
+https://github.com/user-attachments/assets/b837132b-0d6d-4dc3-adf4-061935d76b04
 
 ### 2. Grok Voice × RoboDK — Simulation interaction
 
 See Grok Voice interacting with MOTIQ and the RoboDK simulation. This demo focuses on conversational robot commands and the resulting simulated robot behavior, with a music soundtrack. It demonstrates simulation interaction, not physical-hardware safety validation.
 
-**[▶ Watch the Grok Voice + RoboDK demo](demonstration%20video/MOTIQ_GrokVoice_RoboDK_with_music_reducedsize.mp4)**
-
-<!-- Inline GitHub player: paste the uploaded Grok Voice/RoboDK attachment URL on its own line here.
-     Upload MOTIQ_GrokVoice_RoboDK_with_music_reducedsize.mp4, not the oversized original. -->
+https://github.com/user-attachments/assets/c433b312-f28f-40be-991c-45dd7797bb21
 
 ## Highlights
 
