@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import itertools
+import json
 import logging
 import threading
 from typing import Callable, Optional
@@ -291,6 +292,10 @@ class TaskExecutor:
 
     # ------------------------------------------------------------------ run loop
     def _run(self, task: TaskRequest, status: TaskStatus) -> None:
+        with record_task():
+            self._run_profiled(task, status)
+
+    def _run_profiled(self, task: TaskRequest, status: TaskStatus) -> None:
         task_limits = (motion_limits_for_percent(self.robot_cfg, task.speed_percent)
                        if task.speed_percent is not None else self.motion_limits)
         status.started_utc = utc_now()
@@ -347,6 +352,9 @@ class TaskExecutor:
             except Exception:
                 log.exception("could not restore default motion limits after task")
             self._active_motion_limits = self.motion_limits
+            status.execution["performance"] = performance_snapshot()
+            log.info("task_performance task_id=%s %s", task.task_id,
+                     json.dumps(status.execution["performance"], sort_keys=True))
             status.finished_utc = utc_now()
             status.current_action_id = None
             with self._lock:
@@ -407,11 +415,13 @@ class TaskExecutor:
             raise _Veto(d)
         return d
 
+    @timed("state_gate")
     def _action_gate(self) -> SafetyDecision:
         b = self._require(self.policy.check_backend(self.c))
         s = self._require(self.policy.check_state(self.c.get_state()))
         return SafetyDecision.ok(*b.reasons, *s.reasons)
 
+    @timed("preflight")
     def _preflight(self, task: TaskRequest) -> None:
         self._action_gate()
         sc = self.scene

@@ -235,6 +235,7 @@ class RoboDKSimController(RobotController):
         if not self.connected or self.RDK is None:
             raise RobotControlError(ErrorCode.BACKEND_NOT_CONNECTED, "RoboDK backend not connected")
 
+    @timed("state_read")
     def get_state(self):
         if not self.connected:
             return RobotState(backend=self.backend_name, robot_model=self.robot_cfg.model, connected=False,
@@ -256,6 +257,7 @@ class RoboDKSimController(RobotController):
         objs = [o for o in self.RDK.ItemList(self.rl.ITEM_TYPE_OBJECT) if o.Visible()]
         return len(objs) > 0
 
+    @timed("backend_readiness")
     def check_ready(self):
         if not self.connected:
             return ["RoboDK backend not connected"]
@@ -336,6 +338,7 @@ class RoboDKSimController(RobotController):
             self._transient_poses[tid] = self._pose_from_mat(pose_base)
         return [round(ox, 4), round(oy, 4), round(oz, 4)]
 
+    @timed("planning")
     def plan_segment(self, target_id, motion: MotionType, start_joints=None):
         self._require()
         if target_id in self._transient_poses:
@@ -365,6 +368,7 @@ class RoboDKSimController(RobotController):
     def _rotate_vector(mat, vector):
         return [sum(float(mat[i, j]) * vector[j] for j in range(3)) for i in range(3)]
 
+    @timed("planning")
     def plan_cartesian_relative(self, direction, distance_m, reference_frame, start_joints=None):
         self._require()
         start_deg = self._deg(start_joints) if start_joints is not None else self.robot.Joints().list()
@@ -395,6 +399,7 @@ class RoboDKSimController(RobotController):
                               self._pose_from_mat(target), requested={"direction": direction,
                               "distance_m": distance_m, "reference_frame": reference_frame})
 
+    @timed("planning")
     def plan_joint_move(self, joint_index, *, delta_rad=None, target_rad=None, start_joints=None):
         self._require()
         if not 1 <= joint_index <= self.robot_cfg.dof:
@@ -408,6 +413,7 @@ class RoboDKSimController(RobotController):
                               requested={"joint_index": joint_index, "delta_rad": delta_rad,
                                          "target_rad": target_rad})
 
+    @timed("pose_ik")
     def plan_pose(self, pose, start_joints=None):
         self._require()
         start = list(start_joints) if start_joints is not None else self.get_joints().values
@@ -608,6 +614,7 @@ class RoboDKSimController(RobotController):
         increment("collision_map_reads")
         return list(self.RDK.CollisionActivePairList())
 
+    @timed("collision_policy.resolve")
     def _contact_pairs(self):
         if self.backend_name != "robodk_sim":
             raise RobotControlError(ErrorCode.MODE_VIOLATION, "contact collision policy is RoboDK-only")
@@ -718,6 +725,7 @@ class RoboDKSimController(RobotController):
         with self._contact_policy():
             return self._test_segment_with_policy(seg)
 
+    @timed("path_test")
     def _test_segment_with_policy(self, seg):
         """MoveJ_Test / MoveL_Test move the simulated robot: snapshot and restore."""
         self._require()
@@ -763,6 +771,7 @@ class RoboDKSimController(RobotController):
         with self._contact_policy():
             return self._execute_with_policy(end_deg, motion, ctx, label)
 
+    @timed("execution")
     def _execute_with_policy(self, end_deg, motion: MotionType, ctx: MotionContext, label: str):
         self._require()
         self._enforce_simulate()            # execution boundary

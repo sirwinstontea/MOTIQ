@@ -12,6 +12,7 @@ from typing import Optional
 from ..config import RobotConfig, SafetyConfig
 from ..controller import PlannedSegment, RobotController, RobotState
 from ..models import ErrorCode, SafetyChecks
+from ..performance import timed
 from ..scene_registry import Detection
 from .limits import joints_within_limits, pose_within_workspace
 from .trajectory import PathChecker
@@ -85,6 +86,7 @@ class SafetyPolicy:
         return SafetyDecision.ok(f"state fresh ({age:.0f} ms)")
 
     # 4/5. motion segment -------------------------------------------------------
+    @timed("safety.segment")
     def check_segment(self, seg: PlannedSegment) -> SafetyDecision:
         if seg.end_joints is None or seg.end_pose is None:
             return SafetyDecision.deny(ErrorCode.UNREACHABLE, f"no IK solution for target '{seg.target_id}'")
