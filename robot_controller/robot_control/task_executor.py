@@ -17,7 +17,7 @@ import threading
 from typing import Callable, Optional
 
 from .action_registry import error_info, validate_task
-from .config import RobotConfig, SafetyConfig, cross_validate, motion_limits
+from .config import RobotConfig, SafetyConfig, cross_validate, motion_limits, motion_limits_for_percent
 from .controller import MotionContext, MotionType, RobotController
 from .planning import DIRECTIONS, circle_waypoints, table_surface
 from .performance import record_task, snapshot as performance_snapshot, timed
@@ -265,18 +265,23 @@ class TaskExecutor:
 
     # ------------------------------------------------------------------ run loop
     def _run(self, task: TaskRequest, status: TaskStatus) -> None:
+        task_limits = (motion_limits_for_percent(self.robot_cfg, task.speed_percent)
+                       if task.speed_percent is not None else self.motion_limits)
         status.started_utc = utc_now()
         status.status = ActionStatus.RUNNING
-        status.speed_percent = self.speed_percent
-        status.motion_limits = self.motion_limits.model_dump(mode="json")
+        status.speed_percent = task.speed_percent if task.speed_percent is not None else self.speed_percent
+        status.motion_limits = task_limits.model_dump(mode="json")
         current: Optional[ActionRequest] = None
         self._cur_status, self._cur_action = status, None
         try:
+            self._active_motion_limits = task_limits
+            self.c.apply_motion_limits(task_limits.tcp_speed_m_s, task_limits.tcp_accel_m_s2,
+                                       task_limits.joint_speed_rad_s, task_limits.joint_accel_rad_s2)
             if self.state == S.COMPLETED:
                 self._go(S.IDLE)
             self._go(S.VALIDATING)
             status.state = self.state
-            self._emit(status, None, "INFO", message=f"validating task (preflight); speed {self.motion_limits.source}")
+            self._emit(status, None, "INFO", message=f"validating task (preflight); speed {task_limits.source}")
             self._preflight(task)
             status.plan = self._build_plan(task)
             self._emit(status, None, "INFO", message=f"plan ready: {len(status.plan)} steps", with_feedback=False)
@@ -296,21 +301,47 @@ class TaskExecutor:
             self._close_step("done")
             self._go(S.COMPLETED)
             status.state = self.state
+            status.execution = self._execution_summary(task)
             status.status = ActionStatus.SUCCEEDED
             self._notify("task completed")
             self._emit(status, None, "INFO", message="task completed")
         except RobotControlError as e:
-            self._finish_error(status, current, e)
+            self._finish_error(status, current, e, task)
         except Exception as e:  # unexpected => fault, never success
             log.exception("unexpected executor error")
-            self._finish_error(status, current, RobotControlError(ErrorCode.BACKEND_ERROR, repr(e)))
+            self._finish_error(status, current, RobotControlError(ErrorCode.BACKEND_ERROR, repr(e)), task)
         finally:
+            self.c.clear_transient_plans()
+            if status.execution is None:
+                status.execution = self._execution_summary(task)
+            try:
+                default = self.motion_limits
+                self.c.apply_motion_limits(default.tcp_speed_m_s, default.tcp_accel_m_s2,
+                                           default.joint_speed_rad_s, default.joint_accel_rad_s2)
+            except Exception:
+                log.exception("could not restore default motion limits after task")
+            self._active_motion_limits = self.motion_limits
             status.finished_utc = utc_now()
             status.current_action_id = None
             with self._lock:
                 self._active = None
 
-    def _finish_error(self, status: TaskStatus, action: Optional[ActionRequest], e: RobotControlError):
+    def _execution_summary(self, task: TaskRequest) -> dict:
+        out = {"robot_model": self.robot_cfg.model, "backend": self.c.backend_name,
+               "simulation": True, "requested_speed_percent": task.speed_percent,
+               "accepted_speed_percent": self._cur_status.speed_percent if self._cur_status else None,
+               "applied_motion_limits": (self._cur_status.motion_limits if self._cur_status else None),
+               "performance": performance_snapshot()}
+        try:
+            st = self.c.get_state()
+            out["final_tcp_pose"] = st.tcp_pose.model_dump(mode="json") if st.tcp_pose else None
+            out["final_joints_rad"] = list(st.joints.values) if st.joints else None
+        except Exception as e:
+            out["feedback_error"] = str(e)
+        return out
+
+    def _finish_error(self, status: TaskStatus, action: Optional[ActionRequest], e: RobotControlError,
+                      task: TaskRequest):
         info = error_info(e)
         self._close_step("failed")
         if e.code in (ErrorCode.CANCELLED, ErrorCode.STOPPED):
@@ -332,6 +363,7 @@ class TaskExecutor:
             self._go(final)                     # FAULT/CANCELLED reachable from every active state
             self._latched = info
         status.state = self.state
+        status.execution = self._execution_summary(task)
         status.status = tstatus
         status.error = info
         safety = SafetyChecks(approved=False, reasons=list(e.decision.reasons)) if isinstance(e, _Veto) else None
@@ -825,7 +857,7 @@ class TaskExecutor:
             "task_id": st.task_id if st else None, "task_status": st.status.value if st else None,
             "state": self.state.value, "progress": {"done": done, "total": len(steps)},
             "now": now, "next": nxt, "robot": robot, "steps": steps,
-            "motion_limits": self.motion_limits.model_dump(mode="json"),
+            "motion_limits": self._active_motion_limits.model_dump(mode="json"),
             "speed_percent": self.speed_percent,
             "task_speed_percent": st.speed_percent if st else None,
             "error": st.error.model_dump(mode="json") if st and st.error else None,

@@ -315,6 +315,7 @@ class MotionLimits(_Cfg):
     tcp_accel_m_s2: float
     joint_speed_rad_s: float
     joint_accel_rad_s2: float
+    joint_speed_limits_rad_s: list[float]
     source: str
 
 
@@ -328,10 +329,31 @@ def motion_limits(robot: RobotConfig, safety: SafetyConfig) -> MotionLimits:
         return MotionLimits(tcp_speed_m_s=f * lim.max_tcp_speed_m_s, tcp_accel_m_s2=f * lim.max_tcp_accel_m_s2,
                             joint_speed_rad_s=f * min(lim.max_joint_speed_rad_s),
                             joint_accel_rad_s2=f * lim.max_joint_accel_rad_s2,
+                            joint_speed_limits_rad_s=[f * v for v in lim.max_joint_speed_rad_s],
                             source=f"{pct:g}% of {robot.model} model maximums")
     return MotionLimits(tcp_speed_m_s=safety.tcp_speed_m_s, tcp_accel_m_s2=safety.tcp_accel_m_s2,
                         joint_speed_rad_s=safety.joint_speed_rad_s, joint_accel_rad_s2=safety.joint_accel_rad_s2,
+                        joint_speed_limits_rad_s=[min(safety.joint_speed_rad_s, v)
+                                                  for v in lim.max_joint_speed_rad_s],
                         source="absolute values from safety config")
+
+
+def motion_limits_for_percent(robot: RobotConfig, percent: float) -> MotionLimits:
+    """Resolve an atomic task override without mutating the default safety config."""
+    try:
+        pct = float(percent)
+    except (TypeError, ValueError) as e:
+        raise RobotControlError(ErrorCode.VALIDATION_ERROR, "speed percent must be a number") from e
+    if not math.isfinite(pct) or not 1 <= pct <= 100:
+        raise RobotControlError(ErrorCode.VALIDATION_ERROR, f"speed must be between 1 and 100 %, got {percent!r}")
+    f = pct / 100.0
+    lim = robot.limits
+    return MotionLimits(tcp_speed_m_s=f * lim.max_tcp_speed_m_s,
+                        tcp_accel_m_s2=f * lim.max_tcp_accel_m_s2,
+                        joint_speed_rad_s=f * min(lim.max_joint_speed_rad_s),
+                        joint_accel_rad_s2=f * lim.max_joint_accel_rad_s2,
+                        joint_speed_limits_rad_s=[f * v for v in lim.max_joint_speed_rad_s],
+                        source=f"{pct:g}% of {robot.model} model maximums (task override)")
 
 
 def cross_validate(robot: RobotConfig, safety: SafetyConfig, scene: SceneConfig) -> None:
