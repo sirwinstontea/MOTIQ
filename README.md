@@ -60,7 +60,7 @@ https://github.com/user-attachments/assets/b837132b-0d6d-4dc3-adf4-061935d76b04
 
 ### 2. Grok Voice × RoboDK — Simulation interaction
 
-See Grok Voice interacting with MOTIQ and the RoboDK simulation. This demo focuses on conversational robot commands and the resulting simulated robot behavior, with a music soundtrack. It demonstrates simulation interaction, not physical-hardware safety validation.
+See Grok Voice interacting with MOTIQ and the RoboDK simulation. This demo focuses on conversational robot commands and the resulting simulated robot behavior. It demonstrates interaction in simulation before deployment on a physical robot.
 
 https://github.com/user-attachments/assets/c433b312-f28f-40be-991c-45dd7797bb21
 
