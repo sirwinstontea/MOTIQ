@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="#demo-videos">Demo videos</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#architecture">Architecture</a> ·
   <a href="#skills">Skills</a> ·
@@ -23,33 +24,56 @@
   <img src="https://img.shields.io/badge/Expo_SDK-58-000020?logo=expo&logoColor=white" alt="Expo SDK 58">
   <img src="https://img.shields.io/badge/React_Native-0.88-61DAFB?logo=react&logoColor=black" alt="React Native 0.88">
   <img src="https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white" alt="FastAPI">
-  <img src="https://img.shields.io/badge/Robot-UR5e-1F4E79" alt="Universal Robots UR5e">
+  <img src="https://img.shields.io/badge/Event_robot-UR5e-1F4E79" alt="Event demonstration: Universal Robots UR5e">
   <img src="https://img.shields.io/badge/Sim-RoboDK_%7C_URSim-5B5B5B" alt="RoboDK and URSim">
   <img src="https://img.shields.io/badge/LLM-Grok-000000" alt="Grok">
 </p>
 
 MOTIQ is an end-to-end robot control stack driven by natural language and demonstration. You talk to **Motion**, a real-time Grok voice agent running in a React Native app on a tablet. Motion plans the task, asks for your approval, runs it through a typed and safety-gated controller, looks through a camera to confirm the result, and reports back. Show it a task on video and it writes a skill you can review, edit and run again.
 
-The project was built at the Grok Hackathon (SpaceX AI / xAI) at the Ctrl+Alt Museum in Pavia, 4–5 November 2026. The reference cell is a Universal Robots UR5e with a wrist-mounted Intel RealSense camera and a four-object tabletop scene.
+The project was built at the Grok Hackathon (SpaceX AI / xAI) at the Ctrl+Alt Museum in Pavia, 4–5 November 2026. During the event, we connected and controlled a **physical Universal Robots UR5e from the app**. The UR5e, a wrist-mounted Intel RealSense camera and a four-object tabletop scene form the reference cell; UR5e is the demonstrated integration, not the intended limit of robot compatibility.
+
+The original concept also included coordination with a **CyberDog quadruped**. Time constraints prevented that integration from being completed during the hackathon. CyberDog connectivity and arm–quadruped coordination remain **future development**; existing dog profiles and in-app simulation are scaffolding, not a demonstrated physical integration.
 
 > [!IMPORTANT]
 > MOTIQ is a hackathon prototype, not a certified safety system. The controller runs in simulation only (mock, RoboDK or URSim). A separate, small set of direct step tools in the bridge can move a real UR arm when an external driver is installed. Read [Safety](#safety) before connecting hardware.
+
+## Demo videos
+
+### 1. MOTIQ — General showcase
+
+Start here for the overall MOTIQ demo: an introduction to the application and its natural-language robotics workflow.
+
+**[▶ Watch the general showcase](demonstration%20video/MOTIQ%20Original%20%E2%80%94%20Working%20Timeline.mp4)**
+
+<!-- Inline GitHub player: paste the uploaded general-showcase attachment URL on its own line here.
+     Keep the watch link above as a repository-file fallback. See demonstration video/README.md for publishing notes. -->
+
+### 2. Grok Voice × RoboDK — Simulation interaction
+
+See Grok Voice interacting with MOTIQ and the RoboDK simulation. This demo focuses on conversational robot commands and the resulting simulated robot behavior, with a music soundtrack. It demonstrates simulation interaction, not physical-hardware safety validation.
+
+**[▶ Watch the Grok Voice + RoboDK demo](demonstration%20video/MOTIQ_GrokVoice_RoboDK_with_music_reducedsize.mp4)**
+
+<!-- Inline GitHub player: paste the uploaded Grok Voice/RoboDK attachment URL on its own line here.
+     Upload MOTIQ_GrokVoice_RoboDK_with_music_reducedsize.mp4, not the oversized original. -->
 
 ## Highlights
 
 | | |
 |---|---|
-| **Voice agent** | Grok Voice runs the conversation and calls robot tools. One agent drives the arm and the robot dog, in any language Grok Voice supports. |
+| **Voice agent** | Grok Voice runs the conversation and calls robotic-arm tools, in any language Grok Voice supports. Physical CyberDog integration remains future work. |
 | **Teach by showing** | Record 15 seconds of video and speech with **Show Motion**, upload a video, or demonstrate in front of the arm camera. MOTIQ turns it into a skill draft. |
 | **Vision in the loop** | YOLO plus ByteTrack gives stable numbered objects. YOLO-World follows new classes that Grok names. The eye-in-hand camera searches for objects before a pick and confirms the place. |
 | **Skills as data** | Skills are JSON built from a closed primitive catalog. No model-generated code is ever executed. |
 | **Layered safety** | Spoken plan approval, app-side kinematic checks, an allowlisted action contract, an explicit state machine, path checks and latched faults. |
 | **Simulate first** | The same task JSON runs on `mock`, RoboDK, or URSim mirrored into RoboDK. |
-| **Hardware as config** | Describe any arm and cell in YAML with `robot-chooser` and regenerate the controller configuration without code changes. |
+| **Hardware as config** | Import a compatible arm model from the RoboDK library, configure its verified limits and cell with `robot-chooser`, and use the matching backend. Physical hardware additionally requires its driver and a compatible MOTIQ adapter. |
 | **Replaceable brain** | Vision and planning use an OpenAI-compatible client, so xAI or OpenRouter work through environment variables. |
 
 ## Contents
 
+- [Demo videos](#demo-videos)
 - [Try saying](#try-saying)
 - [Architecture](#architecture)
 - [Repository structure](#repository-structure)
@@ -64,6 +88,7 @@ The project was built at the Grok Hackathon (SpaceX AI / xAI) at the Ctrl+Alt Mu
 - [Known limitations](#known-limitations)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
+- [Commercial development & partnerships](#commercial-development--partnerships)
 - [Citation](#citation)
 - [Team and acknowledgements](#team-and-acknowledgements)
 - [License](#license)
@@ -75,7 +100,6 @@ The project was built at the Grok Hackathon (SpaceX AI / xAI) at the Ctrl+Alt Mu
 "Put the orange screw in the blue bucket."     → Motion proposes a plan and waits for your yes
 "Yes."                                         → the arm finds, picks, places and verifies
 "Move the arm 5 cm up and back down."
-"Dog, walk forward a meter and wave."
 "Run the handover skill."
 "In the pick skill, use the green ring instead."
 "Stop!"                                        → never locked, halts everything
@@ -123,6 +147,14 @@ flowchart TB
     controller --> sim
     bridge -.-> ur
 ```
+
+### Robot compatibility and event scope
+
+MOTIQ is designed to interact with different robotic arms through the same application and conversational workflow. For RoboDK integration, the arm must be **available in the RoboDK robot library and imported into the station**, with matching robot configuration, verified joint and motion limits, TCP/tool and reference frames, workspace, scene and safety settings. Select and validate it through [`robot-chooser`](robot-chooser). Importing a model alone does not make every action supported or establish compatibility with every robot; the backend, task definitions and app capabilities must match the selected arm.
+
+The same app interface can also control a **physical robot when the corresponding driver is installed and integrated through a compatible MOTIQ bridge/backend adapter**. A RoboDK model or installed driver alone is not a physical-control integration. In this event, that hardware integration was the **UR5e**. The physical step tools currently described below are UR-specific; the packaged task controller remains simulation-only. Supporting another manufacturer's hardware requires its appropriate driver, adapter and cell-specific validation. Simulation success is not proof of physical safety.
+
+CyberDog was part of the proposed architecture, but its physical connection, control and coordination with the arm were **not integrated by the end of the event**. Dog-related UI, profiles and mock behavior should be understood as groundwork for that future work, not as completed capabilities.
 
 ### Contracts
 
@@ -229,7 +261,7 @@ cp .env.example .env        # set EXPO_PUBLIC_XAI_API_KEY
 npx expo start              # scan the QR code with Expo Go
 ```
 
-With `EXPO_PUBLIC_ARM_URL` and `EXPO_PUBLIC_DOG_URL` empty, the arm and dog run in the in-app simulator. On venue Wi-Fi, use `npx expo start --tunnel`.
+With `EXPO_PUBLIC_ARM_URL` empty, the arm runs in the in-app simulator. An empty `EXPO_PUBLIC_DOG_URL` also leaves the existing dog UI in mock mode; this does not provide a physical CyberDog integration. On venue Wi-Fi, use `npx expo start --tunnel`.
 
 ### 2. Controller demo (no app, no camera)
 
@@ -331,7 +363,7 @@ curl -X POST localhost:8765/operator/reset -H 'content-type: application/json' -
 | `EXPO_PUBLIC_GROK_LANGUAGE_HINT` | BCP-47 hint for speech recognition. Empty means auto-detect. | |
 | `EXPO_PUBLIC_GROK_VISION_MODEL` | Model behind `camera_look` | `grok-4.20-0309-non-reasoning` |
 | `EXPO_PUBLIC_VISION_URL` | Optional proxy for vision calls | |
-| `EXPO_PUBLIC_ARM_URL`, `EXPO_PUBLIC_DOG_URL` | Robot bridges. Empty means simulated. | |
+| `EXPO_PUBLIC_ARM_URL`, `EXPO_PUBLIC_DOG_URL` | Arm bridge and future dog bridge. Empty means simulated; physical CyberDog integration is not completed. | |
 | `EXPO_PUBLIC_BRIDGE_KEY` | Sent as `X-Bridge-Key` | |
 | `EXPO_PUBLIC_VISION_SERVER` | Vision server URL | |
 | `EXPO_PUBLIC_VISION_SOURCES` | Sources listed as cameras | `arm,webcam` |
@@ -412,7 +444,8 @@ In the app, "real" means a bridge URL is set. Behind that URL, controller tasks 
 
 | To add | Do this | Code change |
 |---|---|---|
-| Another arm | Add a `catalog.yaml` entry with verified limits, its own scene and workspace | None |
+| Another arm in RoboDK | Import its library model and add a `catalog.yaml` entry with verified limits, its own scene, TCP and workspace | Configuration for compatible backends; an adapter if unsupported |
+| Another physical arm | Install its manufacturer-appropriate driver and integrate it with the MOTIQ bridge/backend; validate the actual cell | Driver/adapter integration as required |
 | A gripper, camera, sensor or conveyor | Add a component in `hardware.yaml` | None |
 | A new kind of device | Add `hardware_types/<type>.yaml`. Forms, validation and the CLI pick it up. | None |
 | A robot behind the app | Implement the bridge protocol and set `EXPO_PUBLIC_*_URL` | Your bridge |
@@ -421,7 +454,7 @@ In the app, "real" means a bridge URL is set. Behind that URL, controller tasks 
 | New detector weights | Set `YOLO_MODEL` and map its classes in the scene's `class_labels` | None |
 | A new skill | Generate, import or write the JSON | None |
 
-The arm is selected in `robot-chooser` by CLI, web UI or **Settings → Hardware** in the app. Restart the controller and bridge afterwards, because a running controller does not switch robots live. If the selection is `BLOCKED`, the controller refuses to start. Today `ur_ur5e` is the only `READY` entry. The others in the catalog still need limits, a scene or a workspace.
+The arm is selected in `robot-chooser` by CLI, web UI or **Settings → Hardware** in the app. Restart the controller and bridge afterwards, because a running controller does not switch robots live. If the selection is `BLOCKED`, the controller refuses to start. A catalog entry is not proof of readiness: each model needs its own verified configuration and imported RoboDK model. The UR5e is the arm connected and controlled during the event; this is not a claim that every catalog model has been physically tested.
 
 ## Testing
 
@@ -467,9 +500,11 @@ RoboDK and URSim integration tests are opt-in with `RUN_ROBODK_TESTS=1` and `RUN
 ## Known limitations
 
 - Controller tasks are simulation only. There is no real gripper driver, payload calibration or physical backend.
+- Some skill templates and app-side kinematic previews on `main` remain UR5e-specific. Importing another RoboDK model does not automatically adapt those paths or validate all actions for that robot.
 - The cell's tool is a rigid, non-actuated 3D-printed part, so grasps are symbolic and grasp targets are placeholders to re-teach.
 - Picks use taught targets. Camera positions are not used for motion yet.
-- `ur_jog.py` and the dog bridge are not in this repository.
+- The external physical UR driver, `ur_jog.py`, is not in this repository. Other physical arms require their own compatible driver/adapter integration; the generic task controller is not a physical backend.
+- Physical CyberDog integration and coordinated arm–quadruped operation were not completed because of hackathon time constraints and remain future work. Existing dog mocks are not hardware support.
 - `calibration_skill` still needs a small app patch before it can run from the app.
 - The mic is muted while Motion speaks, so use the stop button to interrupt.
 - `robot-chooser` selects one active arm per controller, and changes need a restart.
@@ -493,12 +528,20 @@ RoboDK and URSim integration tests are opt-in with `RUN_ROBODK_TESTS=1` and `RUN
 
 ## Contributing
 
-Issues and pull requests are welcome.
+Issues and pull requests are welcome. For the team's hackathon responsibilities, see [Contributor roles](#contributor-roles).
 
 1. Keep skills as data. Don't add a path that runs model-generated code.
 2. Keep new motion behind the controller's action contract and safety gate.
 3. Add tests for backend changes, and run the suites above before opening a pull request.
 4. Never commit `.env` files, keys or generated `config/*.yaml`.
+
+## Commercial development & partnerships
+
+Interested in taking MOTIQ beyond the hackathon prototype? We welcome inquiries about **paid commissioned development, custom robot integrations, deployment and technical support**.
+
+Scope, deliverables, fees, intellectual-property rights, maintenance and applicable third-party licenses will be agreed separately for each engagement.
+
+For initial inquiries, contact a project maintainer through the GitHub profiles in [Team and acknowledgements](#team-and-acknowledgements).
 
 ## Citation
 
@@ -518,6 +561,75 @@ Issues and pull requests are welcome.
 </a>
 
 Built by [sirwinstontea](https://github.com/sirwinstontea), [piniz-dev](https://github.com/piniz-dev), [aman-abeb](https://github.com/aman-abeb), [filippodinoia-svg](https://github.com/filippodinoia-svg), [r-46n0](https://github.com/r-46n0) and [josefariasfuentes](https://github.com/josefariasfuentes).
+
+### Contributor roles
+
+#### José Alfonso Farías Fuentes ([@josefariasfuentes](https://github.com/josefariasfuentes))
+
+**Project Coordination, Robotics Architecture & System Integration**
+
+- Initiated and helped define the project concept, objectives and overall system architecture, including the proposed coordination between a robotic arm and quadruped robot.
+- Coordinated development activities, distributed responsibilities and established integration priorities across the team.
+- Defined high-level robotic task execution logic, including action sequences, operating states, communication requirements and failure-handling considerations.
+- Prepared technical documentation describing the architecture, robot control actions and JSON-based task definitions.
+- Contributed to the integration strategy involving RoboDK, URSim and robotic hardware, including digital-twin synchronization and communication requirements.
+- Coordinated safety considerations and participated in robotic system integration and testing.
+
+#### [@sirwinstontea](https://github.com/sirwinstontea)
+
+**Grok Voice Integration, Application Development & Robot Configuration**
+
+- Developed major components of the MOTIQ application using React Native, Expo and TypeScript.
+- Integrated Grok Voice for real-time conversational interaction, robot commands and multilingual voice approvals.
+- Developed application functionality for task execution, robot monitoring, skill creation, editing and reuse.
+- Implemented interfaces for robot configuration, supported devices and hardware selection.
+- Developed Robot Chooser for configuring different robot models, operational constraints and associated hardware.
+- Contributed to integrating the application with vision services and task-learning workflows.
+
+#### Filippo Pinizzotto ([@piniz-dev](https://github.com/piniz-dev))
+
+**Computer Vision, Perception & Camera Calibration**
+
+- Developed foundational components of the computer-vision subsystem for detecting and recognizing objects in the robotic workspace.
+- Integrated Intel RealSense and webcam-based image acquisition.
+- Worked on YOLO-based object detection, including custom-trained models.
+- Developed camera calibration using ArUco markers and camera-to-robot transformations.
+- Contributed to connecting perception results with Grok and robotic task execution.
+
+#### Amanuel ([@aman-abeb](https://github.com/aman-abeb))
+
+**Robot Control Integration, Backend & Digital Twin**
+
+- Developed and extended MOTIQ Bridge components connecting application-level commands to robotic execution services.
+- Integrated robotic task commands, action execution and communication between the application and controller.
+- Developed arm movement functionality, pose management and vision-guided operations.
+- Contributed to simulation, digital-twin synchronization and integration with robotic hardware.
+- Implemented features related to task execution, visual-search workflows and reusable robotic skills.
+- Contributed to backend integration and communication between system modules.
+
+#### [@filippodinoia-svg](https://github.com/filippodinoia-svg)
+
+**3D Modeling**
+
+- Designed and modeled the 3D robotic gripper used in the project during the hackathon. The gripper CAD/model file is not currently versioned in this repository and will be added when available.
+
+**Computer Vision Integration & Grok Perception Tools**
+
+- Integrated YOLO-World and custom ONNX object-detection models into the perception pipeline.
+- Contributed to Grok Vision integration with camera and object-recognition functionality.
+- Improved camera-source handling, including PC webcam compatibility.
+- Developed updates to camera acquisition, visual processing and application-side camera components.
+- Contributed to making computer-vision functionality accessible through MOTIQ.
+
+#### [@r-46n0](https://github.com/r-46n0)
+
+**Object Tracking, Visual Verification & AI Task Planning**
+
+- Developed object tracking functionality using YOLO and ByteTrack.
+- Implemented visual verification of object presence and changes in predefined areas.
+- Developed image-processing features, including color estimation and digital zoom management.
+- Contributed to the Grok-based planning architecture for translating demonstrations and task descriptions into robotic actions.
+- Developed planning utilities, action-token processing, reusable skill representations, benchmarks and tests.
 
 MOTIQ builds on [xAI Grok](https://x.ai), [Expo](https://expo.dev), [Ultralytics YOLO](https://github.com/ultralytics/ultralytics), [ByteTrack](https://github.com/ifzhang/ByteTrack), [OpenCV](https://opencv.org), [RoboDK](https://robodk.com), [URSim](https://www.universal-robots.com/download/) and [Intel RealSense](https://www.intelrealsense.com). Thanks to the Ctrl+Alt Museum in Pavia for hosting the hackathon.
 
