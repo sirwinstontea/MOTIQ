@@ -22,6 +22,8 @@ DESCRIPTIONS: dict[ActionName, str] = {
     ActionName.PLACE_OBJECT: "Approach (if needed), place, release, verify and retreat at a registered destination.",
     ActionName.RELEASE_OBJECT: "Open the gripper. Only allowed at a destination place target or when holding nothing.",
     ActionName.MOVE_TO_TARGET: "Move to a registered named target.",
+    ActionName.MOVE_RELATIVE: "Straight-line TCP translation in base, tool, or world frame; orientation is preserved.",
+    ActionName.MOVE_JOINT: "Move one robot joint to a relative or absolute angle after full trajectory validation.",
     ActionName.SHAKE_OBJECT: "Run an approved bounded shake pattern while holding a verified object.",
     ActionName.PERFORM_MOTION: "Run a pre-validated named motion macro.",
     ActionName.PUSH_OBJECT: "Push a registered, freshly identified object along its taught push path (gripper closed, empty): above -> beside it -> push -> lift. Only objects with a push definition.",

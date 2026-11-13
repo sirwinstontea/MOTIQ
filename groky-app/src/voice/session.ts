@@ -32,9 +32,6 @@ const pretty = (name: string) => name.replace(/_/g, ' ');
 // Arm motion + run_skill: always locked until the user approves Motion's plan (lib/armApproval.ts),
 // including in the simulator — never auto-run after Show Motion / a voice ask.
 // arm_touch_teach_save only records an offset; it does not move the arm.
-const ARM_NO_MOTION = new Set(['arm_verify', 'arm_wait', 'arm_stop', 'arm_touch_teach_save']);
-const needsApproval = (name: string) =>
-  (name.startsWith('arm_') && !ARM_NO_MOTION.has(name)) || name === 'run_skill';
 
 // where an approved arm plan can run. SIM=1 bridge: URSim + RoboDK, and the physical arm too when /health says it
 // is reachable (then the user picks). SIM=0 bridge: only the real arm.

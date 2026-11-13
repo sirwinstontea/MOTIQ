@@ -162,6 +162,7 @@ class TargetDef(_Cfg):
 
 
 class ObjectDef(_Cfg):
+    avoid_collision: bool = False
     dimensions_m: tuple[float, float, float]
     mass_kg: Optional[float] = Field(default=None, ge=0)
     approach_target: str
@@ -184,6 +185,8 @@ class PushDef(_Cfg):
 
 
 class DestinationDef(_Cfg):
+    support_surface: Literal["taught", "table", "container"] = "taught"
+    container_id: Optional[str] = None
     approach_target: str
     place_target: str
     retreat_target: str
@@ -212,6 +215,7 @@ class BoxDef(_Cfg):
     It is a stand-in for the real cell; collision results against it say
     nothing about physical clearance.
     """
+    avoid_collision: bool = False
     size_m: tuple[float, float, float]
     pose_m_rad: list[float]               # bottom-centre of the box, in base frame
     color: tuple[float, float, float, float] = (0.6, 0.6, 0.6, 1.0)
@@ -233,6 +237,8 @@ class SearchDef(_Cfg):
 
 
 class SceneConfig(_Cfg):
+    collision_policy: Literal["all", "table_and_tagged"] = "all"
+    table_geometry: str = "table"
     home_target: str
     targets: dict[str, TargetDef]
     objects: dict[str, ObjectDef]
@@ -252,6 +258,8 @@ class SceneConfig(_Cfg):
                 refs += [(f"objects.{oid}.push", t) for t in (o.push.above_target, o.push.start_target,
                                                                o.push.end_target, o.push.lift_target)]
         for did, d in self.destinations.items():
+            if d.support_surface == "container" and d.container_id not in self.objects:
+                raise ValueError(f"destinations.{did}: container_id must name a registered object")
             refs += [(f"destinations.{did}", t) for t in (d.approach_target, d.place_target, d.retreat_target)]
         for pid, p in self.patterns.items():
             refs += [(f"patterns.{pid}", t) for t in [p.start_target, *p.cycle_targets, p.end_target]]

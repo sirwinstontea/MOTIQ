@@ -13,6 +13,7 @@ Units: RoboDK uses mm and degrees; this module converts to/from m and rad.
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 import math
 import os
 import socket
@@ -26,6 +27,8 @@ from ..config import RobotConfig, SceneConfig
 from ..controller import (Capabilities, GripStatus, MotionContext, MotionType, PathCheckResult,
                           PlannedSegment, RobotController, RobotState)
 from ..models import ErrorCode, FeedbackSource, Joints, Pose, RobotControlError, utc_now
+from ..planning import DIRECTIONS, table_surface
+from ..performance import increment, measure, timed
 
 log = logging.getLogger(__name__)
 
@@ -221,6 +224,8 @@ class RoboDKSimController(RobotController):
                             simulation=True, motion_enabled=self.connected, gripper="symbolic",
                             path_check="collision" if geom else "feasibility_only",
                             feedback_source=FeedbackSource.SIMULATED,
+                            cartesian_relative=True, joint_motion=True,
+                            reference_frames=["base", "tool", "world"],
                             notes=["RoboDK digital twin; collision results are not proof of physical clearance",
                                    "gripper is symbolic (object attach/detach in simulation)"])
 
@@ -267,6 +272,16 @@ class RoboDKSimController(RobotController):
                 problems.append("active reference frame changed")
             if len(self.robot.Joints().list()) != self.robot_cfg.dof:
                 problems.append("robot DOF does not match config")
+            lower_mat, upper_mat, _joint_type = self.robot.JointLimits()
+            lower, upper = lower_mat.list(), upper_mat.list()
+            if len(lower) != self.robot_cfg.dof or len(upper) != self.robot_cfg.dof:
+                problems.append("RoboDK joint limits are unavailable or have the wrong DOF")
+            else:
+                cfg_lo, cfg_hi = self.robot_cfg.limits.joint_min_rad, self.robot_cfg.limits.joint_max_rad
+                model_lo, model_hi = self._rad(lower), self._rad(upper)
+                for i, (cl, ch, ml, mh) in enumerate(zip(cfg_lo, cfg_hi, model_lo, model_hi), 1):
+                    if cl < ml - 1e-3 or ch > mh + 1e-3:
+                        problems.append(f"configured joint {i} limits exceed the RoboDK model limits")
         except Exception as e:
             problems.append(f"RoboDK readiness query failed: {e}")
         return problems
@@ -341,6 +356,69 @@ class RoboDKSimController(RobotController):
         end_pose = self._pose_from_mat(self.robot.SolveFK(end_deg, tool_pose))
         return PlannedSegment(target_id, motion, self._rad(start_deg), self._rad(end_deg), end_pose)
 
+    @staticmethod
+    def _rotate_vector(mat, vector):
+        return [sum(float(mat[i, j]) * vector[j] for j in range(3)) for i in range(3)]
+
+    def plan_cartesian_relative(self, direction, distance_m, reference_frame, start_joints=None):
+        self._require()
+        start_deg = self._deg(start_joints) if start_joints is not None else self.robot.Joints().list()
+        if len(start_deg) != self.robot_cfg.dof:
+            raise RobotControlError(ErrorCode.VALIDATION_ERROR, "start joint count does not match robot DOF")
+        tool_pose = self.tool.PoseTool()
+        current = self.robot.SolveFK(start_deg, tool_pose)
+        vectors = {"forward": [1.0, 0.0, 0.0], "backward": [-1.0, 0.0, 0.0],
+                   "left": [0.0, 1.0, 0.0], "right": [0.0, -1.0, 0.0],
+                   "up": [0.0, 0.0, 1.0], "down": [0.0, 0.0, -1.0]}
+        v = vectors[direction]
+        if reference_frame == "tool":
+            v = self._rotate_vector(current, v)
+        elif reference_frame == "world":
+            v = self._rotate_vector(self.base.PoseAbs().inv(), v)
+        elif reference_frame != "base":
+            raise RobotControlError(ErrorCode.VALIDATION_ERROR, f"unknown reference frame '{reference_frame}'")
+        target = current.copy()
+        pos = current.Pos()
+        target.setPos([pos[i] + distance_m * 1000.0 * v[i] for i in range(3)])
+        sol = self.robot.SolveIK(target, start_deg, tool_pose)
+        end_deg = sol.list() if len(sol.list()) == self.robot_cfg.dof else None
+        if end_deg is None:
+            return PlannedSegment(f"relative_{direction}", "linear", self._rad(start_deg), None, None,
+                                  requested={"direction": direction, "distance_m": distance_m,
+                                             "reference_frame": reference_frame})
+        return PlannedSegment(f"relative_{direction}", "linear", self._rad(start_deg), self._rad(end_deg),
+                              self._pose_from_mat(target), requested={"direction": direction,
+                              "distance_m": distance_m, "reference_frame": reference_frame})
+
+    def plan_joint_move(self, joint_index, *, delta_rad=None, target_rad=None, start_joints=None):
+        self._require()
+        if not 1 <= joint_index <= self.robot_cfg.dof:
+            raise RobotControlError(ErrorCode.VALIDATION_ERROR,
+                                    f"joint_index {joint_index} outside 1..{self.robot_cfg.dof}")
+        start = list(start_joints) if start_joints is not None else self._rad(self.robot.Joints().list())
+        end = list(start)
+        end[joint_index - 1] = target_rad if target_rad is not None else end[joint_index - 1] + delta_rad
+        end_pose = self._pose_from_mat(self.robot.SolveFK(self._deg(end), self.tool.PoseTool()))
+        return PlannedSegment(f"joint_{joint_index}", "joint", start, end, end_pose,
+                              requested={"joint_index": joint_index, "delta_rad": delta_rad,
+                                         "target_rad": target_rad})
+
+    def plan_pose(self, pose, start_joints=None):
+        self._require()
+        start = list(start_joints) if start_joints is not None else self.get_joints().values
+        target = self._mat_from_pose(pose)
+        sol = self.robot.SolveIK(target, self._deg(start), self.tool.PoseTool()).list()
+        end = self._rad(sol) if len(sol) == self.robot_cfg.dof else None
+        if end is not None:
+            actual = self.robot.SolveFK(sol, self.tool.PoseTool())
+            rotation_trace = sum(actual[i, j] * target[i, j] for i in range(3) for j in range(3))
+            angle = math.acos(max(-1.0, min(1.0, (rotation_trace - 1) / 2)))
+            if math.dist(actual.Pos(), target.Pos()) > 0.5 or angle > 1e-3:
+                raise RobotControlError(ErrorCode.UNREACHABLE,
+                                        "IK does not preserve requested position/orientation (unsupported pose or excessive residual)")
+        return PlannedSegment("waypoint", "linear", start, end, pose if end else None,
+                              requested={"pose": pose.model_dump(mode="json")})
+
     def test_segment(self, seg):
         """MoveJ_Test / MoveL_Test move the simulated robot: snapshot and restore."""
         self._require()
@@ -376,8 +454,9 @@ class RoboDKSimController(RobotController):
         if res > 0:
             return PathCheckResult(ok=False, conclusive=True, collisions=res, geometry_checked=has_geom,
                                    reason=f"RoboDK predicts {res} colliding pair(s) on path to '{seg.target_id}'")
-        why = {-1: "linear move not feasible (singularity/limits)", -2: "target not reachable"}.get(res, f"code {res}")
-        return PathCheckResult(ok=False, conclusive=True, reason=f"RoboDK: {why}")
+        why = {-1: "linear move crosses a singular or joint-limit configuration",
+               -2: "target not reachable"}.get(res, f"code {res}")
+        return PathCheckResult(ok=False, conclusive=True, singularity=res == -1, reason=f"RoboDK: {why}")
 
     # ------------------------------------------------------------ motion
     def _execute(self, end_deg, motion: MotionType, ctx: MotionContext, label: str):

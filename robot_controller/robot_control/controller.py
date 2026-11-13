@@ -29,6 +29,9 @@ class Capabilities(BaseModel):
     gripper: Literal["symbolic", "none", "disabled"]
     path_check: Literal["collision", "feasibility_only", "none"]
     feedback_source: FeedbackSource
+    cartesian_relative: bool = False
+    joint_motion: bool = False
+    reference_frames: list[Literal["base", "tool", "world"]] = []
     notes: list[str] = []
 
 
@@ -58,6 +61,7 @@ class PlannedSegment:
     start_joints: list[float]             # rad
     end_joints: Optional[list[float]]     # rad; None if IK failed (=> unreachable)
     end_pose: Optional[Pose]              # m / rad, in base frame
+    requested: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -67,6 +71,7 @@ class PathCheckResult:
     reason: str = ""
     collisions: int = 0
     geometry_checked: bool = False   # True only if real collision geometry was tested
+    singularity: bool = False
 
 
 @dataclass
@@ -138,9 +143,60 @@ class RobotController(ABC):
         keep using the taught targets."""
         return None
 
+    def validate_pick(self, object_id: str) -> None:
+        """Read-only backend pickup prerequisites, before any approach or gripper change."""
+        return None
+
     @abstractmethod
     def plan_segment(self, target_id: str, motion: MotionType,
                      start_joints: Optional[list[float]] = None) -> PlannedSegment: ...
+
+    def plan_cartesian_relative(self, direction: str, distance_m: float, reference_frame: str,
+                                start_joints: Optional[list[float]] = None) -> PlannedSegment:
+        from .models import ErrorCode, RobotControlError
+        raise RobotControlError(ErrorCode.UNSUPPORTED,
+                                f"backend '{self.backend_name}' does not support relative Cartesian motion")
+
+    def plan_joint_move(self, joint_index: int, *, delta_rad: Optional[float] = None,
+                        target_rad: Optional[float] = None,
+                        start_joints: Optional[list[float]] = None) -> PlannedSegment:
+        from .models import ErrorCode, RobotControlError
+        raise RobotControlError(ErrorCode.UNSUPPORTED,
+                                f"backend '{self.backend_name}' does not support joint-relative motion")
+
+    def plan_pose(self, pose: Pose, start_joints=None) -> PlannedSegment:
+        from .models import ErrorCode, RobotControlError
+        raise RobotControlError(ErrorCode.UNSUPPORTED, "Cartesian waypoint planning unavailable")
+
+    def object_position(self, object_id: str) -> list[float]:
+        from .models import ErrorCode, RobotControlError
+        raise RobotControlError(ErrorCode.UNSUPPORTED, "station object position unavailable")
+
+    def table_placement_pose(self, object_id: str, x_m: float, y_m: float) -> Pose:
+        from .models import ErrorCode, RobotControlError
+        raise RobotControlError(ErrorCode.UNSUPPORTED, "tabletop placement unavailable")
+
+    def prepare_push(self, object_id: str, direction: str, distance_m: float) -> None:
+        from .models import ErrorCode, RobotControlError
+        raise RobotControlError(ErrorCode.UNSUPPORTED, "directional push planning unavailable")
+
+    def clear_transient_plans(self) -> None:
+        """Release task-local planner data without changing taught targets."""
+
+    def retarget_place(self, object_id: str, destination_id: str) -> bool:
+        """Resolve live simulation placement targets; False retains legacy taught semantics."""
+        return False
+
+    def scene_observation(self) -> dict:
+        return {}
+
+    def table_center(self) -> tuple[float, float]:
+        from .models import ErrorCode, RobotControlError
+        raise RobotControlError(ErrorCode.UNSUPPORTED, "table center unavailable")
+
+    def verify_placement(self, object_id: str, destination_id: str) -> dict:
+        from .models import ErrorCode, RobotControlError
+        raise RobotControlError(ErrorCode.UNSUPPORTED, "geometric placement verification unavailable")
 
     @abstractmethod
     def test_segment(self, seg: PlannedSegment) -> PathCheckResult:

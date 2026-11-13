@@ -19,8 +19,10 @@ from typing import Callable, Optional
 from .action_registry import error_info, validate_task
 from .config import RobotConfig, SafetyConfig, cross_validate, motion_limits
 from .controller import MotionContext, MotionType, RobotController
+from .planning import DIRECTIONS, circle_waypoints, table_surface
+from .performance import record_task, snapshot as performance_snapshot, timed
 from .models import (ActionName, ActionRequest, ActionStatus, ErrorCode, ErrorInfo, Event, Feedback, PlanStep,
-                     RobotControlError, SafetyChecks, TaskRequest, TaskState, TaskStatus, utc_now)
+                     RobotControlError, SafetyChecks, TaskRequest, TaskState, TaskStatus, Pose, utc_now)
 from .safety.limits import joints_within_limits, pose_within_workspace
 from .safety.policy import SafetyDecision, SafetyPolicy
 from .safety.trajectory import BackendPathChecker, PathChecker
@@ -60,6 +62,7 @@ for _s in TaskState:
         TRANSITIONS[_s] |= {S.FAULT, S.CANCELLED}
 
 REJECT_CODES = {ErrorCode.SAFETY_VETO, ErrorCode.COLLISION_PREDICTED, ErrorCode.UNREACHABLE,
+                ErrorCode.NEAR_SINGULAR,
                 ErrorCode.PATH_CHECK_INCONCLUSIVE, ErrorCode.STALE_DATA, ErrorCode.PRECONDITION_FAILED,
                 ErrorCode.UNKNOWN_ID, ErrorCode.MODE_VIOLATION, ErrorCode.PHYSICAL_BACKEND_DISABLED,
                 ErrorCode.CONFIG_ERROR, ErrorCode.UNSUPPORTED, ErrorCode.VALIDATION_ERROR,
@@ -104,6 +107,7 @@ class TaskExecutor:
         self.transition_log: list[tuple[str, str]] = []
         self._cur_status: Optional[TaskStatus] = None
         self._cur_action: Optional[ActionRequest] = None
+        self._active_motion_limits = self.motion_limits
 
     # ------------------------------------------------------------------ setup
     def start(self) -> None:
@@ -401,6 +405,24 @@ class TaskExecutor:
             elif n == ActionName.MOVE_TO_TARGET:
                 sc.target(p["target_id"])
                 targets.append(p["target_id"])
+            elif n == ActionName.MOVE_RELATIVE:
+                caps = self.c.capabilities()
+                if not caps.cartesian_relative or p["reference_frame"] not in caps.reference_frames:
+                    raise RobotControlError(ErrorCode.UNSUPPORTED,
+                                            f"{self.robot_cfg.model} on {self.c.backend_name} does not support "
+                                            f"relative Cartesian motion in frame '{p['reference_frame']}'")
+                seg = self.c.plan_cartesian_relative(p["direction"], p["distance_m"], p["reference_frame"])
+                self._require(self.policy.check_segment(seg))
+            elif n == ActionName.MOVE_JOINT:
+                if not self.c.capabilities().joint_motion:
+                    raise RobotControlError(ErrorCode.UNSUPPORTED,
+                                            f"{self.robot_cfg.model} on {self.c.backend_name} does not support joint motion")
+                if p["joint_index"] > self.robot_cfg.dof:
+                    raise RobotControlError(ErrorCode.VALIDATION_ERROR,
+                                            f"joint_index {p['joint_index']} outside 1..{self.robot_cfg.dof}")
+                seg = self.c.plan_joint_move(p["joint_index"], delta_rad=p.get("delta_rad"),
+                                             target_rad=p.get("target_rad"))
+                self._require(self.policy.check_segment(seg))
             elif n == ActionName.SHAKE_OBJECT:
                 pat = sc.pattern(p["pattern_id"])
                 if p["cycles"] > pat.max_cycles or p["cycles"] > self.safety_cfg.max_shake_cycles:
@@ -485,6 +507,8 @@ class TaskExecutor:
             ActionName.PLACE_OBJECT: self._a_place,
             ActionName.RELEASE_OBJECT: self._a_release,
             ActionName.MOVE_TO_TARGET: self._a_move_to_target,
+            ActionName.MOVE_RELATIVE: self._a_move_relative,
+            ActionName.MOVE_JOINT: self._a_move_joint,
             ActionName.SHAKE_OBJECT: self._a_shake,
             ActionName.PERFORM_MOTION: self._a_motion,
             ActionName.PUSH_OBJECT: self._a_push,
@@ -492,6 +516,34 @@ class TaskExecutor:
         if handler is None:
             raise RobotControlError(ErrorCode.UNSUPPORTED, f"'{a.action.value}' is not a task step")
         return handler(a.parameters, Deadline(self.safety_cfg.action_timeout_s, a.action.value))
+
+    def _dynamic_segment(self, seg, dl: Deadline) -> dict:
+        decision = self._require(self.policy.check_segment(seg))
+        self._emit(self._cur_status, self._cur_action, "INFO", safety=decision.to_checks(),
+                   message=f"segment {seg.motion} -> {seg.target_id} approved", with_feedback=False)
+        self._step("move", seg.target_id)
+        ctx = MotionContext(cancel=self._cancel,
+                            timeout_s=max(0.01, min(self.safety_cfg.segment_timeout_s, dl.remaining())))
+        self.c.move_to_named_target(seg, ctx)
+        st = self.c.get_state()
+        self._require(self.policy.check_state(st))
+        return {"motion_type": seg.motion, "executed_trajectory_type": seg.motion,
+                "requested_target": seg.requested,
+                "final_tcp_pose": st.tcp_pose.model_dump(mode="json") if st.tcp_pose else None,
+                "final_joints_rad": list(st.joints.values) if st.joints else None,
+                "speed_percent": self._cur_status.speed_percent if self._cur_status else None,
+                "applied_motion_limits": self._active_motion_limits.model_dump(mode="json")}
+
+    def _a_move_relative(self, p, dl):
+        self._go(S.MOVING)
+        seg = self.c.plan_cartesian_relative(p["direction"], p["distance_m"], p["reference_frame"])
+        return self._dynamic_segment(seg, dl)
+
+    def _a_move_joint(self, p, dl):
+        self._go(S.MOVING)
+        seg = self.c.plan_joint_move(p["joint_index"], delta_rad=p.get("delta_rad"),
+                                     target_rad=p.get("target_rad"))
+        return self._dynamic_segment(seg, dl)
 
     def _a_state(self, p, dl):
         self._step("query")
@@ -692,6 +744,15 @@ class TaskExecutor:
                 add(a, "gripper", "open gripper")
             elif n == ActionName.MOVE_TO_TARGET:
                 add(a, "move", f"move to {p['target_id']}", "joint", p["target_id"])
+            elif n == ActionName.MOVE_RELATIVE:
+                target = f"relative_{p['direction']}"
+                add(a, "move", f"move {p['distance_m']:g} m {p['direction']} in {p['reference_frame']} frame",
+                    "linear", target)
+            elif n == ActionName.MOVE_JOINT:
+                target = f"joint_{p['joint_index']}"
+                value = (f"by {p['delta_rad']:g} rad" if p.get("delta_rad") is not None
+                         else f"to {p['target_rad']:g} rad")
+                add(a, "move", f"move joint {p['joint_index']} {value}", "joint", target)
             elif n == ActionName.SHAKE_OBJECT:
                 pat, cyc = sc.patterns[p["pattern_id"]], p["cycles"]
                 add(a, "move", f"go to shake start ({p['pattern_id']})", "joint", pat.start_target)

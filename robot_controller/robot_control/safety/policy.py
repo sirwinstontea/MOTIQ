@@ -98,7 +98,8 @@ class SafetyPolicy:
                 return SafetyDecision.deny(ErrorCode.PATH_CHECK_INCONCLUSIVE,
                                            f"path check inconclusive for '{seg.target_id}': {res.reason}")
             if not res.ok:
-                code = ErrorCode.COLLISION_PREDICTED if res.collisions else ErrorCode.UNREACHABLE
+                code = (ErrorCode.COLLISION_PREDICTED if res.collisions else
+                        ErrorCode.NEAR_SINGULAR if res.singularity else ErrorCode.UNREACHABLE)
                 return SafetyDecision.deny(code, res.reason or f"path to '{seg.target_id}' rejected")
             # The mock has no geometry by design (and says so); digital-twin
             # backends must have tested real collision geometry.

@@ -40,6 +40,11 @@ class ActionName(str, Enum):
     PLACE_OBJECT = "place_object"
     RELEASE_OBJECT = "release_object"
     MOVE_TO_TARGET = "move_to_target"
+    MOVE_RELATIVE = "move_relative"
+    MOVE_JOINT = "move_joint"
+    FOLLOW_PATH = "follow_path"
+    CIRCLE_OBJECT = "circle_object"
+    PLACE_ON_TABLE = "place_on_table"
     SHAKE_OBJECT = "shake_object"
     PERFORM_MOTION = "perform_motion"
     PUSH_OBJECT = "push_object"
@@ -100,6 +105,7 @@ class ErrorCode(str, Enum):
     SAFETY_VETO = "SAFETY_VETO"
     COLLISION_PREDICTED = "COLLISION_PREDICTED"
     UNREACHABLE = "UNREACHABLE"
+    NEAR_SINGULAR = "NEAR_SINGULAR"
     PATH_CHECK_INCONCLUSIVE = "PATH_CHECK_INCONCLUSIVE"
     STALE_DATA = "STALE_DATA"
     TIMEOUT = "TIMEOUT"
@@ -199,6 +205,82 @@ class TargetParams(Strict):
     target_id: str = Field(pattern=ID_PATTERN)
 
 
+class RelativeMoveParams(Strict):
+    direction: Literal["up", "down", "left", "right", "forward", "backward"]
+    distance_m: float = Field(gt=0)
+    reference_frame: Literal["base", "tool", "world"] = "base"
+
+    @field_validator("distance_m")
+    @classmethod
+    def _distance_finite(cls, v):
+        _require_finite([v], "distance_m")
+        return v
+
+
+class JointMoveParams(Strict):
+    """One-based joint index; angles are radians at the controller boundary."""
+    joint_index: int = Field(ge=1, strict=True)
+    delta_rad: Optional[float] = None
+    target_rad: Optional[float] = None
+
+    @model_validator(mode="after")
+    def _one_target(self):
+        if (self.delta_rad is None) == (self.target_rad is None):
+            raise ValueError("provide exactly one of delta_rad or target_rad")
+        _require_finite([self.delta_rad if self.delta_rad is not None else self.target_rad], "joint angle")
+        return self
+
+
+class CartesianPoint(Strict):
+    x: float
+    y: float
+    z: float
+
+    @model_validator(mode="after")
+    def _finite(self):
+        _require_finite([self.x, self.y, self.z], "waypoint")
+        return self
+
+
+class PathParams(Strict):
+    waypoints: list[CartesianPoint] = Field(min_length=1, max_length=256)
+
+
+class CircleParams(ObjectParams):
+    radius_m: float = Field(gt=0, allow_inf_nan=False)
+    z_m: float = Field(allow_inf_nan=False)
+    clockwise: bool = False
+    max_chord_error_m: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False)
+
+
+class TablePlaceParams(Strict):
+    location: Optional[Literal["center"]] = None
+    x_m: Optional[float] = Field(default=None, allow_inf_nan=False)
+    y_m: Optional[float] = Field(default=None, allow_inf_nan=False)
+    direction: Optional[Literal["left", "right", "forward", "backward"]] = None
+    distance_m: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def _target(self):
+        absolute = self.location is None and self.x_m is not None and self.y_m is not None and self.direction is None and self.distance_m is None
+        relative = self.location is None and self.x_m is None and self.y_m is None and self.direction is not None and self.distance_m is not None
+        center = self.location == "center" and all(v is None for v in (self.x_m, self.y_m, self.direction, self.distance_m))
+        if not (absolute or relative or center):
+            raise ValueError("provide location=center OR x_m and y_m OR direction and distance_m")
+        return self
+
+
+class PushParams(ObjectParams):
+    direction: Optional[Literal["left", "right", "forward", "backward"]] = None
+    distance_m: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def _pair(self):
+        if (self.direction is None) != (self.distance_m is None):
+            raise ValueError("direction and distance_m must be specified together")
+        return self
+
+
 class ShakeParams(Strict):
     pattern_id: str = Field(pattern=ID_PATTERN)
     # Hard contract bound; the per-pattern max_cycles in the scene is stricter.
@@ -222,9 +304,14 @@ PARAMS_BY_ACTION: dict[ActionName, type[Strict]] = {
     ActionName.PLACE_OBJECT: DestinationParams,
     ActionName.RELEASE_OBJECT: NoParams,
     ActionName.MOVE_TO_TARGET: TargetParams,
+    ActionName.MOVE_RELATIVE: RelativeMoveParams,
+    ActionName.MOVE_JOINT: JointMoveParams,
+    ActionName.FOLLOW_PATH: PathParams,
+    ActionName.CIRCLE_OBJECT: CircleParams,
+    ActionName.PLACE_ON_TABLE: TablePlaceParams,
     ActionName.SHAKE_OBJECT: ShakeParams,
     ActionName.PERFORM_MOTION: MotionParams,
-    ActionName.PUSH_OBJECT: ObjectParams,
+    ActionName.PUSH_OBJECT: PushParams,
     ActionName.GET_TASK_STATUS: TaskIdParams,
     ActionName.CANCEL_TASK: TaskIdParams,
     ActionName.STOP_ROBOT: NoParams,
@@ -249,9 +336,12 @@ class TaskRequest(Strict):
     task_id: str = Field(pattern=r"^[A-Za-z0-9_\-]{1,64}$")
     idempotency_key: Optional[str] = Field(default=None, max_length=128)
     actions: list[ActionRequest] = Field(min_length=1, max_length=32)
+    speed_percent: Optional[float] = Field(default=None, ge=1, le=100)
 
     @model_validator(mode="after")
     def _checks(self):
+        if self.speed_percent is not None:
+            _require_finite([self.speed_percent], "speed_percent")
         ids = [a.action_id for a in self.actions]
         if len(ids) != len(set(ids)):
             raise ValueError("action_id values must be unique within a task")
@@ -335,6 +425,7 @@ class TaskStatus(Strict):
     current_step: Optional[int] = None
     speed_percent: Optional[float] = None          # speed this task ran at (% of model max)
     motion_limits: Optional[dict] = None            # effective m/s, rad/s values for this task
+    execution: Optional[dict[str, Any]] = None      # final robot/backend/motion summary
     error: Optional[ErrorInfo] = None
     started_utc: Optional[str] = None
     finished_utc: Optional[str] = None

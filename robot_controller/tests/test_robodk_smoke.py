@@ -7,6 +7,7 @@ Needs: RoboDK GUI running locally and the demo station
 import math
 import os
 import socket
+import time
 
 import pytest
 
@@ -57,6 +58,62 @@ def test_move_between_named_targets(rdk_executor):
     assert st.status == ActionStatus.SUCCEEDED, st.error
     seg_events = [e for e in st.events if e.message and e.message.startswith("segment")]
     assert seg_events and all("0 collisions" in e.safety_checks.reasons[-1] for e in seg_events)
+
+
+def test_one_centimetre_cartesian_and_joint_jog(rdk_executor):
+    """Explicit opt-in motion: 1 cm up, then a 1 degree joint move."""
+    before = rdk_executor.c.get_state()
+    cart = {"schema_version": "1.0", "task_id": "it_cart_1cm", "speed_percent": 10,
+            "actions": [{"action_id": "m1", "action": "move_relative",
+                         "parameters": {"direction": "up", "distance_m": 0.01,
+                                        "reference_frame": "base"}}]}
+    st = rdk_executor.submit(cart, wait=True)
+    assert st.status == ActionStatus.SUCCEEDED, st.error
+    assert st.execution["final_tcp_pose"]["z"] == pytest.approx(before.tcp_pose.z + 0.01, abs=0.002)
+    joint = {"schema_version": "1.0", "task_id": "it_joint_1deg", "speed_percent": 10,
+             "actions": [{"action_id": "j1", "action": "move_joint",
+                          "parameters": {"joint_index": 1, "delta_rad": math.radians(1)}}]}
+    js = rdk_executor.submit(joint, wait=True)
+    assert js.status == ActionStatus.SUCCEEDED, js.error
+    assert js.execution["final_joints_rad"][0] == pytest.approx(
+        st.execution["final_joints_rad"][0] + math.radians(1), abs=math.radians(0.5))
+    assert rdk_executor.c.RDK.RunMode() == rdk_executor.c.rl.RUNMODE_SIMULATE
+    restore = {"schema_version": "1.0", "task_id": "it_restore_home",
+               "actions": [{"action_id": "h1", "action": "move_to_target",
+                            "parameters": {"target_id": rdk_executor.scene.cfg.home_target}}]}
+    home = rdk_executor.submit(restore, wait=True)
+    assert home.status == ActionStatus.SUCCEEDED, home.error
+
+
+def test_unreachable_relative_target_is_refused_without_motion(rdk_executor):
+    before = rdk_executor.c.robot.Joints().list()
+    task = {"schema_version": "1.0", "task_id": "it_unreachable",
+            "actions": [{"action_id": "m1", "action": "move_relative",
+                         "parameters": {"direction": "up", "distance_m": 10.0}}]}
+    st = rdk_executor.submit(task, wait=True)
+    assert st.status == ActionStatus.REJECTED
+    assert st.error.code in (ErrorCode.UNREACHABLE, ErrorCode.SAFETY_VETO)
+    assert rdk_executor.c.robot.Joints().list() == pytest.approx(before, abs=1e-3)
+
+
+def test_commanded_speed_changes_simulated_motion_duration(rdk_executor):
+    """Playback multiplier must be 1x for a meaningful duration comparison."""
+    durations = {}
+    for percent in (10, 100):
+        move = {"schema_version": "1.0", "task_id": f"it_speed_{percent}", "speed_percent": percent,
+                "actions": [{"action_id": "m1", "action": "move_relative",
+                             "parameters": {"direction": "up", "distance_m": 0.05}}]}
+        started = time.monotonic()
+        st = rdk_executor.submit(move, wait=True)
+        durations[percent] = time.monotonic() - started
+        assert st.status == ActionStatus.SUCCEEDED, st.error
+        assert st.speed_percent == percent
+        assert st.motion_limits["tcp_speed_m_s"] == pytest.approx(percent / 100)
+        home = {"schema_version": "1.0", "task_id": f"it_speed_home_{percent}",
+                "actions": [{"action_id": "h1", "action": "move_to_target",
+                             "parameters": {"target_id": rdk_executor.scene.cfg.home_target}}]}
+        assert rdk_executor.submit(home, wait=True).status == ActionStatus.SUCCEEDED
+    assert durations[100] < durations[10], durations
 
 
 def test_collision_is_detected_and_robot_restored(rdk_executor):
