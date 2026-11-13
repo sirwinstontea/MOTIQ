@@ -29,6 +29,18 @@
   <img src="https://img.shields.io/badge/LLM-Grok-000000" alt="Grok">
 </p>
 
+### Robots should understand your intent—not require you to learn their language.
+
+**Built during the Grok Hackathon — SpaceXAI**, MOTIQ began with a simple ambition: make commanding a robot as natural as explaining a task to another person.
+
+Programming a robot can take longer than the task itself. Even a simple change may require specialist knowledge, manufacturer-specific tools, and time at the workstation. Switching robots often means learning another interface and adapting the workflow all over again.
+
+**MOTIQ makes robot interaction a conversation.** Describe what you want, or demonstrate it, and the app turns your intent into a proposed sequence of actions. Through voice interaction, you can clarify the task, review the plan, and approve what happens next—from one interface designed to work across compatible robotic platforms.
+
+Our vision is simple: **describe it, preview it in simulation, confirm it, then execute it on the physical robot.** RoboDK provides a space to inspect the intended behavior before authorizing hardware execution through a properly configured integration. Simulation supports that review; it does not replace physical safety checks.
+
+We demonstrated app-based control with a physical UR5e. We’re building toward a broader goal: making robotic automation easier to adapt, easier to understand, and accessible without starting from scratch every time the robot or task changes.
+
 MOTIQ is an end-to-end robot control stack driven by natural language and demonstration. You talk to **Motion**, a real-time Grok voice agent running in a React Native app on a tablet. Motion plans the task, asks for your approval, runs it through a typed and safety-gated controller, looks through a camera to confirm the result, and reports back. Show it a task on video and it writes a skill you can review, edit and run again.
 
 During the event, we connected and controlled a **physical Universal Robots UR5e from the app**. The UR5e, a wrist-mounted Intel RealSense camera and a four-object tabletop scene form the reference cell; UR5e is the demonstrated integration, not the intended limit of robot compatibility.
