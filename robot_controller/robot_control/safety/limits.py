@@ -27,6 +27,11 @@ def pose_within_workspace(pose: Pose, ws: Workspace, robot: RobotConfig) -> list
         return ["pose contains non-finite values"]
     if pose.frame_id != ws.frame_id:
         return [f"pose frame '{pose.frame_id}' does not match workspace frame '{ws.frame_id}'"]
+    if ws.mode == "kinematic":
+        # No table-footprint box or nominal reach sphere: actual model IK and swept collision tests decide reach.
+        if pose.z < ws.z_m[0]:
+            return [f"TCP z = {pose.z:.3f} m below configured table clearance {ws.z_m[0]:.3f} m"]
+        return []
     for ax, v in (("x_m", pose.x), ("y_m", pose.y), ("z_m", pose.z)):
         lo, hi = getattr(ws, ax)
         if v < lo or v > hi:

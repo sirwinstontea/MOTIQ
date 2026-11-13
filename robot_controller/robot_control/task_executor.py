@@ -261,6 +261,8 @@ class TaskExecutor:
         d["capabilities"] = self.c.capabilities().model_dump(mode="json")
         d["motion_limits"] = self.motion_limits.model_dump(mode="json")
         d["speed_percent"] = self.speed_percent
+        d["workspace"] = self.safety_cfg.workspace.model_dump(mode="json")
+        d["reach_m"] = self.robot_cfg.limits.reach_m
         return d
 
     # ------------------------------------------------------------------ run loop

@@ -32,5 +32,7 @@ def repo(tmp_path) -> Path:
 @pytest.fixture
 def ch(repo) -> Chooser:
     c = Chooser(repo)
-    c.update_hardware({"backend": "mock", "active_robot": "ur_ur5e", "speed_percent": 10})
+    # Test policy defaults must not inherit the operator's current local contact/workspace settings.
+    c.update_hardware({"backend": "mock", "active_robot": "ur_ur5e", "speed_percent": 10,
+                       "workspace_mode": "box", "collision_policy": "all"})
     return c

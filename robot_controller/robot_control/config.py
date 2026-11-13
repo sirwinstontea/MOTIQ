@@ -82,6 +82,7 @@ class RobotConfig(_Cfg):
 # --------------------------------------------------------------------------
 
 class Workspace(_Cfg):
+    mode: Literal["box", "kinematic"] = "box"
     frame_id: str = "base"
     x_m: tuple[float, float]
     y_m: tuple[float, float]
@@ -119,6 +120,8 @@ class SafetyConfig(_Cfg):
 
     @model_validator(mode="after")
     def _speed_source(self):
+        if self.workspace.mode == "kinematic" and not (self.require_path_check and self.require_collision_geometry):
+            raise ValueError("kinematic workspace requires full path checking and collision geometry")
         absolute = [self.tcp_speed_m_s, self.tcp_accel_m_s2, self.joint_speed_rad_s, self.joint_accel_rad_s2]
         if self.speed_percent_of_model_max is not None:
             if any(v is not None for v in absolute):

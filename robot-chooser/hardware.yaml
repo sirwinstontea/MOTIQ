@@ -5,8 +5,9 @@
 schema: motiq_hardware/2
 
 active_robot: ur_ur5e                       # one id from catalog.yaml
-backend: mock                               # mock (no RoboDK) | robodk_sim (RoboDK, RUNMODE_SIMULATE)
+backend: robodk_sim                         # mock (no RoboDK) | robodk_sim (RoboDK, RUNMODE_SIMULATE)
 speed_percent: 10.0                         # % of the ACTIVE robot's verified maximums
+workspace_mode: kinematic                   # box | kinematic (model IK + collisions; retain table clearance)
 
 mounting:
   orientation: upright                      # upright | wall | ceiling
@@ -68,7 +69,7 @@ requirements:
   robot_id: ur_ur5e
   robot: Universal Robots UR5e
   dof: 6
-  backend: mock
+  backend: robodk_sim
   simulation_only: true
   status: READY
   label: Ready
@@ -141,6 +142,6 @@ requirements:
     x_m: [-0.7, -0.2]
     y_m: [-0.4, 0.4]
     z_m: [0.015, 0.55]
-  selection_version: 29
+  selection_version: 15
   generated_files: [robot_controller/config/robot.yaml, robot_controller/config/safety.yaml, robot_controller/config/scene.yaml]
-  generated_at: '2026-11-05T16:10:06+00:00'
+  generated_at: '2026-11-13T11:43:31+00:00'
