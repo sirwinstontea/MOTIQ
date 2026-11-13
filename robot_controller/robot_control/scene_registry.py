@@ -83,12 +83,26 @@ class SceneRegistry:
             dets = {k: {"confidence": d.confidence, "source": d.source, "is_mock": d.is_mock,
                         "age_s": round(d.age_s(), 3), "timestamp_utc": d.timestamp_utc}
                     for k, d in self._detections.items()}
+        table = self.cfg.station_geometry.get(self.cfg.table_geometry)
+        table_info = table.model_dump(mode="json") if table else None
+        if table:
+            x, y, z = table.pose_m_rad[:3]
+            table_info.update({"frame_id": "base", "origin_semantics": "bottom_center",
+                               "center_xy_m": [x, y], "top_z_m": z + table.size_m[2],
+                               "bounds_x_m": [x - table.size_m[0]/2, x + table.size_m[0]/2],
+                               "bounds_y_m": [y - table.size_m[1]/2, y + table.size_m[1]/2],
+                               "center_request": {"location": "center"}})
         return {
             "timestamp_utc": utc_now(),
             "objects": {oid: {"dimensions_m": list(o.dimensions_m), "mass_kg": o.mass_kg,
-                              "class_labels": o.class_labels, "detection": dets.get(oid)}
+                              "class_labels": o.class_labels, "avoid_collision": o.avoid_collision, "detection": dets.get(oid)}
                         for oid, o in self.cfg.objects.items()},
             "destinations": sorted(self.cfg.destinations),
+            "table": table_info,
+            "collision_policy": self.cfg.collision_policy,
+            "station_geometry": {name: {**g.model_dump(mode="json"),
+                                         "protected": name == self.cfg.table_geometry or g.avoid_collision}
+                                 for name, g in self.cfg.station_geometry.items()},
             "targets": sorted(self.cfg.targets),
             "patterns": {pid: {"max_cycles": p.max_cycles, "requires_grip": p.requires_grip,
                                "description": p.description} for pid, p in self.cfg.patterns.items()},

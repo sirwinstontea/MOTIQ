@@ -429,6 +429,7 @@ class TaskExecutor:
                     raise RobotControlError(ErrorCode.PRECONDITION_FAILED, f"{a.action_id}: already holding '{holding}'")
                 if o.mass_kg is not None and o.mass_kg + self.robot_cfg.tool_mass_kg > self.robot_cfg.limits.max_payload_kg:
                     raise RobotControlError(ErrorCode.SAFETY_VETO, f"{a.action_id}: payload exceeds model limit")
+                self.c.validate_pick(p["object_id"])
                 self.c.retarget_pick(p["object_id"])     # simulation: targets over the object's real pose
                 targets += [o.approach_target, o.grasp_target, o.lift_target]
                 holding, gripper = p["object_id"], "closed"
@@ -438,12 +439,14 @@ class TaskExecutor:
                 if holding != p["object_id"]:
                     raise RobotControlError(ErrorCode.PRECONDITION_FAILED,
                                             f"{a.action_id}: move_object requires holding '{p['object_id']}'")
-                targets.append(d.approach_target)
+                if self.c.backend_name != "robodk_sim" or d.support_surface == "taught":
+                    targets.append(d.approach_target)
             elif n == ActionName.PLACE_OBJECT:
                 d = sc.destination(p["destination_id"])
                 if not holding:
                     raise RobotControlError(ErrorCode.PRECONDITION_FAILED, f"{a.action_id}: place_object requires a held object")
-                targets += [d.approach_target, d.place_target, d.retreat_target]
+                if self.c.backend_name != "robodk_sim" or d.support_surface == "taught":
+                    targets += [d.approach_target, d.place_target, d.retreat_target]
                 holding, gripper = None, "open"
             elif n == ActionName.RELEASE_OBJECT:
                 if holding:
@@ -452,14 +455,31 @@ class TaskExecutor:
                 gripper = "open"
             elif n == ActionName.PUSH_OBJECT:
                 o = sc.object(p["object_id"])
+                if o.avoid_collision:
+                    raise RobotControlError(ErrorCode.SAFETY_VETO, "object is tagged avoid_collision; push refused")
                 if o.push is None:
                     raise RobotControlError(ErrorCode.PRECONDITION_FAILED,
                                             f"{a.action_id}: '{p['object_id']}' cannot be pushed (no push path in the scene)")
                 if holding:
                     raise RobotControlError(ErrorCode.PRECONDITION_FAILED,
                                             f"{a.action_id}: push_object needs an empty gripper (holding '{holding}')")
+                if p.get("direction"):
+                    if self.c.backend_name != "robodk_sim":
+                        raise RobotControlError(ErrorCode.MODE_VIOLATION, "directional push is RoboDK simulation-only")
+                    self.c.prepare_push(p["object_id"], p["direction"], p["distance_m"])
                 targets += [o.push.above_target, o.push.start_target, o.push.end_target, o.push.lift_target]
                 gripper = "closed"
+            elif n in (ActionName.FOLLOW_PATH, ActionName.CIRCLE_OBJECT, ActionName.PLACE_ON_TABLE):
+                if self.c.backend_name not in ("robodk_sim", "mock"):
+                    raise RobotControlError(ErrorCode.MODE_VIOLATION, "custom paths and table placement are simulation-only")
+                if n == ActionName.CIRCLE_OBJECT:
+                    sc.object(p["object_id"])
+                if n == ActionName.PLACE_ON_TABLE:
+                    if not holding:
+                        raise RobotControlError(ErrorCode.PRECONDITION_FAILED, "place_on_table requires a held object")
+                    x, y = self._placement_xy(p, holding)
+                    table_surface(sc.cfg, x, y, sc.object(holding).dimensions_m)
+                    holding, gripper = None, "open"
             elif n == ActionName.MOVE_TO_TARGET:
                 sc.target(p["target_id"])
                 targets.append(p["target_id"])
@@ -567,6 +587,9 @@ class TaskExecutor:
             ActionName.MOVE_TO_TARGET: self._a_move_to_target,
             ActionName.MOVE_RELATIVE: self._a_move_relative,
             ActionName.MOVE_JOINT: self._a_move_joint,
+            ActionName.FOLLOW_PATH: self._a_follow_path,
+            ActionName.CIRCLE_OBJECT: self._a_circle_object,
+            ActionName.PLACE_ON_TABLE: self._a_place_on_table,
             ActionName.SHAKE_OBJECT: self._a_shake,
             ActionName.PERFORM_MOTION: self._a_motion,
             ActionName.PUSH_OBJECT: self._a_push,
@@ -603,13 +626,97 @@ class TaskExecutor:
                                      target_rad=p.get("target_rad"))
         return self._dynamic_segment(seg, dl)
 
+    def _plan_pose_path(self, poses, dl):
+        planned, start = [], None
+        for pose in poses:
+            self._check_cancel()
+            dl.check()
+            seg = self.c.plan_pose(pose, start)
+            self._require(self.policy.check_segment(seg))
+            planned.append(seg)
+            start = seg.end_joints
+        return planned
+
+    def _execute_pose_path(self, planned, dl):
+        self._step("move")
+        for seg in planned:
+            self._check_cancel()
+            dl.check()
+            self._action_gate()
+            actual = self.c.get_joints().values
+            if len(actual) != len(seg.start_joints) or max(abs(a-b) for a,b in zip(actual, seg.start_joints)) > JOINT_MATCH_RAD:
+                raise RobotControlError(ErrorCode.STALE_DATA, "robot start changed since path validation; no automatic replan")
+            self._dynamic_segment(seg, dl)
+
+    def _a_follow_path(self, p, dl):
+        self._go(S.MOVING)
+        current = self.c.get_tcp_pose()
+        poses = [Pose(**point, rx=current.rx, ry=current.ry, rz=current.rz) for point in p["waypoints"]]
+        self._execute_pose_path(self._plan_pose_path(poses, dl), dl)
+        return {"trajectory_type": "linear_waypoints", "waypoints": len(poses), "orientation_preserved": True}
+
+    def _a_circle_object(self, p, dl):
+        self._go(S.MOVING)
+        current = self.c.get_tcp_pose()
+        poses = circle_waypoints(self.c.object_position(p["object_id"]), p["radius_m"], p["z_m"], p["clockwise"], current,
+                                 p.get("max_chord_error_m"))
+        self._execute_pose_path(self._plan_pose_path(poses, dl), dl)
+        return {"trajectory_type": "polygonal_circle", "waypoints": len(poses), "object_id": p["object_id"],
+                "radius_m": p["radius_m"], "z_m": p["z_m"], "global_detour_planner": False,
+                "max_chord_error_m": p.get("max_chord_error_m")}
+
+    def _a_place_on_table(self, p, dl):
+        g = self._require_held()
+        oid = g.holding_object_id
+        x, y = self._placement_xy(p, oid)
+        target = self.c.table_placement_pose(oid, x, y)
+        # Derive vertical clearance from this object's configured approach/grasp poses, not a robot-global constant.
+        obj = self.scene.object(oid)
+        above = self.scene.target(obj.approach_target).pose_m_rad
+        grasp = self.scene.target(obj.grasp_target).pose_m_rad
+        if above is None or grasp is None or above[2] <= grasp[2]:
+            raise RobotControlError(ErrorCode.CONFIG_ERROR, "table placement requires a positive taught approach clearance")
+        approach = target.model_copy(update={"z": target.z + above[2] - grasp[2]})
+        self._go(S.APPROACH_PLACE)
+        paths = self._plan_pose_path([approach, target, approach], dl)
+        self._execute_pose_path(paths[:2], dl)
+        self._go(S.AT_PLACE)
+        self._require_held(oid)
+        self._go(S.RELEASING)
+        released = self.c.open_gripper()
+        if released.state != "open" or released.holding_object_id is not None:
+            raise RobotControlError(ErrorCode.GRIPPER_FAULT, "release not confirmed")
+        self._go(S.RETREATING)
+        self._execute_pose_path(paths[2:], dl)
+        return {"object_id": oid, "object_state": "released_on_table", "x_m": x, "y_m": y}
+
+    def _placement_xy(self, p, oid):
+        if p.get("location") == "center":
+            return self.c.table_center()
+        if p.get("direction"):
+            position = self.c.object_position(oid)
+            dx, dy = DIRECTIONS[p["direction"]]
+            return position[0] + dx * p["distance_m"], position[1] + dy * p["distance_m"]
+        return p["x_m"], p["y_m"]
+
     def _a_state(self, p, dl):
         self._step("query")
         return self.robot_state()
 
     def _a_scene(self, p, dl):
         self._step("query")
-        return self.scene.snapshot()
+        return self.scene_snapshot()
+
+    def scene_snapshot(self):
+        result = self.scene.snapshot()
+        observation = self.c.scene_observation()
+        for oid, values in observation.get("objects", {}).items():
+            if oid in result["objects"]:
+                result["objects"][oid].update(values)
+        result["position_source"] = observation.get("position_source", "configuration_only")
+        result["perception_detector"] = self.detector.name
+        result["camera_verified"] = False
+        return result
 
     def _a_identify(self, p, dl):
         self._go(S.IDENTIFYING)
@@ -621,6 +728,7 @@ class TaskExecutor:
         return {"object_id": det.object_id, "class_label": det.class_label, "confidence": det.confidence,
                 "source": det.source, "is_mock": det.is_mock, "timestamp_utc": det.timestamp_utc,
                 "note": "MOCK detection for demo purposes — not real vision" if det.is_mock else
+                        "vision recognition; motion uses live RoboDK geometry, not uncalibrated camera coordinates" if self.c.backend_name == "robodk_sim" else
                         "vision detection; camera coordinates ignored (no calibration), taught targets used"}
 
     def _grip(self):
@@ -633,11 +741,12 @@ class TaskExecutor:
         g = self._grip()
         if g.holding_object_id:
             raise RobotControlError(ErrorCode.PRECONDITION_FAILED, f"already holding '{g.holding_object_id}'")
+        self.c.validate_pick(oid)
         self._go(S.APPROACH_PICK)
         if g.state != "open":
             self._step("gripper")
             self.c.open_gripper()            # make sure fingers are open before approaching
-        # simulation: no camera, so go to the object's exact pose in the station (None = taught targets)
+        # Recognition may come from the simulated camera; geometric targets come from simulator state.
         at = self.c.retarget_pick(oid)
         self._segments([(obj.approach_target, "joint"), (obj.grasp_target, "linear")], dl,
                        on_move={obj.grasp_target: lambda: self._go(S.AT_PICK)})
@@ -669,6 +778,7 @@ class TaskExecutor:
         self._require_held(p["object_id"])
         d = self.scene.destination(p["destination_id"])
         self._go(S.TRANSPORTING)
+        self.c.retarget_place(p["object_id"], p["destination_id"])
         self._segment(d.approach_target, "joint", dl)
         self._require_held(p["object_id"])
         return {"object_id": p["object_id"], "object_state": "held_at_destination_approach",
@@ -679,8 +789,21 @@ class TaskExecutor:
         oid = g.holding_object_id
         d = self.scene.destination(p["destination_id"])
         self._go(S.APPROACH_PLACE)
-        self._segments([(d.approach_target, "joint"), (d.place_target, "linear")], dl,
-                       on_move={d.place_target: lambda: self._go(S.AT_PLACE)})
+        dynamic = self.c.retarget_place(oid, p["destination_id"])
+        if dynamic:
+            paths, start = [], None
+            for tid, motion in ((d.approach_target, "joint"), (d.place_target, "linear"), (d.retreat_target, "linear")):
+                self._check_cancel()
+                dl.check()
+                seg = self.c.plan_segment(tid, motion, start)
+                self._require(self.policy.check_segment(seg))
+                paths.append(seg)
+                start = seg.end_joints
+            self._execute_pose_path(paths[:2], dl)
+            self._go(S.AT_PLACE)
+        else:
+            self._segments([(d.approach_target, "joint"), (d.place_target, "linear")], dl,
+                           on_move={d.place_target: lambda: self._go(S.AT_PLACE)})
         self._require_held(oid)
         self._go(S.RELEASING)
         self._step("gripper")
@@ -688,9 +811,15 @@ class TaskExecutor:
         if g.state != "open" or g.holding_object_id is not None:
             raise RobotControlError(ErrorCode.GRIPPER_FAULT, "gripper did not report open after release")
         self._go(S.RETREATING)
-        self._segment(d.retreat_target, "linear", dl)
+        verification = self.c.verify_placement(oid, p["destination_id"]) if dynamic else None
+        if verification is not None and not verification["ok"]:
+            raise RobotControlError(ErrorCode.BACKEND_ERROR, "released object did not reach the resolved live destination")
+        if dynamic:
+            self._execute_pose_path(paths[2:], dl)
+        else:
+            self._segment(d.retreat_target, "linear", dl)
         return {"object_id": oid, "object_state": "released_at_destination", "destination_id": p["destination_id"],
-                "release_source": g.source.value}
+                "release_source": g.source.value, "verification": verification}
 
     def _a_release(self, p, dl):
         g = self._grip()
@@ -711,25 +840,38 @@ class TaskExecutor:
         pu = obj.push
         if pu is None:
             raise RobotControlError(ErrorCode.PRECONDITION_FAILED, f"'{oid}' cannot be pushed (no push path)")
+        if p.get("direction"):
+            self.c.prepare_push(oid, p["direction"], p["distance_m"])
         self._require(self.policy.check_detection(self.scene.detection(oid)))
         g = self._grip()
         if g.holding_object_id:
             raise RobotControlError(ErrorCode.PRECONDITION_FAILED, f"push needs an empty gripper (holding "
                                     f"'{g.holding_object_id}')")
         self._go(S.PUSHING)
+        # Validate the complete approach, contact stroke and retreat before moving.
+        planned, start = [], None
+        for tid, motion in ((pu.above_target, "joint"), (pu.start_target, "linear"),
+                            (pu.end_target, "linear"), (pu.lift_target, "linear")):
+            self._check_cancel()
+            dl.check()
+            seg = self.c.plan_segment(tid, motion, start)
+            self._require(self.policy.check_segment(seg))
+            planned.append(seg)
+            start = seg.end_joints
         if g.state != "closed":
             self._step("gripper")
             self.c.close_gripper(None)       # closed fingers push; nothing is grasped
-        self._segments([(pu.above_target, "joint"), (pu.start_target, "linear")], dl)
+        self._execute_pose_path(planned[:2], dl)
         carried = self.c.begin_push(oid)
         try:
-            self._segment(pu.end_target, "linear", dl)
+            self._execute_pose_path(planned[2:3], dl)
         finally:
             if carried:
                 self.c.end_push()
-        self._segment(pu.lift_target, "linear", dl)
+        self._execute_pose_path(planned[3:], dl)
         self.scene.clear_detection(oid)      # object moved; old detection no longer valid
-        return {"object_id": oid, "object_state": "pushed", "distance_m": pu.distance_m,
+        return {"object_id": oid, "object_state": "pushed", "distance_m": p.get("distance_m") or pu.distance_m,
+                "direction": p.get("direction"),
                 "object_model_moved": carried,
                 "note": "the object's pick/place targets were taught for its old spot"}
 
@@ -811,6 +953,8 @@ class TaskExecutor:
                 value = (f"by {p['delta_rad']:g} rad" if p.get("delta_rad") is not None
                          else f"to {p['target_rad']:g} rad")
                 add(a, "move", f"move joint {p['joint_index']} {value}", "joint", target)
+            elif n in (ActionName.FOLLOW_PATH, ActionName.CIRCLE_OBJECT, ActionName.PLACE_ON_TABLE):
+                add(a, "move", n.value.replace('_', ' ') + " (all waypoints checked before execution)", "linear")
             elif n == ActionName.SHAKE_OBJECT:
                 pat, cyc = sc.patterns[p["pattern_id"]], p["cycles"]
                 add(a, "move", f"go to shake start ({p['pattern_id']})", "joint", pat.start_target)

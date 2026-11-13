@@ -84,7 +84,15 @@ def create_app(ex: TaskExecutor, *, auth: tuple[str, str] | None = None) -> Fast
 
     @app.get("/scene")
     def scene():
-        return ex.scene.snapshot()
+        return ex.scene_snapshot()
+
+    @app.get("/scene/placement")
+    def placement(object_id: str, destination_id: str):
+        ex.scene.object(object_id)
+        ex.scene.destination(destination_id)
+        if ex.c.backend_name != "robodk_sim":
+            raise RobotControlError(ErrorCode.UNSUPPORTED, "live placement verification requires RoboDK simulation")
+        return ex.c.verify_placement(object_id, destination_id)
 
     @app.get("/tools")
     def tools():

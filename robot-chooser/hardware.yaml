@@ -8,6 +8,7 @@ active_robot: ur_ur5e                       # one id from catalog.yaml
 backend: robodk_sim                         # mock (no RoboDK) | robodk_sim (RoboDK, RUNMODE_SIMULATE)
 speed_percent: 10.0                         # % of the ACTIVE robot's verified maximums
 workspace_mode: kinematic                   # box | kinematic (model IK + collisions; retain table clearance)
+collision_policy: table_and_tagged          # all | table_and_tagged (simulation contact policy)
 
 mounting:
   orientation: upright                      # upright | wall | ceiling

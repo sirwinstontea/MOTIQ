@@ -60,10 +60,11 @@ def test_nan_pose_rejected():
         Pose(x=float("inf"), y=0, z=0, rx=0, ry=0, rz=0)
 
 
-def test_tool_allowlist_has_no_raw_motion():
+def test_tool_allowlist_has_only_validated_motion():
     names = {s["name"] for s in tool_specs()}
     assert names == {"get_robot_state", "get_scene", "identify_object", "pick_object", "move_object",
                      "place_object", "release_object", "move_to_target", "shake_object", "perform_motion",
+                     "move_relative", "move_joint", "follow_path", "circle_object", "place_on_table",
                      "get_task_status", "cancel_task", "stop_robot", "push_object"}
     for s in tool_specs():
         assert s["parameters"]["additionalProperties"] is False

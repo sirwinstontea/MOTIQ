@@ -158,6 +158,23 @@ class MockController(RobotController):
             return PathCheckResult(ok=False, conclusive=True, reason="mock: unreachable")
         return PathCheckResult(ok=True, conclusive=True, reason="mock feasibility only (no geometry)")
 
+    def plan_pose(self, pose, start_joints=None):
+        start = list(start_joints) if start_joints is not None else list(self._joints)
+        return PlannedSegment("waypoint", "linear", start, self._pseudo_joints(pose.as_list()), pose)
+
+    def object_position(self, object_id):
+        obj = self.scene.objects[object_id]
+        return self.scene.targets[obj.grasp_target].pose_m_rad[:3]
+
+    def table_placement_pose(self, object_id, x_m, y_m):
+        from ..planning import table_surface
+        obj = self.scene.objects[object_id]
+        z = table_surface(self.scene, x_m, y_m, obj.dimensions_m) + obj.dimensions_m[2] / 2 + 0.001
+        return self._pose.model_copy(update={"x": x_m, "y": y_m, "z": z})
+
+    def table_center(self):
+        return tuple(self.scene.station_geometry[self.scene.table_geometry].pose_m_rad[:2])
+
     # --- motion --------------------------------------------------------------------
     def _simulate_motion(self, ctx: MotionContext):
         self._stop.clear()

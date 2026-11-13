@@ -6,7 +6,7 @@
 
 Safety: never touches robots, tools, TCPs, targets, programs or the run mode;
 never connects to a physical robot; never clears the station. Only these are
-created/changed: one reference frame (default "Objects_Frame") and the four
+created/changed: one reference frame (default "Objects_Frame"), configured object collision pairs, and the four
 named ITEM_TYPE_OBJECT items. With --replace, an existing object with exactly
 the same name *of type object* is deleted and re-imported; nothing else is
 deleted. Without --replace, existing names are skipped and reported.
@@ -21,6 +21,17 @@ from pathlib import Path
 from .core import SPEC_FILE, load_object_config, load_spec, stl_path
 
 PORT = 20500
+
+
+def _configure_object_collisions(RDK, rl, obj, allowed, protected):
+    """Only object pairs; never disable an explicitly protected support surface."""
+    ok = True
+    for other in allowed:
+        if other not in protected:
+            ok = bool(RDK.setCollisionActivePair(rl.COLLISION_OFF, obj, other)) and ok
+    for other in protected:
+        ok = bool(RDK.setCollisionActivePair(rl.COLLISION_ON, obj, other)) and ok
+    return ok
 
 
 def _pose_mm_deg(rm, p):
@@ -123,11 +134,20 @@ def run_import(spec_file=SPEC_FILE, replace=False, reset_frame_pose=False, port=
 
     no_coll = [it for n in rcfg.get("no_collision_with", []) for it in RDK.ItemList(rl.ITEM_TYPE_OBJECT)
                if it.Name() == n]
+    protected = [it for n in rcfg.get("protected_collision_items", []) for it in RDK.ItemList(rl.ITEM_TYPE_OBJECT)
+                 if it.Name() == n]
+    if len(protected) != len(rcfg.get("protected_collision_items", [])):
+        out('[FAIL] protected collision geometry missing or ambiguous; load the table before importing objects')
+        return 2
 
     rc = 0
     for i in items:
         existing = _find_exact(RDK, i["name"], rl.ITEM_TYPE_OBJECT)
         if existing and not replace:
+            for obj in existing:
+                if not _configure_object_collisions(RDK, rl, obj, no_coll, protected):
+                    out(f"[FAIL] could not protect collision pairs for {i['name']}")
+                    rc = 1
             out(f"[SKIP] {i['name']}: already in station (use --replace to re-import this object only)")
             continue
         for it in existing:                      # only exact-name objects
@@ -141,8 +161,9 @@ def run_import(spec_file=SPEC_FILE, replace=False, reset_frame_pose=False, port=
         obj.setParent(frame)
         obj.setPose(_pose_mm_deg(rm, i["pose_mm_deg"]))
         obj.setColor(list(i["color_rgba"]))
-        for other in no_coll:
-            RDK.setCollisionActivePair(rl.COLLISION_OFF, obj, other)
+        if not _configure_object_collisions(RDK, rl, obj, no_coll, protected):
+            out(f"[FAIL] could not protect collision pairs for {i['name']}")
+            rc = 1
         ext = _mesh_extents_in_robodk(rl, obj)
         if ext is None:
             scale = "  (mesh extents could not be read back; scale check NOT RUN)"

@@ -83,6 +83,7 @@ class RoboDKSimController(RobotController):
         self._gripper = "open"
         self._grip_confirmed = False
         self._speeds = None
+        self._transient_poses = {}  # task-local pick/place/push targets; never mutate taught station targets
 
     # ------------------------------------------------------------------ units
     @staticmethod
@@ -312,7 +313,7 @@ class RoboDKSimController(RobotController):
         return self._target_item(target_id) is not None
 
     def retarget_pick(self, object_id):
-        """No camera in simulation: read the station object's exact pose and put its approach / grasp / lift targets
+        """Read simulator geometry (not a camera detection) and resolve task-local approach / grasp / lift targets
         over it. Each target keeps its taught orientation and its taught height above the object's bottom (taught
         with the object standing on the table, z = 0), so only where the object is changes. Skipped (None) when the
         object is held or has no station item. The moved targets still go through the normal IK + safety checks."""
@@ -332,12 +333,16 @@ class RoboDKSimController(RobotController):
                 continue
             p = [ox, oy, cfg.pose_m_rad[2] + oz, *cfg.pose_m_rad[3:]]
             pose_base = self.rm.UR_2_Pose([p[0] * 1000, p[1] * 1000, p[2] * 1000, p[3], p[4], p[5]])
-            tgt.setAsCartesianTarget()
-            tgt.setPoseAbs(base_abs * pose_base)
+            self._transient_poses[tid] = self._pose_from_mat(pose_base)
         return [round(ox, 4), round(oy, 4), round(oz, 4)]
 
     def plan_segment(self, target_id, motion: MotionType, start_joints=None):
         self._require()
+        if target_id in self._transient_poses:
+            seg = self.plan_pose(self._transient_poses[target_id], start_joints)
+            seg.target_id = target_id
+            seg.motion = motion
+            return seg
         t = self._target_item(target_id)
         if t is None:
             raise RobotControlError(ErrorCode.UNKNOWN_ID, f"target '{target_id}' not found in RoboDK station")
@@ -419,9 +424,304 @@ class RoboDKSimController(RobotController):
         return PlannedSegment("waypoint", "linear", start, end, pose if end else None,
                               requested={"pose": pose.model_dump(mode="json")})
 
+    def object_position(self, object_id):
+        obj = self.scene.objects[object_id]
+        if not obj.station_item:
+            raise RobotControlError(ErrorCode.CONFIG_ERROR, "object has no station_item")
+        item = self.RDK.Item(obj.station_item, self.rl.ITEM_TYPE_OBJECT)
+        if not item.Valid():
+            raise RobotControlError(ErrorCode.CONFIG_ERROR, f"station object '{obj.station_item}' missing")
+        return [v / 1000 for v in (self.base.PoseAbs().inv() * item.PoseAbs()).Pos()]
+
+    def _upright_object(self, object_id):
+        obj = self.scene.objects[object_id]
+        item = self.RDK.Item(obj.station_item, self.rl.ITEM_TYPE_OBJECT)
+        if not item.Valid():
+            raise RobotControlError(ErrorCode.CONFIG_ERROR, f"station object '{obj.station_item}' missing")
+        mat = self.base.PoseAbs().inv() * item.PoseAbs()
+        if abs(mat[2, 2] - 1) > 1e-5:
+            raise RobotControlError(ErrorCode.UNSUPPORTED, "placement requires an upright object; tilted support is not modeled")
+        return mat, math.atan2(mat[1, 0], mat[0, 0])
+
+    def _validated_table(self):
+        cfg = self.scene.station_geometry.get(self.scene.table_geometry)
+        if cfg is None:
+            raise RobotControlError(ErrorCode.CONFIG_ERROR, "table geometry missing")
+        item = self.RDK.Item(self.scene.table_geometry, self.rl.ITEM_TYPE_OBJECT)
+        if not item.Valid():
+            raise RobotControlError(ErrorCode.CONFIG_ERROR, "table missing in RoboDK")
+        actual = self._pose_from_mat(self.base.PoseAbs().inv() * item.PoseAbs()).as_list()
+        if any(abs(a-b) > 1e-5 for a,b in zip(actual, cfg.pose_m_rad)):
+            raise RobotControlError(ErrorCode.CONFIG_ERROR, "RoboDK table pose does not match scene configuration in robot base frame")
+        return cfg
+
+    def _require_object_table_pair(self, item):
+        table = self.RDK.Item(self.scene.table_geometry, self.rl.ITEM_TYPE_OBJECT)
+        if not table.Valid() or not item.Valid():
+            raise RobotControlError(ErrorCode.CONFIG_ERROR, "required object/table collision geometry is missing")
+        if not any((a == table and b == item) or (a == item and b == table)
+                   for a, b, _, _ in self.RDK.CollisionActivePairList()):
+            raise RobotControlError(ErrorCode.CONFIG_ERROR,
+                                    f"'{item.Name()}'/'{self.scene.table_geometry}' collision pair is disabled; "
+                                    "enable it in the RoboDK collision map before pickup or carried-object motion")
+
+    def validate_pick(self, object_id):
+        self._require()
+        self._validated_table()
+        obj = self.scene.objects.get(object_id)
+        if obj is None or not obj.station_item:
+            raise RobotControlError(ErrorCode.CONFIG_ERROR, f"'{object_id}' has no configured station object")
+        self._require_object_table_pair(self.RDK.Item(obj.station_item, self.rl.ITEM_TYPE_OBJECT))
+
+    def _require_held_table_pair(self):
+        for item in (getattr(self, "_held_item", None), getattr(self, "_pushed_item", None)):
+            if item is not None:
+                self._require_object_table_pair(item)
+
+    def table_center(self):
+        return tuple(self._validated_table().pose_m_rad[:2])
+
+    def scene_observation(self):
+        self._require()
+        self._validated_table()
+        objects = {}
+        for oid, obj in self.scene.objects.items():
+            if obj.station_item:
+                position = self.object_position(oid)
+                table = self.scene.station_geometry[self.scene.table_geometry]
+                objects[oid] = {"position_m": position, "position_source": "robodk_station_geometry",
+                                "table_clearance_m": position[2] - table.pose_m_rad[2] - table.size_m[2]}
+        return {"objects": objects, "position_source": "robodk_station_geometry", "camera_verified": False}
+
+    def table_placement_pose(self, object_id, x_m, y_m):
+        obj = self.scene.objects[object_id]
+        self._validated_table()
+        _, yaw = self._upright_object(object_id)
+        top = table_surface(self.scene, x_m, y_m, obj.dimensions_m, yaw)
+        position = self.object_position(object_id)
+        current = self.get_tcp_pose()
+        return current.model_copy(update={"x": current.x + x_m - position[0],
+            "y": current.y + y_m - position[1], "z": current.z + top + 0.001 - position[2]})
+
+    def _destination_bottom(self, object_id, destination_id):
+        self._validated_table()
+        d = self.scene.destinations[destination_id]
+        obj = self.scene.objects[object_id]
+        _, yaw = self._upright_object(object_id)
+        if d.support_surface == "container":
+            if d.container_id == object_id:
+                raise RobotControlError(ErrorCode.PRECONDITION_FAILED, "cannot place a container into itself")
+            anchor = self.scene.objects[d.container_id]
+            _, anchor_yaw = self._upright_object(d.container_id)
+            x, y, z = self.object_position(d.container_id)
+            top = table_surface(self.scene, x, y, anchor.dimensions_m, anchor_yaw)
+            if z < top - 0.0005:
+                raise RobotControlError(ErrorCode.SAFETY_VETO, "destination container already intersects the table; correct the station before retrying")
+            table_surface(self.scene, x, y, obj.dimensions_m, yaw)
+            # Symbolic release ABOVE the opening; no gravity/interior physics is claimed.
+            return [x, y, z + anchor.dimensions_m[2] + 0.001]
+        if d.support_surface == "table":
+            taught = self.scene.targets[d.place_target].pose_m_rad
+            if taught is None:
+                raise RobotControlError(ErrorCode.CONFIG_ERROR, "table destination requires a Cartesian taught position")
+            x, y = taught[:2]
+            return [x, y, table_surface(self.scene, x, y, obj.dimensions_m, yaw) + 0.001]
+        raise RobotControlError(ErrorCode.UNSUPPORTED, "destination has only legacy taught semantics")
+
+    def retarget_place(self, object_id, destination_id):
+        d = self.scene.destinations[destination_id]
+        if d.support_surface == "taught":
+            return False
+        if self._holding != object_id:
+            raise RobotControlError(ErrorCode.PRECONDITION_FAILED, "live placement requires the actual held object")
+        bottom = self._destination_bottom(object_id, destination_id)
+        position = self.object_position(object_id)
+        tcp = self.get_tcp_pose()
+        target = tcp.model_copy(update={axis: getattr(tcp, axis) + bottom[i] - position[i]
+                                       for i, axis in enumerate(("x", "y", "z"))})
+        place = self.scene.targets[d.place_target].pose_m_rad
+        for tid in dict.fromkeys((d.approach_target, d.place_target, d.retreat_target)):
+            taught = self.scene.targets[tid].pose_m_rad
+            if place is None or taught is None:
+                raise RobotControlError(ErrorCode.CONFIG_ERROR, "live placement requires Cartesian taught clearances")
+            clearance = taught[2] - place[2]
+            if tid != d.place_target and clearance <= 0:
+                raise RobotControlError(ErrorCode.CONFIG_ERROR, "placement approach/retreat clearance must be positive")
+            self._transient_poses[tid] = target.model_copy(update={"z": target.z + clearance})
+        return True
+
+    def verify_placement(self, object_id, destination_id):
+        expected = self._destination_bottom(object_id, destination_id)
+        actual = self.object_position(object_id)
+        ok = self._holding != object_id and math.dist(actual, expected) <= 0.005
+        return {"ok": ok, "object_id": object_id, "destination_id": destination_id,
+                "actual_position_m": actual, "expected_position_m": expected,
+                "verification_source": "robodk_station_geometry", "camera_verified": False,
+                "note": "symbolic release above container; no gravity/interior confirmation" if
+                self.scene.destinations[destination_id].support_surface == "container" else "geometric table placement check"}
+
+    def prepare_push(self, object_id, direction, distance_m):
+        obj = self.scene.objects[object_id]
+        if obj.avoid_collision:
+            raise RobotControlError(ErrorCode.SAFETY_VETO, "object is tagged avoid_collision; contact push refused")
+        if obj.push is None:
+            raise RobotControlError(ErrorCode.UNSUPPORTED, "object has no configured push posture")
+        position = self.object_position(object_id)
+        dx, dy = DIRECTIONS[direction]
+        table_surface(self.scene, position[0], position[1], obj.dimensions_m)
+        table_surface(self.scene, position[0] + dx * distance_m, position[1] + dy * distance_m, obj.dimensions_m)
+        taught_start = self.scene.targets[obj.push.start_target].pose_m_rad
+        taught_grasp = self.scene.targets[obj.grasp_target].pose_m_rad
+        if taught_start is None or taught_grasp is None:
+            raise RobotControlError(ErrorCode.CONFIG_ERROR, "directional push requires a Cartesian taught contact offset")
+        offset = math.dist(taught_start[:2], taught_grasp[:2])
+        if offset <= max(obj.dimensions_m[:2]) / 2:
+            raise RobotControlError(ErrorCode.CONFIG_ERROR, "taught push offset does not clear object footprint")
+        startxy = [position[0] - dx * offset, position[1] - dy * offset]
+        for tid, xy in ((obj.push.above_target, startxy), (obj.push.start_target, startxy),
+                        (obj.push.end_target, [startxy[0] + dx * distance_m, startxy[1] + dy * distance_m]),
+                        (obj.push.lift_target, [startxy[0] + dx * distance_m, startxy[1] + dy * distance_m])):
+            cfg = self.scene.targets[tid]
+            if cfg.pose_m_rad is None:
+                raise RobotControlError(ErrorCode.CONFIG_ERROR, "directional push requires Cartesian taught postures")
+            pose = Pose.from_list([*xy, position[2] + cfg.pose_m_rad[2], *cfg.pose_m_rad[3:]])
+            item = self._target_item(tid)
+            if item is None:
+                raise RobotControlError(ErrorCode.CONFIG_ERROR, f"push target '{tid}' missing")
+            self._transient_poses[tid] = pose
+
+    def clear_transient_plans(self):
+        self._transient_poses.clear()
+
+    @staticmethod
+    def _item_key(item):
+        # RoboDK Item.item is the local numeric handle; no remote Name()/Valid() call.
+        return getattr(item, "item", id(item))
+
+    @classmethod
+    def _pair_keys(cls, pairs):
+        # Treat reversed pair order as equivalent, preserving robot link indices.
+        return {tuple(sorted(((cls._item_key(a), ia), (cls._item_key(b), ib))))
+                for a, b, ia, ib in pairs}
+
+    def _collision_pairs(self):
+        increment("collision_map_reads")
+        return list(self.RDK.CollisionActivePairList())
+
+    def _contact_pairs(self):
+        if self.backend_name != "robodk_sim":
+            raise RobotControlError(ErrorCode.MODE_VIOLATION, "contact collision policy is RoboDK-only")
+        table = self.RDK.Item(self.scene.table_geometry, self.rl.ITEM_TYPE_OBJECT)
+        if not table.Valid():
+            raise RobotControlError(ErrorCode.CONFIG_ERROR, "protected table geometry missing in station")
+        # A snapshot, not a live list: updates must never change what is being iterated.
+        pairs = self._collision_pairs()
+        if not any((a == table and b == self.robot) or (b == table and a == self.robot)
+                   for a, b, _, _ in pairs):
+            raise RobotControlError(ErrorCode.CONFIG_ERROR, "table/robot collision pairs are not active")
+        ignored = {o.station_item for o in self.scene.objects.values() if not o.avoid_collision and o.station_item}
+        ignored.update(name for name, geometry in self.scene.station_geometry.items()
+                       if name != self.scene.table_geometry and not geometry.avoid_collision)
+        protected = {self.scene.table_geometry} | {
+            o.station_item for o in self.scene.objects.values() if o.avoid_collision and o.station_item}
+        protected.update(name for name, geometry in self.scene.station_geometry.items() if geometry.avoid_collision)
+        ignored.difference_update(protected)
+        names = {}
+        def name(item):
+            key = self._item_key(item)
+            if key not in names:
+                increment("item_name_queries")
+                names[key] = item.Name()
+            return names[key]
+        robot_name, tool_name = name(self.robot), name(self.tool)
+        ignored.difference_update((robot_name, tool_name))
+        participants = ignored | {robot_name, tool_name}
+        types = {}
+        def is_contact_object(item):
+            key = self._item_key(item)
+            if key not in types:
+                increment("item_type_queries")
+                types[key] = item.Type()
+            return types[key] == self.rl.ITEM_TYPE_OBJECT
+        changed = []
+        for a, b, ia, ib in pairs:
+            if a == table or b == table or a == b:
+                continue
+            na, nb = name(a), name(b)
+            if (na in ignored or nb in ignored) and na in participants and nb in participants:
+                # An unrelated robot/tool with the same name as a registered object stays protected.
+                if (na in ignored and not is_contact_object(a)) or (nb in ignored and not is_contact_object(b)):
+                    continue
+                changed.append((a, b, ia, ib))
+        return pairs, changed
+
+    def _write_collision_pairs(self, state, pairs, *, individual=False):
+        batch = getattr(self.RDK, "setCollisionActivePairList", None)
+        if callable(batch) and not individual:
+            increment("collision_pair_batch_calls")
+            # Batch return semantics are not documented consistently across versions.
+            # Verify the resulting map instead of interpreting a truthy result as complete success.
+            batch([state] * len(pairs), [p[0] for p in pairs], [p[1] for p in pairs],
+                  [p[2] for p in pairs], [p[3] for p in pairs])
+        else:
+            failed = False
+            for a, b, ia, ib in pairs:
+                increment("collision_pair_individual_calls")
+                try:
+                    if not self.RDK.setCollisionActivePair(state, a, b, ia, ib):
+                        failed = True
+                except Exception:
+                    failed = True
+            if failed:
+                raise RobotControlError(ErrorCode.BACKEND_ERROR, "could not update all collision pairs")
+
+    def _verify_collision_map(self, expected):
+        if self._pair_keys(self._collision_pairs()) != expected:
+            raise RobotControlError(ErrorCode.BACKEND_ERROR, "collision map update could not be verified")
+
+    @contextmanager
+    def _contact_policy(self):
+        """Operation-local batching; no path-validation cache or cross-operation metadata cache."""
+        if self.scene.collision_policy != "table_and_tagged":
+            yield
+            return
+        original, changed = self._contact_pairs()
+        if not changed:
+            yield
+            return
+        original_keys = self._pair_keys(original)
+        try:
+            try:
+                with measure("collision_policy.apply"):
+                    self._write_collision_pairs(self.rl.COLLISION_OFF, changed)
+                    self._verify_collision_map(original_keys - self._pair_keys(changed))
+            except RobotControlError:
+                raise
+            except Exception as exc:
+                raise RobotControlError(ErrorCode.BACKEND_ERROR, f"contact collision policy failed: {exc}") from exc
+            yield
+        finally:
+            # Restore ALL candidates, even if the batch changed only some before failing.
+            with measure("collision_policy.restore"):
+                try:
+                    self._write_collision_pairs(self.rl.COLLISION_ON, changed)
+                    self._verify_collision_map(original_keys)
+                except Exception:
+                    # Recovery only: attempt every individual restoration, then verify the map.
+                    try:
+                        self._write_collision_pairs(self.rl.COLLISION_ON, changed, individual=True)
+                        self._verify_collision_map(original_keys)
+                    except Exception as exc:
+                        raise RobotControlError(ErrorCode.BACKEND_ERROR, "could not restore collision map") from exc
+
     def test_segment(self, seg):
+        with self._contact_policy():
+            return self._test_segment_with_policy(seg)
+
+    def _test_segment_with_policy(self, seg):
         """MoveJ_Test / MoveL_Test move the simulated robot: snapshot and restore."""
         self._require()
+        self._require_held_table_pair()
         rl = self.rl
         if seg.end_joints is None:
             return PathCheckResult(ok=False, conclusive=True, reason="unreachable")
@@ -460,8 +760,13 @@ class RoboDKSimController(RobotController):
 
     # ------------------------------------------------------------ motion
     def _execute(self, end_deg, motion: MotionType, ctx: MotionContext, label: str):
+        with self._contact_policy():
+            return self._execute_with_policy(end_deg, motion, ctx, label)
+
+    def _execute_with_policy(self, end_deg, motion: MotionType, ctx: MotionContext, label: str):
         self._require()
         self._enforce_simulate()            # execution boundary
+        self._require_held_table_pair()
         problems = self.check_ready()
         if problems:
             raise RobotControlError(ErrorCode.MODE_VIOLATION, "; ".join(problems))
@@ -523,6 +828,12 @@ class RoboDKSimController(RobotController):
     def open_gripper(self):
         self._require()
         if self._held_item is not None:
+            self._validated_table()
+            _, yaw = self._upright_object(self._holding)
+            x, y, z = self.object_position(self._holding)
+            top = table_surface(self.scene, x, y, self.scene.objects[self._holding].dimensions_m, yaw)
+            if z < top - 0.0005:
+                raise RobotControlError(ErrorCode.SAFETY_VETO, "release refused: held object would penetrate the table")
             self._held_item.setParentStatic(self.base)   # object stays where it was released
         self._held_item = None
         self._holding = None
@@ -532,6 +843,9 @@ class RoboDKSimController(RobotController):
 
     def close_gripper(self, object_id):
         self._require()
+        # Recheck immediately before attachment: the map can change after preflight.
+        if object_id:
+            self.validate_pick(object_id)
         self._gripper = "closed"
         self._grip_confirmed = False
         obj = self.scene.objects.get(object_id) if object_id else None
@@ -566,6 +880,7 @@ class RoboDKSimController(RobotController):
         item = self.RDK.Item(obj.station_item, self.rl.ITEM_TYPE_OBJECT)
         if not item.Valid():
             raise RobotControlError(ErrorCode.CONFIG_ERROR, f"station object '{obj.station_item}' not found")
+        self._require_object_table_pair(item)
         tcp = (self.base.PoseAbs() * self.robot.Pose()).Pos()
         centre = item.PoseAbs().Pos()
         gap_mm = math.hypot(tcp[0] - centre[0], tcp[1] - centre[1]) - max(obj.dimensions_m[:2]) * 500.0

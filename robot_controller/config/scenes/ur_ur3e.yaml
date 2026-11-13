@@ -395,26 +395,33 @@ objects:
       description: 50 mm along +Y (away from the screw)
 destinations:
   blue_bucket_01_inside:
+    support_surface: container
+    container_id: blue_bucket_01
     approach_target: blue_bucket_01_above
     place_target: blue_bucket_01_drop
     retreat_target: blue_bucket_01_above
   delivery_zone:
+    support_surface: table
     approach_target: delivery_approach
     place_target: delivery_place
     retreat_target: delivery_retreat
   blue_bucket_01_slot:
+    support_surface: table
     approach_target: blue_bucket_01_approach
     place_target: blue_bucket_01_grasp
     retreat_target: blue_bucket_01_approach
   green_ring_02_slot:
+    support_surface: table
     approach_target: green_ring_02_approach
     place_target: green_ring_02_grasp
     retreat_target: green_ring_02_approach
   orange_screw_03_slot:
+    support_surface: table
     approach_target: orange_screw_03_approach
     place_target: orange_screw_03_grasp
     retreat_target: orange_screw_03_approach
   white_bucket_lid_04_slot:
+    support_surface: table
     approach_target: white_bucket_lid_04_approach
     place_target: white_bucket_lid_04_grasp
     retreat_target: white_bucket_lid_04_approach
