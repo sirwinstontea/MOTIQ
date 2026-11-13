@@ -1,5 +1,5 @@
 ﻿<p align="center">
-  <img src="demonstration%20video/motiq-logo.jpg" alt="motiq logo" width="720">
+  <img src="assets/motiq-logo.jpg" alt="motiq logo" width="720">
 </p>
 
 <h1 align="center">MOTIQ:Intelligent Motion</h1>
@@ -31,7 +31,7 @@
 
 MOTIQ is an end-to-end robot control stack driven by natural language and demonstration. You talk to **Motion**, a real-time Grok voice agent running in a React Native app on a tablet. Motion plans the task, asks for your approval, runs it through a typed and safety-gated controller, looks through a camera to confirm the result, and reports back. Show it a task on video and it writes a skill you can review, edit and run again.
 
-The project was built at the Grok Hackathon (SpaceX AI / xAI) at the Ctrl+Alt Museum in Pavia, 4–5 November 2026. During the event, we connected and controlled a **physical Universal Robots UR5e from the app**. The UR5e, a wrist-mounted Intel RealSense camera and a four-object tabletop scene form the reference cell; UR5e is the demonstrated integration, not the intended limit of robot compatibility.
+During the event, we connected and controlled a **physical Universal Robots UR5e from the app**. The UR5e, a wrist-mounted Intel RealSense camera and a four-object tabletop scene form the reference cell; UR5e is the demonstrated integration, not the intended limit of robot compatibility.
 
 The original concept also included coordination with a **CyberDog quadruped**. Time constraints prevented that integration from being completed during the hackathon. CyberDog connectivity and arm–quadruped coordination remain **future development**; existing dog profiles and in-app simulation are scaffolding, not a demonstrated physical integration.
 
@@ -219,7 +219,7 @@ MOTIQ/
 ├── computer-vision/         Perception server, Grok vision toolkit, video planner
 ├── computer-vision-to-app/  One-command vision setup and the teach server
 ├── robot-chooser/           Robot catalog and cell description → controller config
-└── demonstration video/     Logo and demo video
+└── assets/                  Logo
 ```
 
 | Component | Role | Stack | Default port |
@@ -480,6 +480,16 @@ cd groky-app && npm run typecheck && npm run lint && npm run test:voice
 | `groky-app` `test:voice` | All checks passed |
 
 RoboDK and URSim integration tests are opt-in with `RUN_ROBODK_TESTS=1` and `RUN_URSIM_TESTS=1`. The repository has no CI yet.
+
+> [!TIP]
+> **Before you run the suites**, a few things keep the results clean:
+>
+> - **Windows:** the digital twin service uses Linux file locking. Run the controller suite with `--ignore=tests/test_digital_twin_service.py`, or use Linux or WSL if you need the digital twin.
+> - **No URSim or `ur_jog` driver on this PC:** add `--deselect tests/test_bridge_push_overview.py`. Those tests expect Docker with URSim and the physical-arm driver.
+> - **App checks:** use `npm run typecheck` and `npm run test:voice`. `npm run lint` applies strict React hook rules that some screens don't follow yet.
+> - **Benchmark:** `benchmark/cross_tokenize.py` looks for `Groky_Planner_Agent/` at the repo root. Copy or link `computer-vision/Groky_Planner_Agent` there first. That folder is the earlier standalone planner kept for the benchmark. The live one is `computer-vision/vision/planner`.
+> - **Faster clone:** the detector models make the full history about 70 MB. `git clone --depth 1` is enough to run everything.
+> - **Contributing:** add `__pycache__/`, `*.pyc` and `.DS_Store` to your global gitignore so they don't end up in commits.
 
 ## Troubleshooting
 
