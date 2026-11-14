@@ -56,7 +56,7 @@ The original concept also included coordination with a **CyberDog quadruped**. T
 
 Start here for the overall MOTIQ demo: an introduction to the application and its natural-language robotics workflow.
 
-https://github.com/user-attachments/assets/b837132b-0d6d-4dc3-adf4-061935d76b04
+https://github.com/user-attachments/assets/e8ec58c5-ae48-4f6d-9a27-47369ab2fa05
 
 ### 2. Grok Voice × RoboDK — Simulation interaction
 
