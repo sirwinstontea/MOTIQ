@@ -584,7 +584,7 @@ Built by [sirwinstontea](https://github.com/sirwinstontea), [piniz-dev](https://
 
 **Project Coordination, Robotics Architecture & System Integration**
 
-- Initiated and helped define the project concept, objectives and overall system architecture, including the proposed coordination between a robotic arm and quadruped robot.
+- Initiated and helped define the project concept, objectives and overall system architecture.
 - Coordinated development activities, distributed responsibilities and established integration priorities across the team.
 - Defined high-level robotic task execution logic, including action sequences, operating states, communication requirements and failure-handling considerations.
 - Prepared technical documentation describing the architecture, robot control actions and JSON-based task definitions.
