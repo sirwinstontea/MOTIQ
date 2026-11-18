@@ -22,6 +22,8 @@ const env = {
   chooserUrl: (process.env.EXPO_PUBLIC_CHOOSER_URL ?? '').replace(/\/$/, ''),
   // "Name=url,Name=url" - any url that returns a jpeg (bridge /camera.jpg, IP Webcam /shot.jpg, ...)
   cameras: process.env.EXPO_PUBLIC_CAMERAS ?? '',
+  // MOTIQ launcher (../launcher): setup wizard + settings on the robot PC, always 127.0.0.1 (it holds the keys)
+  launcherUrl: (process.env.EXPO_PUBLIC_LAUNCHER_URL ?? '').replace(/\/$/, ''),
 };
 
 export default env;

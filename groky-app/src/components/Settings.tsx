@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Linking,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -142,6 +144,25 @@ export default function Settings({ open, onClose }: Props) {
           <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ paddingBottom: 8 }} keyboardShouldPersistTaps="handled">
             <Text style={[s.overline, { marginTop: 0 }]}>Appearance</Text>
             <Segmented options={modes} value={mode} onChange={setMode} stretch />
+
+            {!!env.launcherUrl && (
+              <>
+                <Text style={s.overline}>Setup</Text>
+                <Text style={s.sectionHint}>
+                  {Platform.OS === 'web'
+                    ? 'Robot, run mode, camera, AI key, device and speed limit. MOTIQ restarts with the new setup.'
+                    : 'Change the robot, camera, AI key and the rest in the MOTIQ window on the robot PC (Settings).'}
+                </Text>
+                {Platform.OS === 'web' && (
+                  <Button
+                    label="Reconfigure MOTIQ"
+                    icon="settings-outline"
+                    block
+                    onPress={() => Linking.openURL(`${env.launcherUrl}/#settings`)}
+                  />
+                )}
+              </>
+            )}
 
             <Text style={s.overline}>Connections</Text>
             <Row label="Grok voice" value={`${env.voiceModel} · ${env.voice}`} />

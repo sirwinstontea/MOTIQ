@@ -300,10 +300,13 @@ class PhysicalArm:
         import threading
         # a private copy of ur_jog per arm: its robot IP is a module global (ur_jog.ROBOT_IP) that send_script /
         # move_rel / stop read, so the URSim arm and the physical arm (SIM=1 + real-arm runs) must never share it
-        spec = importlib.util.spec_from_file_location(f"ur_jog_{'sim' if sim else 'real'}_{id(self):x}",
-                                                      HERE.parent.parent / "ur_manual" / "ur_jog.py")
+        # MOTIQ_UR_JOG overrides where ur_jog.py lives (the launcher sets it); default: ../ur_manual/ beside the repo
+        jog_path = Path(os.environ.get("MOTIQ_UR_JOG") or HERE.parent.parent / "ur_manual" / "ur_jog.py")
+        spec = importlib.util.spec_from_file_location(f"ur_jog_{'sim' if sim else 'real'}_{id(self):x}", jog_path)
         ur_jog = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(ur_jog)
+        if not sim and os.environ.get("MOTIQ_UR_HOST"):
+            ur_jog.ROBOT_IP = os.environ["MOTIQ_UR_HOST"]   # physical arm IP from the launcher (Settings -> Robot IP)
         self.sim = sim
         # SIM=1 with another arm selected (robot-chooser): RoboDK runs that arm via the controller, URSim is not
         # mirrored, so free step/joint moves on URSim would move nothing visible -> refused (named moves still work)

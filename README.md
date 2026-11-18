@@ -84,6 +84,7 @@ https://github.com/user-attachments/assets/c433b312-f28f-40be-991c-45dd7797bb21
 - [Architecture](#architecture)
 - [Repository structure](#repository-structure)
 - [Requirements](#requirements)
+- [Install](#install)
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
 - [Skills](#skills)
@@ -252,6 +253,20 @@ Every folder has its own README with a file-level guide.
 | URSim (optional) | Docker and `ur_rtde`, for `ursim_sync` |
 
 `bridge/start_stack.sh` is written for Linux. On Windows, start each service with the commands in [Full simulated stack](#3-full-simulated-stack). The first time the vision server loads YOLO-World it downloads the model weights, including a CLIP model of about 340 MB.
+
+## Install
+
+There are three ways in. All of them end with the same files, so you can switch between them later.
+
+| Way | How | Needs |
+|---|---|---|
+| **Installer** (Windows) | Download `MOTIQ-Setup.exe` from Releases and run it | Nothing. No admin rights. |
+| **Without the installer** | Clone or download this repo, then double-click `MOTIQ.bat` (Windows) or run `./motiq.sh` (macOS/Linux) | Python 3.10+ to start the wizard |
+| **By hand** | Follow the [Quick start](#quick-start) below | Python 3.10–3.12, Node.js 20+ |
+
+The installer and `MOTIQ.bat` open the same setup wizard. It asks one question per screen (robot arm, how it runs, tool, camera, AI key, language, device, speed limit), then installs Python 3.12, the packages and the app, writes `groky-app/.env`, `computer-vision/.env` and the robot-chooser selection, starts every service and opens MOTIQ. **I don't know yet** on the first screen skips the questions and opens the app with its built-in simulated arm.
+
+Change any answer later in the launcher's **Settings** (Start menu → *MOTIQ Settings*, `MOTIQ.bat --setup`, or **Settings → Reconfigure MOTIQ** inside the app on the PC). See [`launcher/`](launcher) and [`installer/`](installer).
 
 ## Quick start
 

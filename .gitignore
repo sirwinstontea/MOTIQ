@@ -1,1 +1,8 @@
 .venv/
+
+# MOTIQ launcher: answers, logs, downloaded tools (keys live here, never commit)
+.motiq/
+launcher/**/__pycache__/
+installer/build/
+installer/dist/
+installer/stage/
