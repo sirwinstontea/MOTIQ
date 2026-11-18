@@ -2,7 +2,7 @@
   <img src="assets/motiq-logo.jpg" alt="motiq logo" width="720">
 </p>
 
-<h1 align="center">MOTIQ:Intelligent Motion</h1>
+<h1 align="center">MOTIQ: Intelligent Motion</h1>
 
 <p align="center">
   <b>Tell a robot what to do, or show it once. It does the task, checks its own work with vision, and saves it as a reusable skill.</b>
