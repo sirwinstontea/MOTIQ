@@ -9,9 +9,33 @@ button{font-family:var(--font-sans)}
 .ml-side a .ml-num{width:18px;height:18px;border-radius:50%;background:var(--bg-300);display:grid;place-items:center;font:600 10px var(--font-sans);color:var(--ink-3);flex:none}
 .ml-side a.done .ml-num{background:var(--accent-soft);color:var(--accent)}
 .ml-side a[aria-current] .ml-num{background:var(--accent);color:var(--accent-ink)}
-.ml-side a.locked{opacity:.45;pointer-events:none}
-.ml-side .ml-spacer{flex:1}
-.ml-side .ml-foot{padding:12px;font-size:11px;color:var(--ink-3)}
+
+/* setup wizard: no side menu, no top bar, centred content */
+.ml-wizard .ml-side,.ml-wizard .ml-top{display:none}
+.ml-wizard .ml-progress{margin-top:28px}
+.ml-wizard .ml-screen{padding-top:56px}
+.ml-wizard .ml-inner{max-width:520px}
+.ml-wizard .ml-actions{max-width:584px}
+.ml-wizard .ml-q .gk-h1{margin:0 0 24px}
+
+/* round back / next arrows */
+.ml-arrow{width:48px;height:48px;border-radius:50%;border:0;background:var(--bg-300);color:var(--ink);display:grid;place-items:center;cursor:pointer;flex:none;transition:background .15s,opacity .15s}
+.ml-arrow:hover{background:var(--bg-400)}
+.ml-arrow svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.ml-arrow--next{background:var(--accent);color:var(--accent-ink)}
+.ml-arrow--next:hover{background:var(--accent);filter:brightness(1.08)}
+.ml-arrow:disabled{opacity:.3;cursor:not-allowed;filter:none}
+.ml-arrow:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.ml-actions .ml-err{text-align:center;font-size:12px;color:var(--ink-3)}
+.ml-wizard .ml-actions .oc-btn--primary{height:48px;border-radius:999px;padding:0 26px}
+.ml-faint{font-size:12px;color:var(--ink-3);margin:14px 0 0}
+
+/* review rows: the whole row opens that question */
+.ml-review{padding:4px}
+.ml-review-row{width:100%;border:0;background:transparent;color:var(--ink);text-align:left;cursor:pointer;border-radius:var(--radius-md);padding:10px 12px;display:flex;justify-content:space-between;gap:12px}
+.ml-review-row:hover{background:var(--bg-300)}
+.ml-review-row .oc-li__s{font-size:12px;color:var(--ink-3)}
+.ml-review-row .oc-li__t{text-align:right}
 .ml-main{flex:1;display:flex;flex-direction:column;min-width:0}
 .ml-top{display:flex;align-items:center;gap:8px;padding:14px 32px}
 .ml-top .ml-count{margin-left:auto}
@@ -62,10 +86,7 @@ button{font-family:var(--font-sans)}
 /* welcome */
 .ml-welcome{display:flex;flex-direction:column;align-items:center;text-align:center;padding-top:24px}
 .ml-welcome .oc-orb{margin:8px 0 36px;animation:ml-breathe 2.4s ease-in-out infinite}
-.ml-welcome h1{font:600 26px/1.2 var(--font-sans);letter-spacing:-.02em;margin:0}
-.ml-welcome p{color:var(--ink-2);max-width:440px;margin:10px 0 28px}
-.ml-welcome .ml-dunno{margin-top:18px;display:flex;flex-direction:column;align-items:center;gap:2px}
-.ml-welcome .ml-dunno span{font-size:11px;color:var(--ink-3)}
+.ml-welcome h1{font:600 26px/1.2 var(--font-sans);letter-spacing:-.02em;margin:0 0 14px}
 @keyframes ml-breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
 
 /* install */

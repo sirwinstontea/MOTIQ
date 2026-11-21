@@ -26,25 +26,21 @@ const invalid = (q) => (q.valid ? q.valid(S.cfg, S.det) : '');
 const go = (h) => { if (location.hash === h) render(); else location.hash = h; };
 
 /* ------------------------------------------------------------------ chrome */
+const WIZARD = ['welcome', 'q', 'summary', 'install'];
+
 function sidebar(route) {
-  const logo = `<div class="gk-logo">MOT<b>IQ</b></div>`;
-  let items = '';
-  if (['welcome', 'q', 'summary'].includes(route.name)) {
-    const qs = visible();
-    const editAll = S.cfg.configured;
-    items = qs.map((q, i) => {
-      const cur = route.name === 'q' && route.id === q.id;
-      const cls = [i < S.reached || editAll ? 'done' : '', i > S.reached && !editAll ? 'locked' : ''].join(' ');
-      return `<a class="${cls}" ${cur ? 'aria-current="step"' : ''} data-go="#q/${q.id}"><span class="ml-num">${i + 1}</span>${esc(q.nav)}</a>`;
-    }).join('');
-    const sumLocked = S.reached < qs.length && !editAll;
-    items += `<a class="${sumLocked ? 'locked' : ''}" ${route.name === 'summary' ? 'aria-current="step"' : ''} data-go="#summary"><span class="ml-num">${svg('check').replace('<svg', '<svg style="width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:3"')}</span>Review</a>`;
-  } else {
-    const nav = [['home', 'Home', 'home'], ['settings', 'Settings', 'gear']];
-    items = nav.map(([n, l, ic]) => `<a ${route.name === n || (n === 'settings' && route.name === 'edit') ? 'aria-current="page"' : ''} data-go="#${n}">${svg(ic)}${l}</a>`).join('');
-  }
-  $('side').innerHTML = logo + items + `<div class="ml-spacer"></div><div class="ml-foot">MOTIQ launcher ${esc(S.st?.version || '')}</div>`;
+  /* the setup wizard is full width with no side menu; Home and Settings keep it */
+  const wizard = WIZARD.includes(route.name);
+  document.querySelector('.ml-shell').classList.toggle('ml-wizard', wizard);
+  if (wizard) { $('side').innerHTML = ''; return; }
+  const nav = [['home', 'Home', 'home'], ['settings', 'Settings', 'gear']];
+  const items = nav.map(([n, l, ic]) => `<a ${route.name === n || (n === 'settings' && route.name === 'edit') ? 'aria-current="page"' : ''} data-go="#${n}">${svg(ic)}${l}</a>`).join('');
+  $('side').innerHTML = `<div class="gk-logo">MOT<b>IQ</b></div>` + items;
 }
+
+/* round back / next arrows used on every wizard screen */
+const arrow = (dir, act, disabled) => `<button class="ml-arrow${dir === 'next' ? ' ml-arrow--next' : ''}" data-act="${act}"
+  aria-label="${dir === 'next' ? 'Next' : 'Back'}" ${disabled ? 'disabled' : ''}>${svg(dir)}</button>`;
 
 function chip() {
   const robot = robotName(S.cfg, S.det);
@@ -54,8 +50,8 @@ function chip() {
   return `<span class="gk-chip"><span class="oc-dot" style="color:${color}"></span>${esc(robot)} <em>${badge}</em></span>`;
 }
 
-function topbar(route, count) {
-  $('top').innerHTML = (route.name === 'welcome' ? '' : chip()) + (count ? `<span class="oc-faint ml-count" style="font-size:12px">${count}</span>` : '');
+function topbar(route) {
+  $('top').innerHTML = WIZARD.includes(route.name) ? '' : chip();
 }
 
 function progress(frac) {
@@ -70,21 +66,17 @@ function actions(html) { $('actions').innerHTML = html; }
 function renderWelcome() {
   $('screen').innerHTML = `<div class="ml-inner ml-welcome">
     <div class="oc-orb" aria-hidden="true"></div>
-    <h1>hi, let's get your robot ready.</h1>
-    <p>A few questions, one at a time. You can go back to any answer, and change all of them later in Settings.</p>
-    <button class="oc-btn oc-btn--primary oc-btn--lg" data-act="begin">Start setup ${svg('next')}</button>
-    <div class="ml-dunno"><button class="ml-link" data-act="demo">I don't know yet</button>
-    <span>Try MOTIQ with a simulated arm. No robot, camera or key needed.</span></div></div>`;
-  actions('');
+    <h1>Set up MOTIQ</h1>
+    <button class="ml-link" data-act="demo">Just try it</button></div>`;
+  actions(`<span class="ml-grow"></span>${arrow('next', 'begin')}`);
   progress(null);
 }
 
 function choiceRow(o, selected) {
-  const badge = o.badge ? `<span class="oc-pill ${['ready', 'found'].includes(o.badge) ? 'oc-pill--ok' : 'oc-pill--warn'}"><span class="oc-dot"></span>${esc(o.badge)}</span>` : '';
   return `<button class="oc-li ml-choice" role="radio" aria-checked="${selected}" data-pick="${esc(o.value)}" ${o.disabled ? 'disabled' : ''}>
     ${o.icon ? `<span class="oc-li__icon">${svg(o.icon)}</span>` : ''}
     <span class="oc-li__main"><span class="oc-li__t">${esc(o.title)}</span>${o.sub ? `<span class="oc-li__s" style="display:block">${esc(o.sub)}</span>` : ''}</span>
-    ${badge}<span class="ml-check">${svg('check')}</span></button>`;
+    <span class="ml-check">${svg('check')}</span></button>`;
 }
 
 function questionBody(q) {
@@ -97,22 +89,19 @@ function questionBody(q) {
   }
   if (q.kind === 'text' || q.kind === 'secret' || q.kind === 'file') {
     const type = q.kind === 'secret' ? 'password' : 'text';
-    const extra = q.kind === 'file' ? `<button class="oc-btn oc-btn--secondary" data-act="browse">${svg('file')}Browse</button>`
-      : q.kind === 'secret' ? `<button class="oc-icon-btn" data-act="reveal" aria-label="Show key">${svg('info')}</button>` : '';
-    const later = q.later ? `<button class="ml-link" data-act="later">I'll add it later</button>` : '';
-    return `<div class="ml-field"><label for="f">${esc(val(q.field, c))}</label>
+    const extra = q.kind === 'file' ? `<button class="oc-btn oc-btn--secondary" data-act="browse">Browse</button>` : '';
+    const later = q.later ? `<button class="ml-link" data-act="later">Skip</button>` : '';
+    return `<div class="ml-field">
       <div class="ml-inputrow"><input id="f" class="oc-input" type="${type}" autocomplete="off" spellcheck="false"
         placeholder="${esc(val(q.placeholder, c) || '')}" value="${esc(v || '')}">${extra}</div>
-      ${q.kind === 'file' && S.det.ur_jog && !v ? `<span class="ml-hint">Found one next to MOTIQ: ${esc(S.det.ur_jog)}. <button class="ml-link" data-act="usefound">Use it</button></span>` : ''}
+      ${q.kind === 'file' && S.det.ur_jog && !v ? `<button class="ml-link" data-act="usefound">Use ${esc(S.det.ur_jog.split(/[\\/]/).pop())} found next to MOTIQ</button>` : ''}
       </div>${later}`;
   }
   if (q.kind === 'toolsize') {
     const g = c.gripper;
     return `<div class="ml-twocol">
-      <div class="ml-field"><label for="mass">Weight</label><div class="ml-unit"><input id="mass" class="oc-input" inputmode="decimal" placeholder="Don't know" value="${esc(g.mass_kg ?? '')}"><span>kg</span></div>
-        <span class="ml-hint">Everything on the flange together.</span></div>
-      <div class="ml-field"><label for="tcp">Length</label><div class="ml-unit"><input id="tcp" class="oc-input" inputmode="decimal" placeholder="Don't know" value="${esc(g.tcp_mm ?? '')}"><span>mm</span></div>
-        <span class="ml-hint">From the flange to the point that touches things.</span></div></div>`;
+      <div class="ml-field"><label for="mass">Weight</label><div class="ml-unit"><input id="mass" class="oc-input" inputmode="decimal" placeholder="optional" value="${esc(g.mass_kg ?? '')}"><span>kg</span></div></div>
+      <div class="ml-field"><label for="tcp">Length</label><div class="ml-unit"><input id="tcp" class="oc-input" inputmode="decimal" placeholder="optional" value="${esc(g.tcp_mm ?? '')}"><span>mm</span></div></div></div>`;
   }
   if (q.kind === 'confirm') {
     return `<div class="oc-list">${q.items.map((t, i) => `<div class="ml-toggle-row"><span class="oc-li__icon">${svg('shield')}</span>
@@ -120,8 +109,7 @@ function questionBody(q) {
   }
   if (q.kind === 'range') {
     const pct = ((v - q.min) / (q.max - q.min)) * 100;
-    return `<div class="oc-card ml-range"><input id="f" class="oc-range" type="range" min="${q.min}" max="${q.max}" step="${q.step}" value="${v}" style="--v:${pct}%" aria-label="Speed limit"><b id="rv">${v}%</b></div>
-      <div class="ml-note ok">${svg('info')}<span>The arm's own safety configuration always wins. This is an extra software limit on top of it.</span></div>`;
+    return `<div class="oc-card ml-range"><input id="f" class="oc-range" type="range" min="${q.min}" max="${q.max}" step="${q.step}" value="${v}" style="--v:${pct}%" aria-label="Speed limit"><b id="rv">${v}%</b></div>`;
   }
   return '';
 }
@@ -130,20 +118,17 @@ function renderQuestion(q, editing) {
   const qs = visible();
   const i = qs.indexOf(q);
   if (!editing) S.reached = Math.max(S.reached, i);
-  const note = q.note ? q.note(S.cfg, S.det) : null;
   const err = invalid(q);
   $('screen').innerHTML = `<div class="ml-inner ml-q">
-    <div class="gk-overline">${editing ? 'Settings' : `Question ${i + 1} of ${qs.length}`}</div>
-    <h1 class="gk-h1">${esc(q.title)}</h1><p class="gk-sub">${esc(q.sub || '')}</p>
-    ${questionBody(q)}
-    ${note ? `<div class="ml-note">${svg('warn')}<span>${esc(note.text)}</span></div>` : ''}
-    ${q.foot ? `<p class="oc-faint" style="font-size:12px;margin-top:14px">${esc(q.foot)}</p>` : ''}</div>`;
-  const nextLabel = editing ? 'Save' : i === qs.length - 1 ? 'Review' : 'Next';
-  actions(`<button class="oc-btn oc-btn--ghost" data-act="${editing ? 'cancel' : 'back'}">${svg('back')}${editing ? 'Cancel' : 'Back'}</button>
-    <span class="ml-grow"></span><span class="oc-faint" id="err" style="font-size:12px">${esc(err)}</span>
-    <button class="oc-btn oc-btn--primary" data-act="${editing ? 'save' : 'next'}" ${err ? 'disabled' : ''}>${nextLabel}${editing ? '' : svg('next')}</button>`);
+    <h1 class="gk-h1">${esc(q.title)}</h1>
+    ${questionBody(q)}</div>`;
+  const msg = `<span class="ml-grow ml-err" id="err">${esc(err)}</span>`;
+  actions(editing
+    ? `<button class="oc-btn oc-btn--ghost" data-act="cancel">Cancel</button>${msg}
+       <button class="oc-btn oc-btn--primary" data-act="save" ${err ? 'disabled' : ''}>Save</button>`
+    : `${arrow('back', 'back')}${msg}${arrow('next', 'next', err)}`);
   progress(editing ? null : (i + 1) / (qs.length + 1));
-  topbar({ name: 'q' }, '');
+  topbar({ name: 'q' });
   bindInputs(q);
   const f = document.querySelector('#screen input');
   if (f && f.type !== 'range') f.focus();
@@ -169,19 +154,16 @@ function bindInputs(q) {
 function renderSummary() {
   const qs = visible();
   S.reached = qs.length;
-  const big = S.cfg.mode !== 'app';
-  $('screen').innerHTML = `<div class="ml-inner ml-q"><div class="gk-overline">Review</div>
-    <h1 class="gk-h1">Ready to set up MOTIQ</h1>
-    <p class="gk-sub">Check your answers. MOTIQ installs what it needs, writes its settings and opens the app.</p>
-    <div class="oc-list ml-settings">${qs.map((q) => `<div class="oc-li"><div class="oc-li__main"><div class="oc-li__t">${esc(q.nav)}</div>
-      <div class="oc-li__s">${esc(q.summary(S.cfg, S.det))}</div></div><button class="oc-btn oc-btn--sm oc-btn--secondary" data-go="#q/${q.id}">Change</button></div>`).join('')}</div>
-    <div class="ml-note ok">${svg('info')}<span>${big
-      ? 'The first setup downloads Python 3.12, the vision and controller packages and the app (about 3 GB, 10 to 30 minutes). Later starts take seconds.'
-      : 'The first setup downloads the app packages (about 500 MB, a few minutes). Later starts take seconds.'}</span></div></div>`;
-  actions(`<button class="oc-btn oc-btn--ghost" data-act="back">${svg('back')}Back</button><span class="ml-grow"></span>
-    <button class="oc-btn oc-btn--primary oc-btn--lg" data-act="install">${svg('play')}Install and start</button>`);
+  const size = S.cfg.mode !== 'app' ? 'About 3 GB download.' : 'About 500 MB download.';
+  $('screen').innerHTML = `<div class="ml-inner ml-q">
+    <h1 class="gk-h1">Ready</h1>
+    <div class="oc-list ml-review">${qs.map((q) => `<button class="oc-li ml-review-row" data-go="#q/${q.id}">
+      <span class="oc-li__s">${esc(q.nav)}</span><span class="oc-li__t">${esc(q.summary(S.cfg, S.det))}</span></button>`).join('')}</div>
+    <p class="ml-faint">${size}</p></div>`;
+  actions(`${arrow('back', 'back')}<span class="ml-grow"></span>
+    <button class="oc-btn oc-btn--primary oc-btn--lg" data-act="install">Install</button>`);
   progress(1);
-  topbar({ name: 'summary' }, '');
+  topbar({ name: 'summary' });
 }
 
 const STEP_ICONS = { python: 'cube', controller: 'arm', vision: 'cam', node: 'sim', app: 'phone', configure: 'gear', start: 'play' };
@@ -199,29 +181,29 @@ function installBlock(job) {
     <div class="oc-progress"><i style="width:${Math.round((done / job.steps.length) * 100)}%"></i></div>
     <p class="oc-muted" style="font-size:13px;margin:14px 0 18px">${esc(cur ? cur.detail || cur.label : job.state === 'done' ? 'Everything is running.' : '')}</p>
     ${err}
-    <button class="ml-link" data-act="log">${S.showLog ? 'Hide details' : 'Show details'}</button>
-    ${S.showLog ? `<pre class="ml-log" id="log">${esc(job.lines.join('\n'))}</pre>` : ''}`;
+    ${job.state === 'failed' ? `<button class="ml-link" data-act="log">${S.showLog ? 'Hide details' : 'Details'}</button>` : ''}
+    ${S.showLog && job.state === 'failed' ? `<pre class="ml-log" id="log">${esc(job.lines.join('\n'))}</pre>` : ''}`;
 }
 
 function renderInstall() {
   const job = S.st.job;
   if (!job) { go(S.cfg.configured ? '#home' : '#welcome'); return; }
-  const title = job.state === 'done' ? 'MOTIQ is ready' : job.state === 'failed' ? "Something didn't work" : 'Setting up MOTIQ';
-  $('screen').innerHTML = `<div class="ml-inner ml-install"><div class="gk-overline">${S.cfg.demo ? 'Trying MOTIQ' : 'Setup'}</div>
-    <h1 class="gk-h1">${title}</h1><p class="gk-sub">${job.state === 'running' ? 'You can leave this window open. MOTIQ opens by itself when it is ready.' : ''}</p>
+  const title = job.state === 'done' ? 'Ready' : job.state === 'failed' ? 'Setup stopped' : 'Installing';
+  $('screen').innerHTML = `<div class="ml-inner ml-install">
+    <h1 class="gk-h1">${title}</h1>
     ${installBlock(job)}</div>`;
   const log = $('log');
   if (log) log.scrollTop = log.scrollHeight;
   if (job.state === 'failed') {
-    actions(`<button class="oc-btn oc-btn--secondary" data-go="#settings">Change answers</button><span class="ml-grow"></span>
-      <button class="oc-btn oc-btn--primary" data-act="start">${svg('refresh')}Try again</button>`);
+    actions(`${arrow('back', 'answers')}<span class="ml-grow"></span>
+      <button class="oc-btn oc-btn--primary" data-act="start">Try again</button>`);
   } else if (job.state === 'done') {
-    actions(`<span class="ml-grow"></span><button class="oc-btn oc-btn--primary" data-go="#home">Continue</button>`);
+    actions(`<span class="ml-grow"></span>${arrow('next', 'home')}`);
   } else {
     actions(`<button class="oc-btn oc-btn--ghost" data-act="stop">Cancel</button><span class="ml-grow"></span>`);
   }
   progress(null);
-  topbar({ name: 'install' }, '');
+  topbar({ name: 'install' });
 }
 
 function qrSvg(text) {
@@ -258,7 +240,7 @@ function renderHome() {
     <button class="oc-btn oc-btn--sm oc-btn--secondary" data-act="finish">Set up my robot</button></div>` : '';
   const err = st.job && st.job.state === 'failed' ? `<div class="ml-error"><div class="oc-card__title">Last start failed</div>
     <div style="font-size:13px;color:var(--ink-2)">${esc(st.job.error.split('\n')[0])}</div></div>` : '';
-  $('screen').innerHTML = `<div class="ml-inner" style="max-width:820px"><div class="gk-overline">Home</div>
+  $('screen').innerHTML = `<div class="ml-inner" style="max-width:820px">
     <h1 class="gk-h1">${title}</h1><p class="gk-sub">${esc(robotName(S.cfg, S.det))} · ${esc(q('mode').summary(S.cfg))}</p>
     ${demo}${err}
     <div class="ml-home-grid"><div class="oc-card"><div class="ml-card-head"><h3 class="oc-card__title">Services</h3></div>
@@ -357,6 +339,8 @@ async function act(name) {
   else if (name === 'quit') { await api('/api/quit'); window.close(); }
   else if (name === 'finish' || name === 'redo') { S.cfg.demo = false; if (S.cfg.mode === 'app' && name === 'finish') S.cfg.mode = 'sim'; S.reached = 0; go(`#q/${visible()[0].id}`); }
   else if (name === 'log') { S.showLog = !S.showLog; render(); }
+  else if (name === 'answers') go('#summary');
+  else if (name === 'home') go('#home');
   else if (name === 'browse') {
     const res = await api('/api/browse', { title: 'Choose ur_jog.py' });
     if (res.path) { q.set(S.cfg, res.path); render(); }
@@ -382,14 +366,19 @@ document.addEventListener('click', (e) => {
     t.setAttribute('aria-checked', S.acks[+t.dataset.ack]);
     const b = document.querySelector('[data-act=next],[data-act=save]');
     if (b) b.disabled = !S.cfg.real_ack;
-    $('err').textContent = S.cfg.real_ack ? '' : 'Tick all three to continue.';
+    $('err').textContent = S.cfg.real_ack ? '' : 'Tick all three';
   }
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key !== 'Enter' || e.target.tagName === 'BUTTON') return;
-  const b = document.querySelector('[data-act=next],[data-act=save]');
-  if (b && !b.disabled) b.click();
+  /* Enter or the right arrow key go forward, the left arrow key goes back (not while typing in a field) */
+  const typing = e.target.tagName === 'INPUT' && e.target.type !== 'range';
+  let sel = null;
+  if (e.key === 'Enter' && e.target.tagName !== 'BUTTON') sel = '#actions .ml-arrow--next, [data-act=save]';
+  else if (e.key === 'ArrowRight' && !typing && e.target.type !== 'range') sel = '#actions .ml-arrow--next';
+  else if (e.key === 'ArrowLeft' && !typing && e.target.type !== 'range') sel = '#actions .ml-arrow:not(.ml-arrow--next)';
+  const b = sel && document.querySelector(sel);
+  if (b && !b.disabled) { e.preventDefault(); b.click(); }
 });
 
 window.addEventListener('hashchange', render);

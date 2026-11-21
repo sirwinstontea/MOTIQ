@@ -38,30 +38,30 @@ const I = {
 const svg = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${I[name] || I.info}</svg>`;
 
 const MODES = {
-  app: { title: 'Just the app', sub: 'The app simulates the arm by itself. Nothing else runs on this PC. Quickest way to look around.', icon: 'sim' },
-  sim: { title: 'Simulation on this PC', sub: 'Robot controller, arm bridge and vision server run here on a simulated arm. Nothing physical moves.', icon: 'cube' },
-  robodk: { title: 'RoboDK digital twin', sub: 'Same as above, but the arm moves in RoboDK so you see the whole cell in 3D.', icon: 'cube' },
-  real: { title: 'Real robot arm', sub: 'Small step and joint moves go to your physical UR arm. Pick and place still run in simulation (no gripper driver yet).', icon: 'bolt' },
+  app: { title: 'Just the app', sub: 'Quickest. Nothing else runs.', icon: 'sim' },
+  sim: { title: 'Simulation', sub: 'Full stack, simulated arm.', icon: 'cube' },
+  robodk: { title: 'RoboDK', sub: 'Simulated arm in 3D.', icon: 'cube' },
+  real: { title: 'Real arm', sub: 'Moves your UR arm.', icon: 'bolt' },
 };
 const AIS = {
-  xai: { title: 'xAI key', sub: 'Voice, camera questions and video-to-skill. Get one at console.x.ai.', icon: 'key' },
-  openrouter: { title: 'OpenRouter key', sub: 'Vision and planning only. Voice needs an xAI key.', icon: 'globe' },
-  none: { title: 'No key yet', sub: 'Everything runs offline with canned answers. Voice stays off until you add a key in Settings.', icon: 'none' },
+  xai: { title: 'xAI', sub: 'Voice and vision.', icon: 'key' },
+  openrouter: { title: 'OpenRouter', sub: 'Vision only.', icon: 'globe' },
+  none: { title: 'No key yet', sub: 'Runs offline.', icon: 'none' },
 };
 const GRIPPERS = {
-  rigid: { title: 'Fixed tool', sub: "A rigid part that doesn't open or close, like the 3D-printed tool of the demo cell.", icon: 'fixed' },
-  parallel: { title: 'Two-finger gripper', sub: 'Opens and closes (parallel jaws).', icon: 'grip' },
-  vacuum: { title: 'Suction cup', sub: 'Vacuum gripper.', icon: 'vac' },
-  magnetic: { title: 'Magnet', sub: 'Electromagnet or permanent magnet.', icon: 'mag' },
-  other: { title: 'Something else', sub: 'Any other end effector.', icon: 'plus' },
+  rigid: { title: 'Fixed tool', icon: 'fixed' },
+  parallel: { title: 'Two-finger gripper', icon: 'grip' },
+  vacuum: { title: 'Suction cup', icon: 'vac' },
+  magnetic: { title: 'Magnet', icon: 'mag' },
+  other: { title: 'Something else', icon: 'plus' },
 };
-const LANGS = [['', 'Detect automatically'], ['en', 'English'], ['it', 'Italiano'], ['es-ES', 'Español (España)'],
+const LANGS = [['', 'Automatic'], ['en', 'English'], ['it', 'Italiano'], ['es-ES', 'Español (España)'],
   ['es-MX', 'Español (México)'], ['fr', 'Français'], ['de', 'Deutsch'], ['pt-BR', 'Português (Brasil)'],
   ['nl', 'Nederlands'], ['ja', '日本語'], ['zh', '中文']];
 const CLIENTS = {
-  pc: { title: 'On this computer', sub: 'MOTIQ opens in its own window here.', icon: 'sim' },
-  phone: { title: 'On a phone or tablet', sub: 'Scan a QR code with the free Expo Go app. Both devices need the same Wi-Fi.', icon: 'phone' },
-  both: { title: 'Both', sub: 'A window here, and a QR code for your phone or tablet.', icon: 'both' },
+  pc: { title: 'This computer', icon: 'sim' },
+  phone: { title: 'Phone or tablet', sub: 'Expo Go, same Wi-Fi.', icon: 'phone' },
+  both: { title: 'Both', icon: 'both' },
 };
 
 const isApp = (c) => c.mode === 'app';
@@ -71,95 +71,80 @@ const robotName = (c, d) => ((d.robots || []).find((r) => r.id === c.robot) || {
 function cameraOptions(c, d) {
   const rs = (d.cameras || []).find((x) => x.realsense);
   const opts = [
-    { value: 'auto', title: 'Pick automatically', sub: 'Uses a RealSense if one is plugged in, otherwise the first webcam.', icon: 'auto' },
-    { value: 'realsense', title: 'Intel RealSense (D415 / D435)', sub: rs ? `Found: ${rs.name}` : 'Depth camera, best for measured object positions. Not detected right now.', icon: 'depth', badge: rs ? 'found' : '' },
+    { value: 'auto', title: 'Automatic', icon: 'auto' },
+    { value: 'realsense', title: 'Intel RealSense', sub: rs ? 'Found' : '', icon: 'depth' },
   ];
-  webcams(d).forEach((w, i) => opts.push({ value: `webcam:${i}`, title: w.name, sub: `Webcam ${i + 1}`, icon: 'cam', badge: 'found' }));
-  if (!webcams(d).length) opts.push({ value: 'webcam:0', title: 'Webcam', sub: 'Any USB or built-in camera.', icon: 'cam' });
-  opts.push({ value: 'none', title: 'No camera', sub: 'A synthetic test scene stands in, so everything still runs.', icon: 'none' });
+  webcams(d).forEach((w, i) => opts.push({ value: `webcam:${i}`, title: w.name, icon: 'cam' }));
+  if (!webcams(d).length) opts.push({ value: 'webcam:0', title: 'Webcam', icon: 'cam' });
+  opts.push({ value: 'none', title: 'No camera', icon: 'none' });
   return opts;
 }
 const cameraValue = (c) => (c.camera.type === 'webcam' ? `webcam:${c.camera.device || 0}` : c.camera.type);
 
 const QUESTIONS = [
   {
-    id: 'robot', nav: 'Robot arm', title: 'Which robot arm do you have?',
-    sub: 'MOTIQ knows these arms. Pick the one you will use, or the one you want to try in simulation.',
-    kind: 'choice', show: () => true,
+    id: 'robot', nav: 'Robot arm', title: 'Which robot arm?', kind: 'choice', show: () => true,
     options: (c, d) => (d.robots || []).map((r) => ({
-      value: r.id, title: r.name, icon: 'arm', badge: r.ready ? 'ready' : 'needs setup',
-      sub: [r.dof && `${r.dof} axes`, r.nominal_reach_m && `${Math.round(r.nominal_reach_m * 1000)} mm reach`,
-        r.nominal_payload_kg && `${r.nominal_payload_kg} kg payload`].filter(Boolean).join(' · '),
+      value: r.id, title: r.name, icon: 'arm',
+      sub: [r.dof && `${r.dof} axes`, r.nominal_reach_m && `${Math.round(r.nominal_reach_m * 1000)} mm`,
+        r.nominal_payload_kg && `${r.nominal_payload_kg} kg`].filter(Boolean).join(' · '),
     })),
     get: (c) => c.robot, set: (c, v) => { c.robot = v; },
-    note: (c) => (c.robot !== 'ur_ur5e' ? { text: 'The UR5e is the arm MOTIQ was built and tested on. Other arms run in simulation; step moves on the real arm are UR only.' } : null),
-    foot: 'Another arm? Add it later in the app under Robots, then Arm catalog.',
     summary: (c, d) => robotName(c, d),
   },
   {
-    id: 'mode', nav: 'How it runs', title: 'How should MOTIQ run your arm?',
-    sub: 'You can switch at any time in Settings.', kind: 'choice', show: () => true,
+    id: 'mode', nav: 'How it runs', title: 'How should it run?', kind: 'choice', show: () => true,
     options: (c, d) => Object.entries(MODES).map(([v, m]) => ({
       value: v, ...m,
-      ...(v === 'robodk' && !d.robodk ? { sub: m.sub + ' RoboDK is not installed on this PC.', badge: 'not found' } : {}),
-      ...(v === 'robodk' && d.robodk ? { badge: 'found' } : {}),
-      ...(v === 'real' && !String(c.robot).startsWith('ur_') ? { disabled: true, sub: 'Only Universal Robots arms have a real-arm driver right now.' } : {}),
+      ...(v === 'robodk' && !d.robodk ? { sub: 'Not installed.' } : {}),
+      ...(v === 'real' && !String(c.robot).startsWith('ur_') ? { disabled: true, sub: 'UR arms only.' } : {}),
     })),
     get: (c) => c.mode, set: (c, v) => { c.mode = v; },
-    valid: (c, d) => (c.mode === 'robodk' && !d.robodk ? 'Install RoboDK from robodk.com first, or pick another option.' : ''),
+    valid: (c, d) => (c.mode === 'robodk' && !d.robodk ? 'Install RoboDK first' : ''),
     summary: (c) => MODES[c.mode].title,
   },
   {
-    id: 'robot_ip', nav: 'Robot address', title: "What is the robot's IP address?",
-    sub: 'Find it on the teach pendant under Settings, then System, then Network. This PC must be on the same network.',
-    kind: 'text', show: (c) => c.mode === 'real', placeholder: '192.168.1.20', field: 'IP address',
+    id: 'robot_ip', nav: 'Robot address', title: "Robot's IP address", kind: 'text',
+    show: (c) => c.mode === 'real', placeholder: '192.168.1.20',
     get: (c) => c.robot_ip, set: (c, v) => { c.robot_ip = v.trim(); },
-    valid: (c) => (/^\d{1,3}(\.\d{1,3}){3}$/.test(c.robot_ip || '') ? '' : 'Enter an address like 192.168.1.20.'),
+    valid: (c) => (/^\d{1,3}(\.\d{1,3}){3}$/.test(c.robot_ip || '') ? '' : 'Like 192.168.1.20'),
     summary: (c) => c.robot_ip || 'not set',
   },
   {
-    id: 'ur_jog', nav: 'Arm driver', title: 'Where is the UR driver file?',
-    sub: "MOTIQ moves a real UR through a small driver, ur_jog.py, which isn't part of MOTIQ. Point to your copy.",
-    kind: 'file', show: (c) => c.mode === 'real', field: 'ur_jog.py',
+    id: 'ur_jog', nav: 'Arm driver', title: 'Where is ur_jog.py?', kind: 'file',
+    show: (c) => c.mode === 'real', placeholder: 'ur_jog.py',
     get: (c) => c.ur_jog, set: (c, v) => { c.ur_jog = v.trim(); },
-    valid: (c) => (/\.py$/i.test(c.ur_jog || '') ? '' : 'Choose the ur_jog.py file.'),
+    valid: (c) => (/\.py$/i.test(c.ur_jog || '') ? '' : 'Choose ur_jog.py'),
     summary: (c) => (c.ur_jog ? c.ur_jog.split(/[\\/]/).pop() : 'not set'),
   },
   {
-    id: 'real_ack', nav: 'Safety check', title: 'Before the real arm moves',
-    sub: 'MOTIQ adds software checks, but they do not replace the hardware safety of your cell.', kind: 'confirm',
+    id: 'real_ack', nav: 'Safety check', title: 'Safety check', kind: 'confirm',
     show: (c) => c.mode === 'real',
-    items: ['The E-stop on the teach pendant is within reach whenever MOTIQ is running.',
-      'The UR safety configuration (speed, force, joint and workspace limits) is set for this cell.',
-      'Every move is approved first: the arm only moves after you say or tap yes.'],
+    items: ['The E-stop is within reach.', 'UR safety limits are set for this cell.', 'I approve every move before it runs.'],
     get: (c) => c.real_ack, set: (c, v) => { c.real_ack = v; },
-    valid: (c) => (c.real_ack ? '' : 'Tick all three to continue.'),
+    valid: (c) => (c.real_ack ? '' : 'Tick all three'),
     summary: (c) => (c.real_ack ? 'confirmed' : 'not confirmed'),
   },
   {
-    id: 'gripper', nav: 'Tool', title: "What's on the end of the arm?", sub: 'The tool decides how the arm grasps. Grasps are simulated for every tool for now.',
-    kind: 'choice', show: (c) => !isApp(c),
+    id: 'gripper', nav: 'Tool', title: "What's on the arm?", kind: 'choice', show: (c) => !isApp(c),
     options: () => Object.entries(GRIPPERS).map(([v, g]) => ({ value: v, ...g })),
     get: (c) => c.gripper.kind, set: (c, v) => { c.gripper.kind = v; },
     summary: (c) => GRIPPERS[c.gripper.kind]?.title || c.gripper.kind,
   },
   {
-    id: 'tool_size', nav: 'Tool size', title: 'How heavy and how long is the tool?',
-    sub: 'Used for the payload check and the tool tip position. Leave a field empty if you do not know; MOTIQ uses safe placeholders.',
-    kind: 'toolsize', show: (c) => !isApp(c),
+    id: 'tool_size', nav: 'Tool size', title: 'Tool size', kind: 'toolsize', show: (c) => !isApp(c),
     get: (c) => c.gripper, set: () => {},
     valid: (c) => {
       const m = c.gripper.mass_kg, t = c.gripper.tcp_mm;
-      if (m !== null && m !== '' && !(m >= 0 && m <= 50)) return 'Weight must be between 0 and 50 kg.';
-      if (t !== null && t !== '' && !(t >= 0 && t <= 1000)) return 'Length must be between 0 and 1000 mm.';
+      if (m !== null && m !== '' && !(m >= 0 && m <= 50)) return 'Weight: 0 to 50 kg';
+      if (t !== null && t !== '' && !(t >= 0 && t <= 1000)) return 'Length: 0 to 1000 mm';
       return '';
     },
     summary: (c) => [c.gripper.mass_kg ? `${c.gripper.mass_kg} kg` : 'weight unknown',
       c.gripper.tcp_mm ? `${c.gripper.tcp_mm} mm` : 'length unknown'].join(' · '),
   },
   {
-    id: 'camera', nav: 'Camera', title: 'Which camera should MOTIQ use?',
-    sub: 'The vision server finds objects with it and checks the result after every task.', kind: 'choice',
+    id: 'camera', nav: 'Camera', title: 'Which camera?', kind: 'choice',
     show: (c) => !isApp(c), options: cameraOptions, get: cameraValue,
     set: (c, v) => {
       if (v.startsWith('webcam:')) { c.camera.type = 'webcam'; c.camera.device = v.split(':')[1]; } else c.camera.type = v;
@@ -170,52 +155,45 @@ const QUESTIONS = [
     },
   },
   {
-    id: 'camera_mount', nav: 'Camera position', title: 'Where is the camera mounted?', kind: 'choice',
-    sub: 'This decides how MOTIQ looks for objects that are out of view.',
+    id: 'camera_mount', nav: 'Camera position', title: 'Where is the camera?', kind: 'choice',
     show: (c) => !isApp(c) && c.camera.type !== 'none',
     options: () => [
-      { value: 'cell', title: 'Fixed, looking at the table', sub: 'On a stand or the ceiling. It sees the whole table at once.', icon: 'table' },
-      { value: 'arm', title: 'On the arm', sub: 'At the wrist (eye-in-hand). The arm moves to look around.', icon: 'wrist' },
+      { value: 'cell', title: 'Above the table', icon: 'table' },
+      { value: 'arm', title: 'On the arm', icon: 'wrist' },
     ],
     get: (c) => c.camera.mount, set: (c, v) => { c.camera.mount = v; },
-    summary: (c) => (c.camera.mount === 'arm' ? 'On the arm' : 'Fixed, looking at the table'),
+    summary: (c) => (c.camera.mount === 'arm' ? 'On the arm' : 'Above the table'),
   },
   {
-    id: 'ai', nav: 'AI key', title: 'Which AI key do you have?',
-    sub: 'MOTIQ uses Grok to listen, look and plan. The key stays on this computer.', kind: 'choice', show: () => true,
+    id: 'ai', nav: 'AI key', title: 'Which AI key?', kind: 'choice', show: () => true,
     options: () => Object.entries(AIS).map(([v, a]) => ({ value: v, ...a })),
     get: (c) => c.ai.provider, set: (c, v) => { c.ai.provider = v; },
     summary: (c) => AIS[c.ai.provider].title + (c.ai.key ? ' · added' : ''),
   },
   {
     id: 'key', nav: 'Paste key', title: 'Paste your key', kind: 'secret',
-    sub: 'It is saved in MOTIQ’s settings files on this computer and sent only to the AI provider.',
     show: (c) => c.ai.provider !== 'none',
-    field: (c) => (c.ai.provider === 'xai' ? 'xAI API key' : 'OpenRouter API key'),
     placeholder: (c) => (c.ai.provider === 'xai' ? 'xai-…' : 'sk-or-…'),
     get: (c) => c.ai.key, set: (c, v) => { c.ai.key = v.trim(); },
-    valid: (c) => (c.ai.key && c.ai.key.length > 10 ? '' : 'Paste the whole key.'),
+    valid: (c) => (c.ai.key && c.ai.key.length > 10 ? '' : 'Paste the whole key'),
     later: (c) => { c.ai.provider = 'none'; c.ai.key = ''; },
     summary: (c) => (c.ai.key ? '•••• ' + c.ai.key.slice(-4) : 'not set'),
   },
   {
-    id: 'language', nav: 'Language', title: 'Which language will you speak?', kind: 'select',
-    sub: 'MOTIQ understands many languages. Choosing one helps when you mix languages or speak with an accent.',
+    id: 'language', nav: 'Language', title: 'Which language?', kind: 'select',
     show: (c) => c.ai.provider === 'xai', options: () => LANGS.map(([v, t]) => ({ value: v, title: t })),
     get: (c) => c.language, set: (c, v) => { c.language = v; },
     summary: (c) => (LANGS.find(([v]) => v === c.language) || ['', c.language])[1],
   },
   {
-    id: 'client', nav: 'Device', title: 'Where will you use MOTIQ?', kind: 'choice', show: () => true,
-    sub: 'You can talk to it, watch the cameras and approve moves from here.',
+    id: 'client', nav: 'Device', title: 'Where will you use it?', kind: 'choice', show: () => true,
     options: () => Object.entries(CLIENTS).map(([v, x]) => ({ value: v, ...x })),
     get: (c) => c.client, set: (c, v) => { c.client = v; },
-    note: (c) => (c.client !== 'pc' ? { text: 'MOTIQ will listen on your local network so the phone can reach it. Use it on a network you trust.' } : null),
     summary: (c) => CLIENTS[c.client].title,
   },
   {
-    id: 'speed', nav: 'Speed limit', title: 'How fast may the arm move?', kind: 'range', min: 5, max: 50, step: 5,
-    sub: 'A share of the arm’s top speed. Start slow; you can raise it later.', show: (c) => !isApp(c),
+    id: 'speed', nav: 'Speed limit', title: 'Max speed', kind: 'range', min: 5, max: 50, step: 5,
+    show: (c) => !isApp(c),
     get: (c) => c.speed_percent, set: (c, v) => { c.speed_percent = Number(v); },
     summary: (c) => `${c.speed_percent}% of top speed`,
   },
