@@ -77,7 +77,7 @@ export default function Settings({ open, onClose }: Props) {
   }, []);
 
   useEffect(() => {
-    if (open) load();
+    if (open && !env.launcherUrl) load();
   }, [open, load]);
 
   const saveUrl = async () => {
@@ -148,22 +148,33 @@ export default function Settings({ open, onClose }: Props) {
             {!!env.launcherUrl && (
               <>
                 <Text style={s.overline}>Setup</Text>
-                <Text style={s.sectionHint}>
-                  {Platform.OS === 'web'
-                    ? 'Robot, run mode, camera, AI key, device and speed limit. MOTIQ restarts with the new setup.'
-                    : 'Change the robot, camera, AI key and the rest in the MOTIQ window on the robot PC (Settings).'}
-                </Text>
-                {Platform.OS === 'web' && (
+                {Platform.OS === 'web' ? (
                   <Button
-                    label="Reconfigure MOTIQ"
+                    label="Robot, camera and AI"
                     icon="settings-outline"
                     block
                     onPress={() => Linking.openURL(`${env.launcherUrl}/#settings`)}
                   />
+                ) : (
+                  <Text style={s.sectionHint}>Change these in MOTIQ on the robot PC.</Text>
                 )}
               </>
             )}
 
+            <Text style={s.overline}>Real arm</Text>
+            <View style={[s.row, { borderBottomWidth: 0 }]}>
+              <View style={{ flexShrink: 1 }}>
+                <Text style={s.rowLabel}>Full access</Text>
+                <Text style={[s.rowValue, full && { color: c.warn }]}>
+                  {full ? 'Motion asks before every move' : 'Skills need approval first'}
+                </Text>
+              </View>
+              <Switch value={full} onValueChange={setFullAccess} />
+            </View>
+
+            {/* developer details: only when the app runs without the MOTIQ launcher, which sets all of this up */}
+            {!env.launcherUrl && (
+            <>
             <Text style={s.overline}>Connections</Text>
             <Row label="Grok voice" value={`${env.voiceModel} · ${env.voice}`} />
             <Row label="Auth" value={auth} color={auth === 'not set' ? c.warn : undefined} />
@@ -254,20 +265,8 @@ export default function Settings({ open, onClose }: Props) {
 
             {msg && <Text style={[s.hint, { color: c.ok, marginTop: 10 }]}>{msg}</Text>}
             {err && <Text style={[s.hint, { color: c.bad, marginTop: 10 }]}>{err}</Text>}
-
-            <Text style={s.overline}>Real arm</Text>
-            <View style={[s.row, { borderBottomWidth: 0 }]}>
-              <View style={{ flexShrink: 1 }}>
-                <Text style={s.rowLabel}>Full access</Text>
-                <Text style={[s.rowValue, full && { color: c.warn }]}>
-                  {full
-                    ? 'ON: Motion plans and runs skills and tasks; it tells you the plan and waits for your yes before the real arm moves'
-                    : 'Off: skills also need approval in the Skills tab first'}
-                </Text>
-              </View>
-              <Switch value={full} onValueChange={setFullAccess} />
-            </View>
-            <Text style={s.hint}>On at every app start. Say "safe mode" / "full access off" to turn it off.</Text>
+            </>
+            )}
           </ScrollView>
         </Pressable>
       </Pressable>

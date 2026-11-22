@@ -7,25 +7,32 @@ import type { Line } from '../voice/types';
 import { Button, IconButton, IconChip, Pill, Slider } from '../components/ui';
 import { Colors, fonts, radius, type, useStyles, useTheme } from '../theme';
 import { ago } from '../lib/time';
+import env from '../lib/config';
 import { ARM_ID_RE, CatalogArm, NewArm, robotCatalog, robotCatalogReady, suggestArmId } from '../lib/robotCatalog';
 
 type ToolLine = Extract<Line, { kind: 'tool' }>;
+
+const SHOWN_INFO = ['model', 'gripper', 'tcp', 'battery'];
 
 export default function Robots({ lines }: { lines: Line[] }) {
   const s = useStyles(makeStyles);
   const { width } = useWindowDimensions();
   const twoCols = width >= 1000;
+  // only devices that are actually connected; all of them if none is (simulated demo)
+  const ids = Object.keys(devices) as DeviceId[];
+  const connected = ids.filter((id) => devices[id].url);
+  const shown = connected.length ? connected : ids;
 
   return (
     <ScrollView contentContainerStyle={[s.page, width < 641 && { paddingHorizontal: 16 }]}>
-      <Text style={s.title}>Robots</Text>
-      <Text style={s.sub}>Live status, refreshed every few seconds.</Text>
-      <View style={[s.grid, twoCols && { flexDirection: 'row' }]}>
-        {(Object.keys(devices) as DeviceId[]).map((id) => (
+      <Text style={[s.title, { marginBottom: 20 }]}>Robots</Text>
+      <View style={[s.grid, twoCols && shown.length > 1 && { flexDirection: 'row' }]}>
+        {shown.map((id) => (
           <Card key={id} id={id} lines={lines} />
         ))}
       </View>
-      <ArmCatalog />
+      {/* the arm is picked during MOTIQ setup; the catalog editor is for runs without the launcher */}
+      {!env.launcherUrl && <ArmCatalog />}
     </ScrollView>
   );
 }
@@ -257,11 +264,11 @@ function Card({ id, lines }: { id: DeviceId; lines: Line[] }) {
   const actions = lines.filter((l): l is ToolLine => l.kind === 'tool' && l.name.startsWith(`${id}_`));
   const done = actions.filter((a) => a.ok !== undefined);
   const ok = done.filter((a) => a.ok).length;
-  const avg = done.length ? Math.round(done.reduce((n, a) => n + (a.ms ?? 0), 0) / done.length) : null;
   const running = actions.find((a) => a.ok === undefined);
   const recent = actions.slice(-5).reverse();
 
-  const info = Object.entries(st.info ?? {}).filter(([k]) => k !== 'ok' && k !== 'speed_percent');
+  // plain facts only: raw status objects (controller, vision, physical_arm...) are for the logs, not this card
+  const info = Object.entries(st.info ?? {}).filter(([k, v]) => SHOWN_INFO.includes(k) && typeof v !== 'object');
   const battery = typeof st.info?.battery === 'number' ? (st.info.battery as number) : null;
 
   const stop = async () => {
@@ -291,16 +298,15 @@ function Card({ id, lines }: { id: DeviceId; lines: Line[] }) {
         />
       </View>
 
-      <Text style={s.url} numberOfLines={1}>
-        {d.url || 'simulated - set EXPO_PUBLIC_' + id.toUpperCase() + '_URL to connect'}
-        {st.ms != null && `  ·  ${st.ms} ms`}
-        {st.state === 'offline' && `  ·  last seen ${ago(st.lastOnline)}`}
-      </Text>
+      {st.state === 'offline' && (
+        <Text style={s.url} numberOfLines={1}>
+          last seen {ago(st.lastOnline)}
+        </Text>
+      )}
 
       <View style={s.tiles}>
-        <Stat label="succeeded" value={`${ok}/${done.length}`} />
-        <Stat label="avg time" value={avg != null ? `${avg}ms` : '—'} />
         <Stat label="now" value={running ? running.name.slice(id.length + 1) : 'idle'} hot />
+        <Stat label="done" value={done.length ? `${ok}/${done.length}` : '—'} />
       </View>
 
       {id === 'arm' && <ArmSpeed online={st.state === 'online'} busy={!!running} />}

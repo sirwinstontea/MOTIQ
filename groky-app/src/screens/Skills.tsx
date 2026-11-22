@@ -63,17 +63,14 @@ export default function Skills({ skills }: { skills: SkillsApi }) {
         <View style={s.head}>
           <View style={{ flex: 1 }}>
             <Text style={s.title}>Skills</Text>
-            <Text style={s.sub}>
-              Reusable multi-step tasks in the MOTIQ skill format. Run one here, or just ask Motion.
-            </Text>
           </View>
-          <Button
-            label="Import"
+          <IconButton
             icon="download-outline"
             onPress={() => setEditing({ doc: newSkill('arm'), json: true })}
+            label="Import a skill"
           />
           {(visionReady() || teachReady()) && (
-            <Button label="Learn from camera" icon="eye-outline" onPress={() => setTeaching(true)} />
+            <Button label="Learn" icon="eye-outline" onPress={() => setTeaching(true)} />
           )}
           <Button
             label="New skill"
