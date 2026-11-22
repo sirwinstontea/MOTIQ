@@ -68,6 +68,10 @@ class Launcher:
         try:
             node_exe = provision.provision(job, plan)
             current = "configure"
+            self.stack.stop(job.log)                 # free MOTIQ's own ports first, then move off ports others hold
+            moved = config.free_ports(cfg)
+            for name, (old, new) in moved.items():
+                job.log(f"port {old} ({name}) is used by another program: MOTIQ uses {new} instead")
             job.step("configure", "running", "writing the app, vision and controller settings")
             result = configure.write_all(cfg, plan, job.log)
             rep = result.get("chooser") or {}

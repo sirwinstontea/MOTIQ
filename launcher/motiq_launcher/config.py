@@ -115,6 +115,31 @@ def lan_ip() -> str:
         s.close()
 
 
+def _port_busy(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.3)
+        return s.connect_ex(("127.0.0.1", int(port))) == 0
+
+
+def free_ports(cfg: dict) -> dict:
+    """Move any service port another program is already listening on to the next free one, and save the config.
+    Returns {name: (old, new)}. The launcher's own port is left alone (it is the one serving this page)."""
+    moved: dict = {}
+    taken = {int(v) for v in cfg["ports"].values()}
+    for name, port in list(cfg["ports"].items()):
+        if name == "launcher" or not _port_busy(int(port)):
+            continue
+        new = int(port) + 1
+        while new in taken or _port_busy(new):
+            new += 1
+        cfg["ports"][name] = new
+        taken.add(new)
+        moved[name] = (int(port), new)
+    if moved:
+        save(cfg)
+    return moved
+
+
 def arm_reachable(ip: str, port: int = 30002, timeout: float = 1.5) -> bool:
     """True when the UR controller answers on its URScript port, i.e. the real arm is switched on and connected."""
     if not ip:
