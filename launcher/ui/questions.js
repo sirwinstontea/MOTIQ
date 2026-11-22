@@ -196,16 +196,17 @@ const QUESTIONS = [
     id: 'ai', nav: 'AI key', title: 'Which AI key?', kind: 'choice', show: () => true,
     options: () => Object.entries(AIS).map(([v, a]) => ({ value: v, ...a })),
     get: (c) => c.ai.provider, set: (c, v) => { c.ai.provider = v; },
-    summary: (c) => (AIS[c.ai.provider] || AIS.xai).title + (c.ai.key ? ' · added' : ''),
+    summary: (c) => (AIS[c.ai.provider] || AIS.xai).title + (c.ai.key || c.ai.has_key ? ' · added' : ''),
   },
   {
     id: 'key', nav: 'Paste key', title: 'Paste your key', kind: 'secret',
     show: (c) => c.ai.provider !== 'none',
-    placeholder: () => 'xai-…',
+    // the saved key never comes back to this page: only whether there is one and its last 4 characters
+    placeholder: (c) => (c.ai.has_key ? `Saved (••••${c.ai.key_hint}). Paste a new one to replace it.` : 'xai-…'),
     get: (c) => c.ai.key, set: (c, v) => { c.ai.key = v.trim(); },
-    valid: (c) => (c.ai.key && c.ai.key.length > 10 ? '' : 'Paste the whole key'),
-    later: (c) => { c.ai.provider = 'none'; c.ai.key = ''; },
-    summary: (c) => (c.ai.key ? '•••• ' + c.ai.key.slice(-4) : 'not set'),
+    valid: (c) => ((c.ai.key && c.ai.key.length > 10) || (!c.ai.key && c.ai.has_key) ? '' : 'Paste the whole key'),
+    later: (c) => { c.ai.provider = 'none'; c.ai.key = ''; c.ai.has_key = false; },
+    summary: (c) => (c.ai.key ? '•••• ' + c.ai.key.slice(-4) : c.ai.has_key ? '•••• ' + c.ai.key_hint : 'not set'),
   },
   {
     id: 'language', nav: 'Language', title: 'Which language?', kind: 'select',

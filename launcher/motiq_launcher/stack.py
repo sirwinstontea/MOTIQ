@@ -11,7 +11,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from . import detect, paths
+from . import configure, detect, paths
+from .xai_proxy import XaiProxy
 
 NO_WINDOW = detect.NO_WINDOW
 LABELS = {"chooser": "Robot chooser", "vision": "Vision server", "teach": "Teach server", "robodk": "RoboDK",
@@ -93,6 +94,7 @@ class Stack:
         self.plan: dict = {}
         self.app_url = ""
         self.phone_url = ""
+        self.xai = XaiProxy()
 
     # -------------------------------------------------------------- build
     def _services(self, cfg: dict, plan: dict, node_exe: str, clear_cache: bool) -> list[Service]:
@@ -108,9 +110,11 @@ class Stack:
             if plan["vision_mode"] == "webcam":
                 vcmd += ["--device", cfg["camera"].get("device") or "0"]
             # no --robot-ip: its read-only UR telemetry needs ur_rtde, which the vision requirements don't install
-            out.append(Service("vision", vcmd, paths.CV, f"http://127.0.0.1:{p['vision']}/health", port=p["vision"]))
+            senv = dict(os.environ, **configure.secret_env(cfg))   # the xAI key only in these processes' memory
+            out.append(Service("vision", vcmd, paths.CV, f"http://127.0.0.1:{p['vision']}/health", env=senv,
+                               port=p["vision"]))
             out.append(Service("teach", [cv, paths.TEACH, "--host", bind, "--port", p["teach"]], paths.CV,
-                               f"http://127.0.0.1:{p['teach']}/health", port=p["teach"]))
+                               f"http://127.0.0.1:{p['teach']}/health", env=senv, port=p["teach"]))
             out.append(Service("controller", [rc, "-m", "robot_control.cli", "serve", "--backend", plan["backend"],
                                               "--detector", "vision_file", "--vision-file", vision_file,
                                               "--port", p["controller"]],
@@ -149,6 +153,12 @@ class Stack:
                                "terminal that is still running, then press Start again.")
         if plan["robodk"]:
             self._start_robodk(log)
+        key = configure.secret_env(cfg).get("XAI_API_KEY", "")
+        if key:   # the app reaches xAI through this proxy, so it never holds the key
+            host = plan["host"]
+            origins = {f"http://{h}:{p['expo']}" for h in ("localhost", "127.0.0.1", host)}
+            self.xai.start(plan["bind"], int(p["xai_proxy"]), key, cfg["bridge_key"], origins)
+            log("xAI proxy is up")
         with self.lock:
             self.services = {s.name: s for s in self._services(cfg, plan, node_exe, clear_cache)}
         order = list(self.services.values())
@@ -196,6 +206,7 @@ class Stack:
         with self.lock:
             services = list(self.services.values())[::-1]
             self.services = {}
+        self.xai.stop()
         for svc in services:
             if svc.alive():
                 log(f"stopping {LABELS.get(svc.name, svc.name)}")

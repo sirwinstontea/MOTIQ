@@ -43,7 +43,7 @@ class Launcher:
         det["robodk_install"] = self.robodk.snapshot()
         plan = config.plan(cfg, bool(det.get("robodk")), probe=False)   # polled often: no network probe here
         plan["real_arm"] = bool(self.stack.running() and self.stack.plan.get("real_arm"))
-        return {"version": VERSION, "config": cfg, "detected": det, "plan": plan,
+        return {"version": VERSION, "config": config.public(cfg), "detected": det, "plan": plan,
                 "job": self.job.snapshot() if self.job else None,
                 "running": self.stack.running(), "services": self.stack.status(),
                 "app_url": self.stack.app_url, "phone_url": self.stack.phone_url,
@@ -165,8 +165,8 @@ def make_handler(launcher: Launcher):
             except ValueError:
                 return self._json({"ok": False, "error": "bad json"}, 400)
             if p == "/api/config":
-                cfg = config.save({**config.load(), **(b.get("config") or {})})
-                return self._json({"ok": True, "config": cfg})
+                cfg = config.save(config.merge_from_page(config.load(), b.get("config") or {}))
+                return self._json({"ok": True, "config": config.public(cfg)})
             if p == "/api/demo":
                 config.save(config.demo_config(config.load()))
                 return self._json(launcher.start())

@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import env from '../lib/config';
+import { xaiFetch } from '../lib/xai';
 
 export async function getToken(): Promise<string> {
   if (env.tokenUrl) {
@@ -10,6 +11,14 @@ export async function getToken(): Promise<string> {
     const t = j.value ?? j.client_secret?.value ?? j.token ?? j.secret;
     if (!t) throw new Error('token server returned no token');
     return t;
+  }
+  if (env.xaiProxy) {
+    // installed MOTIQ: a short-lived client secret minted through the launcher's proxy; the xAI key stays on the PC
+    const r = await xaiFetch('/realtime/client_secrets', { expires_after: { seconds: 300 } });
+    if (!r.ok) throw new Error(`xAI rejected the key (${r.status}). Check it in MOTIQ Settings.`);
+    const j = await r.json();
+    if (!j.value) throw new Error('xAI returned no client secret');
+    return j.value;
   }
   if (env.xaiKey) {
     // Browsers can't send an Authorization header on a WebSocket, so on web trade the key for a short-lived client

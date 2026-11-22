@@ -9,10 +9,12 @@ from pathlib import Path
 
 from . import detect, paths
 
-AI = {
-    "xai": {"XAI_BASE_URL": "https://api.x.ai/v1", "XAI_MODEL": "grok-4.7"},
-    "openrouter": {"XAI_BASE_URL": "https://openrouter.ai/api/v1", "XAI_MODEL": "x-ai/grok-4.7"},
-}
+AI = {"XAI_BASE_URL": "https://api.x.ai/v1", "XAI_MODEL": "grok-4.7"}
+
+# The xAI key is never written into these .env files: groky-app/.env would put it inside the app's JavaScript
+# bundle (EXPO_PUBLIC_* are inlined), and computer-vision/.env would keep it in plain text. The Python services get
+# it as an environment variable of their own process (secret_env), the app goes through the local xAI proxy.
+KEY_VARS = ("EXPO_PUBLIC_XAI_API_KEY", "XAI_API_KEY", "XAI_STT_API_KEY")
 
 
 def set_env_file(path: Path, example: Path, values: dict[str, str]) -> None:
@@ -40,8 +42,10 @@ def app_env(cfg: dict, plan: dict) -> dict[str, str]:
     h, p = plan["host"], cfg["ports"]
     stack = plan["python"]
     ai = cfg["ai"]
+    has_key = ai["provider"] == "xai" and bool(ai.get("key"))
     return {
-        "EXPO_PUBLIC_XAI_API_KEY": ai["key"] if ai["provider"] == "xai" else "",
+        "EXPO_PUBLIC_XAI_API_KEY": "",
+        "EXPO_PUBLIC_XAI_PROXY": f"http://{h}:{p['xai_proxy']}" if has_key else "",
         "EXPO_PUBLIC_GROK_LANGUAGE_HINT": cfg.get("language", ""),
         "EXPO_PUBLIC_ARM_URL": f"http://{h}:{p['bridge']}" if stack else "",
         "EXPO_PUBLIC_BRIDGE_KEY": cfg["bridge_key"] if stack else "",
@@ -53,13 +57,20 @@ def app_env(cfg: dict, plan: dict) -> dict[str, str]:
 
 
 def vision_env(cfg: dict) -> dict[str, str]:
+    """computer-vision/.env: everything except the key (also blanks a key an older launcher wrote there)."""
     ai = cfg["ai"]
-    if ai["provider"] == "none" or not ai["key"]:
-        return {"GROK_MOCK": "1"}
-    out = {"XAI_API_KEY": ai["key"], "GROK_MOCK": "0", **AI[ai["provider"]]}
-    if ai["provider"] == "xai":
-        out["XAI_STT_API_KEY"] = ai["key"]          # the planner's speech-to-text for demonstration videos
-    return out
+    blank = {"XAI_API_KEY": "", "XAI_STT_API_KEY": ""}
+    if ai["provider"] == "none" or not ai.get("key"):
+        return {"GROK_MOCK": "1", **blank}
+    return {"GROK_MOCK": "0", **AI, **blank}
+
+
+def secret_env(cfg: dict) -> dict[str, str]:
+    """Environment for the vision and teach server processes only: the key lives in their memory, not on disk."""
+    ai = cfg["ai"]
+    if ai["provider"] != "xai" or not ai.get("key"):
+        return {}
+    return {"XAI_API_KEY": ai["key"], "XAI_STT_API_KEY": ai["key"]}   # STT: the planner's demonstration videos
 
 
 CHOOSER_SNIPPET = r"""

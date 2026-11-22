@@ -2,6 +2,8 @@
 const env = {
   tokenUrl: process.env.EXPO_PUBLIC_TOKEN_URL ?? '',
   xaiKey: process.env.EXPO_PUBLIC_XAI_API_KEY ?? '',
+  // installed MOTIQ: the launcher's local xAI proxy, which keeps the key on the PC (see lib/xai.ts)
+  xaiProxy: (process.env.EXPO_PUBLIC_XAI_PROXY ?? '').replace(/\/$/, ''),
   voiceModel: process.env.EXPO_PUBLIC_GROK_VOICE_MODEL || 'grok-voice-latest',
   voice: process.env.EXPO_PUBLIC_GROK_VOICE || 'eve',
   // Optional BCP-47 hint for ASR (e.g. "it", "ja", "es-MX"). Empty = auto-detect all Grok Voice languages.

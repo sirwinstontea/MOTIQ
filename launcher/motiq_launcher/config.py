@@ -6,7 +6,7 @@ import json
 import secrets
 import socket
 
-from . import paths
+from . import paths, secret
 
 DEFAULTS: dict = {
     "version": 1,
@@ -25,7 +25,7 @@ DEFAULTS: dict = {
     "speed_percent": 10,
     "bridge_key": "",
     "ports": {"vision": 8000, "teach": 8001, "bridge": 8080, "controller": 8765, "chooser": 8771,
-              "expo": 8081, "launcher": 8790},
+              "expo": 8081, "launcher": 8790, "xai_proxy": 8791},
 }
 
 # "I don't know yet": the app with its built-in simulated arm. No Python services, no keys, nothing to plug in.
@@ -43,13 +43,22 @@ def _merge(base: dict, over: dict) -> dict:
 
 
 def load() -> dict:
+    """The config with the xAI key decrypted into cfg['ai']['key'] (memory only; on disk it is ai.key_enc)."""
     try:
         data = json.loads(paths.CONFIG.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         data = {}
     cfg = _merge(DEFAULTS, data)
+    ai = cfg["ai"]
+    if ai.get("key_enc"):
+        ai["key"] = secret.unprotect(ai["key_enc"])
+    ai.pop("key_enc", None)
+    if ai.get("provider") not in ("xai", "none"):     # OpenRouter is no longer offered
+        ai["provider"] = "xai" if ai.get("key") else "none"
     if len(cfg.get("bridge_key") or "") < 8:
         cfg["bridge_key"] = secrets.token_urlsafe(18)
+    if data and "key" in (data.get("ai") or {}) and data["ai"]["key"]:
+        save(cfg)                                     # migrate a plain-text key from an older launcher
     return cfg
 
 
@@ -57,11 +66,37 @@ def save(cfg: dict) -> dict:
     cfg = _merge(DEFAULTS, cfg)
     if len(cfg.get("bridge_key") or "") < 8:
         cfg["bridge_key"] = secrets.token_urlsafe(18)
+    disk = copy.deepcopy(cfg)
+    disk["ai"]["key_enc"] = secret.protect(disk["ai"].pop("key", "") or "")
     paths.STATE.mkdir(parents=True, exist_ok=True)
     tmp = paths.CONFIG.with_suffix(".tmp")
-    tmp.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    tmp.write_text(json.dumps(disk, indent=2), encoding="utf-8")
+    secret.restrict(tmp)
     tmp.replace(paths.CONFIG)
     return cfg
+
+
+def public(cfg: dict) -> dict:
+    """What the setup page may see: never the key itself, only whether one is saved and its last 4 characters."""
+    out = copy.deepcopy(cfg)
+    key = out["ai"].pop("key", "") or ""
+    out["ai"]["has_key"] = bool(key)
+    out["ai"]["key_hint"] = key[-4:] if len(key) > 10 else ""
+    out["ai"]["key"] = ""
+    return out
+
+
+def merge_from_page(current: dict, incoming: dict) -> dict:
+    """Apply answers posted by the setup page. An empty key means 'keep the saved one'; clearing it happens only by
+    choosing 'No key yet'."""
+    new = _merge(current, incoming)
+    sent = ((incoming.get("ai") or {}).get("key") or "").strip()
+    new["ai"]["key"] = sent or current["ai"].get("key", "")
+    if new["ai"].get("provider") == "none":
+        new["ai"]["key"] = ""
+    for k in ("has_key", "key_hint"):
+        new["ai"].pop(k, None)
+    return new
 
 
 def demo_config(current: dict | None = None) -> dict:

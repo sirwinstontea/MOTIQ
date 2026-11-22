@@ -20,7 +20,12 @@ async function refresh(full) {
   }
   return st;
 }
-const save = () => api('/api/config', { config: S.cfg });
+/* after saving, forget a typed key in the page: only "a key is saved" and its last 4 characters come back */
+const save = async () => {
+  const r = await api('/api/config', { config: S.cfg });
+  if (r && r.config) S.cfg.ai = r.config.ai;
+  return r;
+};
 const visible = () => QUESTIONS.filter((q) => q.show(S.cfg, S.det));
 const invalid = (q) => (q.valid ? q.valid(S.cfg, S.det) : '');
 const go = (h) => { if (location.hash === h) render(); else location.hash = h; };
@@ -210,7 +215,9 @@ function renderInstall() {
     actions(`${arrow('back', 'answers')}<span class="ml-grow"></span>
       <button class="oc-btn oc-btn--primary" data-act="start">Try again</button>`);
   } else if (job.state === 'done') {
-    actions(`<span class="ml-grow"></span>${arrow('next', 'home')}`);
+    /* the MOTIQ app opens by itself when setup finishes; this reopens it if that window was closed */
+    actions(`<button class="oc-btn oc-btn--ghost" data-act="home">Settings</button><span class="ml-grow"></span>
+      <button class="oc-btn oc-btn--primary oc-btn--lg" data-act="open">Open MOTIQ</button>`);
   } else {
     actions(`<button class="oc-btn oc-btn--ghost" data-act="stop">Cancel</button><span class="ml-grow"></span>`);
   }

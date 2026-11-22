@@ -2,6 +2,7 @@
 // makeSkill() fills every default (safety, constraints, robot profile, review). The draft is never saved or
 // approved here: it opens in the editor for the user to check, preview and save.
 import env from '../lib/config';
+import { hasXai, xaiFetch } from '../lib/xai';
 import { profiles } from '../robot/profiles';
 import { dryRun } from './dryrun';
 import {
@@ -232,16 +233,12 @@ function parseJson(text: string): any {
 }
 
 async function ask(messages: { role: string; content: string }[]): Promise<Draft> {
-  if (!env.xaiKey) throw new Error('Generating skills needs EXPO_PUBLIC_XAI_API_KEY in .env');
-  const r = await fetch('https://api.x.ai/v1/responses', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.xaiKey}` },
-    body: JSON.stringify({
-      model: MODEL,
-      store: false,
-      input: [{ role: 'system', content: systemPrompt() }, ...messages],
-      text: { format: { type: 'json_schema', name: 'skill_draft', schema: SCHEMA } },
-    }),
+  if (!hasXai()) throw new Error('Generating skills needs an xAI key (MOTIQ Settings).');
+  const r = await xaiFetch('/responses', {
+    model: MODEL,
+    store: false,
+    input: [{ role: 'system', content: systemPrompt() }, ...messages],
+    text: { format: { type: 'json_schema', name: 'skill_draft', schema: SCHEMA } },
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error?.message ?? j.error ?? `Grok ${r.status}`);

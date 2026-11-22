@@ -46,7 +46,7 @@ export default function Settings({ open, onClose }: Props) {
   const { c, mode, setMode } = useTheme();
   const s = useStyles(makeStyles);
   const mobile = useWindowDimensions().width < 641;
-  const auth = env.tokenUrl ? 'token server' : env.xaiKey ? 'api key (dev)' : 'not set';
+  const auth = env.tokenUrl ? 'token server' : env.xaiProxy ? 'MOTIQ (key kept on this PC)' : env.xaiKey ? 'api key (dev)' : 'not set';
   const full = useFullAccess();
 
   const [chooserUrl, setChooserUrlState] = useState('');

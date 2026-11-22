@@ -1,4 +1,5 @@
 import env from '../lib/config';
+import { hasXai, xaiFetch } from '../lib/xai';
 import type { SkillDoc } from './schema';
 import { deviceOf } from './index';
 
@@ -14,7 +15,7 @@ function outputText(j: any): string {
 
 // Ask Grok for a short name (2-4 words) describing what the skill does. Null if it can't be had.
 export async function nameSkill(doc: SkillDoc, said: string): Promise<string | null> {
-  if (!env.xaiKey) return null;
+  if (!hasXai()) return null;
   const steps = doc.steps
     .map((s, i) => `${i + 1}. ${s.action}: ${s.description ?? ''}`.trim())
     .slice(0, 12)
@@ -29,11 +30,7 @@ export async function nameSkill(doc: SkillDoc, said: string): Promise<string | n
     { role: 'user', content: `The operator said: "${said}"\nDevice: ${deviceOf(doc)}\nSteps:\n${steps}` },
   ];
   try {
-    const r = await fetch('https://api.x.ai/v1/responses', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env.xaiKey}` },
-      body: JSON.stringify({ model: MODEL, store: false, input }),
-    });
+    const r = await xaiFetch('/responses', { model: MODEL, store: false, input });
     if (!r.ok) return null;
     const text = outputText(await r.json()).split('\n')[0].replace(/["'.]/g, '').trim();
     return text && text.length <= 40 ? text : null;

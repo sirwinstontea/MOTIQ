@@ -1,4 +1,5 @@
 import env from './config';
+import { xaiFetch } from './xai';
 
 const SYSTEM =
   'You are the eyes of a UR5e robot arm working on a table. Describe what matters for the arm: objects, colours, ' +
@@ -33,14 +34,9 @@ export async function look(
     ],
   };
 
-  const url = env.visionUrl || 'https://api.x.ai/v1/responses';
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (!env.visionUrl) {
-    if (!env.xaiKey) throw new Error('vision needs EXPO_PUBLIC_XAI_API_KEY or EXPO_PUBLIC_VISION_URL');
-    headers.Authorization = `Bearer ${env.xaiKey}`;
-  }
-
-  const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+  const r = env.visionUrl
+    ? await fetch(env.visionUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    : await xaiFetch('/responses', body);
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error?.message ?? j.error ?? `vision ${r.status}`);
   return outputText(j).trim() || 'I could not make anything out.';
