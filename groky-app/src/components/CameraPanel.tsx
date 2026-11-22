@@ -27,19 +27,6 @@ type Props = {
   height?: number;
 };
 
-type ModelStatus = {
-  ok: boolean;
-  source: string;
-  available_sources?: string[];
-  custom_model: string;
-  yolo_world_model: string;
-  yolo_world_active: boolean;
-  yolo_classes_count: number;
-  yolo_classes: string[];
-  grok_active: boolean;
-  reference_frame_set: boolean;
-};
-
 type DetectedBox = {
   id: number;
   label: string;
@@ -66,7 +53,6 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
   const mic = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
 
   // Vision state
-  const [models, setModels] = useState<ModelStatus | null>(null);
   const [grokBusy, setGrokBusy] = useState<string | null>(null);
   const [grokResult, setGrokResult] = useState<{ title: string; text: string; tone?: 'neutral' | 'ok' | 'warn' | 'bad' } | null>(null);
 
@@ -75,26 +61,6 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
   const [tabletBoxes, setTabletBoxes] = useState<DetectedBox[]>([]);
 
   const activeSource = cam.id.startsWith('vision-') ? cam.id.replace('vision-', '') : 'arm';
-  const isVisionCam = Boolean(cam.url && cam.id.startsWith('vision-'));
-
-  const fetchModelStatus = async () => {
-    if (!env.visionServer) return;
-    try {
-      const r = await fetch(`${env.visionServer}/models/status?source=${activeSource}`);
-      if (r.ok) {
-        const data = await r.json();
-        setModels(data);
-      }
-    } catch {
-      // vision server non raggiungibile
-    }
-  };
-
-  useEffect(() => {
-    fetchModelStatus();
-    const interval = setInterval(fetchModelStatus, 6000);
-    return () => clearInterval(interval);
-  }, [activeSource]);
 
   // Loop per bounding box su webcam locale Tablet se attivato
   useEffect(() => {
@@ -154,50 +120,27 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
       const r = await fetch(`${env.visionServer}${endpoint}`, { method: 'POST' });
       const data = await r.json();
       if (!data.ok) {
-        setGrokResult({ title, text: data.error || 'Errore durante l\'elaborazione', tone: 'bad' });
+        setGrokResult({ title, text: data.error || 'Something went wrong.', tone: 'bad' });
       } else {
         const msg = successFn(data);
         setGrokResult({ title, text: msg, tone: 'ok' });
-        fetchModelStatus();
       }
     } catch (e: any) {
-      setGrokResult({ title, text: `Connessione fallita: ${e.message}`, tone: 'bad' });
+      setGrokResult({ title, text: `Couldn't reach the vision server: ${e.message}`, tone: 'bad' });
     } finally {
       setGrokBusy(null);
     }
   };
 
   const handleGrokDetect = () => {
-    runGrokAction(`/grok/detect?source=${activeSource}`, 'Grok Detect', (d) => {
-      const names = d.objects?.map((o: any) => o.name || o.label).join(', ') || 'nessuno';
-      return `Rilevati ${d.count} oggetti: ${names}. YOLO-World ora li traccia in tempo reale!`;
+    runGrokAction(`/grok/detect?source=${activeSource}`, 'Find objects', (d) => {
+      const names = d.objects?.map((o: any) => o.name || o.label).join(', ') || 'none';
+      return `Found ${d.count}: ${names}.`;
     });
   };
 
   const handleGrokDescribe = () => {
-    runGrokAction(`/grok/describe?source=${activeSource}`, 'Descrizione Scena', (d) => d.description || 'Nessuna descrizione.');
-  };
-
-  const handleGrokName = () => {
-    runGrokAction(`/grok/name?source=${activeSource}`, 'Rinomina Oggetti', (d) => {
-      const list = d.named?.map((n: any) => `ID ${n.id}: "${n.name}"`).join(', ') || 'Nessun oggetto nominato.';
-      return `Oggetti riconosciuti e nominati: ${list}`;
-    });
-  };
-
-  const handleSaveRef = () => {
-    runGrokAction(`/grok/changes/reference?source=${activeSource}`, 'Salva Riferimento', () => 'Scena di riferimento memorizzata! Sposta o rimuovi oggetti per calcolare le differenze.');
-  };
-
-  const handleDiff = () => {
-    runGrokAction(`/grok/changes/diff?source=${activeSource}`, 'Analisi Differenze', (d) => {
-      const exp = d.explanation || 'Nessun cambiamento rilevato.';
-      return `${exp} (${d.changes?.length || 0} modifiche evidenziate a video)`;
-    });
-  };
-
-  const handleReset = () => {
-    runGrokAction(`/grok/reset?source=${activeSource}`, 'Reset Memoria', () => 'Memoria resettata e YOLO-World ripristinato alle classi base.');
+    runGrokAction(`/grok/describe?source=${activeSource}`, 'Describe', (d) => d.description || 'Nothing to describe.');
   };
 
   // microphone alongside a url camera: browser MediaRecorder, or expo-audio on a phone / tablet
@@ -282,7 +225,6 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
   }));
 
   // Cerca se esiste una fotocamera con visione per la webcam del PC
-  const webcamVisionCam = cameras.find((c) => c.id === 'vision-webcam');
 
   return (
     <View style={s.card}>
@@ -312,25 +254,6 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
           label={enabled ? 'Turn camera off' : 'Turn camera on'}
         />
       </View>
-
-      {/* Badges stato modelli (attivi sia per Arm vision che per Webcam vision) */}
-      {enabled && (
-        <ScrollView horizontal style={s.modelsRow} showsHorizontalScrollIndicator={false} contentContainerStyle={s.modelsContent}>
-          <Pill label="Custom ONNX (Pezzi & Mani)" tone="ok" dot />
-          <Pill
-            label={`YOLO-World (${models?.yolo_classes_count ?? 88} classi)`}
-            tone={models?.yolo_world_active ? 'ok' : 'neutral'}
-            dot
-          />
-          <Pill
-            label={models?.grok_active ? 'Grok Multimodale' : 'Grok Vision'}
-            tone={models?.grok_active ? 'accent' : 'neutral'}
-            dot
-          />
-          {models?.reference_frame_set && <Pill label="Rif. Salvato" tone="warn" dot />}
-          {isVisionCam && <Pill label={`Sorgente: ${activeSource.toUpperCase()}`} tone="neutral" />}
-        </ScrollView>
-      )}
 
       {enabled && (
         <>
@@ -409,90 +332,19 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
                 label="Flip camera"
               />
             )}
-          </View>
-
-          {/* Banner su Tablet per passare a Webcam Vision o attivare overlay bounding box */}
-          {!cam.url && (
-            <View style={s.tabletBanner}>
-              {webcamVisionCam ? (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  icon="videocam-outline"
-                  label="Passa a Webcam Vision (Stream Bounding Box)"
-                  onPress={() => setCam(webcamVisionCam)}
-                />
-              ) : null}
-              <Button
-                size="sm"
-                variant={tabletOverlay ? 'primary' : 'secondary'}
+            {!cam.url && (
+              <IconButton
                 icon="scan-outline"
-                label={tabletOverlay ? 'Disattiva Bounding Box Live' : 'Attiva Bounding Box Live'}
+                size={32}
                 onPress={() => setTabletOverlay(!tabletOverlay)}
+                color={tabletOverlay ? c.accent : undefined}
+                style={s.boxes}
+                label={tabletOverlay ? 'Hide object boxes' : 'Show object boxes'}
               />
-            </View>
-          )}
-
-          {/* Barra Strumenti Grok Vision (disponibile per qualunque sorgente attiva) */}
-          <View style={s.grokSection}>
-            <View style={s.grokHeader}>
-              <Ionicons name="sparkles" size={14} color={c.accent} />
-              <Text style={s.grokTitle}>Grok Multimodale & YOLO ({activeSource.toUpperCase()})</Text>
-              {grokBusy && <ActivityIndicator size="small" color={c.accent} style={{ marginLeft: 6 }} />}
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.grokActions}>
-              <Button
-                size="sm"
-                variant="secondary"
-                icon="scan-outline"
-                label="Grok Detect"
-                loading={grokBusy === 'Grok Detect'}
-                onPress={handleGrokDetect}
-              />
-              <Button
-                size="sm"
-                variant="secondary"
-                icon="chatbubble-ellipses-outline"
-                label="Descrivi Scena"
-                loading={grokBusy === 'Descrizione Scena'}
-                onPress={handleGrokDescribe}
-              />
-              <Button
-                size="sm"
-                variant="secondary"
-                icon="pricetag-outline"
-                label="Rinomina Oggetti"
-                loading={grokBusy === 'Rinomina Oggetti'}
-                onPress={handleGrokName}
-              />
-              <Button
-                size="sm"
-                variant="secondary"
-                icon="camera-outline"
-                label="Salva Rif."
-                loading={grokBusy === 'Salva Riferimento'}
-                onPress={handleSaveRef}
-              />
-              <Button
-                size="sm"
-                variant="secondary"
-                icon="git-compare-outline"
-                label="Differenze"
-                loading={grokBusy === 'Analisi Differenze'}
-                onPress={handleDiff}
-              />
-              <Button
-                size="sm"
-                variant="ghost"
-                icon="refresh-outline"
-                label="Reset"
-                loading={grokBusy === 'Reset Memoria'}
-                onPress={handleReset}
-              />
-            </ScrollView>
+            )}
           </View>
 
-          {/* Box Risultato Grok */}
+          {/* what Find objects / Describe returned */}
           {grokResult && (
             <View style={[s.resultBox, { borderColor: grokResult.tone === 'bad' ? c.bad : c.accent }]}>
               <View style={s.resultHeader}>
@@ -528,6 +380,24 @@ const CameraPanel = forwardRef<CameraHandle, Props>(function CameraPanel(
               <Ionicons name={watching ? 'radio' : 'radio-outline'} size={16} color={watching ? c.accentInk : c.dim} />
               <Text style={[s.watchText, { color: watching ? c.accentInk : c.dim }]}>Live</Text>
             </Pressable>
+            {!!env.visionServer && (
+              <>
+                <IconButton
+                  icon={grokBusy === 'Find objects' ? 'hourglass-outline' : 'search-outline'}
+                  size={40}
+                  onPress={handleGrokDetect}
+                  disabled={!!grokBusy}
+                  label="Find objects"
+                />
+                <IconButton
+                  icon={grokBusy === 'Describe' ? 'hourglass-outline' : 'chatbubble-ellipses-outline'}
+                  size={40}
+                  onPress={handleGrokDescribe}
+                  disabled={!!grokBusy}
+                  label="Describe what the camera sees"
+                />
+              </>
+            )}
           </View>
         </>
       )}
@@ -735,6 +605,7 @@ const makeStyles = (c: Colors) =>
     muted: { ...type.caption, fontSize: 12, color: c.faint },
     live: { position: 'absolute', top: 10, left: 10 },
     flip: { position: 'absolute', top: 8, right: 8 },
+    boxes: { position: 'absolute', top: 8, right: 48 },
     actions: { flexDirection: 'row', gap: 8, alignItems: 'stretch' },
     watch: {
       flexDirection: 'row',

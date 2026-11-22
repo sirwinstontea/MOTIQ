@@ -33,7 +33,6 @@ export default function History({ items, onRun, onPin, onRemove }: Props) {
       <View style={s.head}>
         <View style={{ flex: 1 }}>
           <Text style={s.title}>History</Text>
-          <Text style={s.sub}>Everything you asked. Tap one to send it again.</Text>
         </View>
       </View>
 
