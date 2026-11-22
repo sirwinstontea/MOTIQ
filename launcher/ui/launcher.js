@@ -42,9 +42,11 @@ function sidebar(route) {
 const arrow = (dir, act, disabled) => `<button class="ml-arrow${dir === 'next' ? ' ml-arrow--next' : ''}" data-act="${act}"
   aria-label="${dir === 'next' ? 'Next' : 'Back'}" ${disabled ? 'disabled' : ''}>${svg(dir)}</button>`;
 
+const runsOn = () => (S.cfg.mode === 'app' ? 'In-app demo' : S.st?.plan?.real_arm ? 'RoboDK + real arm' : 'RoboDK');
+
 function chip() {
   const robot = robotName(S.cfg, S.det);
-  const badge = { app: 'in-app sim', sim: 'sim', robodk: 'RoboDK', real: 'real arm' }[S.cfg.mode];
+  const badge = runsOn();
   const running = S.st?.running;
   const color = running ? 'var(--success)' : 'var(--ink-3)';
   return `<span class="gk-chip"><span class="oc-dot" style="color:${color}"></span>${esc(robot)} <em>${badge}</em></span>`;
@@ -85,7 +87,9 @@ function questionBody(q) {
   if (q.kind === 'choice' || q.kind === 'select') {
     const opts = q.options(c, S.det);
     const grid = q.kind === 'select' ? ' style="display:grid;grid-template-columns:1fr 1fr;gap:2px"' : '';
-    return `<div class="oc-list ml-choices" role="radiogroup"${grid}>${opts.map((o) => choiceRow(o, o.value === v)).join('')}</div>`;
+    const list = opts.length ? `<div class="oc-list ml-choices" role="radiogroup"${grid}>${opts.map((o) => choiceRow(o, o.value === v)).join('')}</div>`
+      : `<p class="ml-faint">${esc(q.empty || 'Nothing found.')}</p>`;
+    return list + (q.refresh ? `<button class="ml-link" data-act="rescan">${S.scanning ? 'Looking…' : 'Refresh'}</button>` : '');
   }
   if (q.kind === 'text' || q.kind === 'secret' || q.kind === 'file') {
     const type = q.kind === 'secret' ? 'password' : 'text';
@@ -102,6 +106,13 @@ function questionBody(q) {
     return `<div class="ml-twocol">
       <div class="ml-field"><label for="mass">Weight</label><div class="ml-unit"><input id="mass" class="oc-input" inputmode="decimal" placeholder="optional" value="${esc(g.mass_kg ?? '')}"><span>kg</span></div></div>
       <div class="ml-field"><label for="tcp">Length</label><div class="ml-unit"><input id="tcp" class="oc-input" inputmode="decimal" placeholder="optional" value="${esc(g.tcp_mm ?? '')}"><span>mm</span></div></div></div>`;
+  }
+  if (q.kind === 'robodk') {
+    const ins = S.det.robodk_install || { state: 'idle' };
+    if (S.det.robodk) return `<div class="ml-note ok">${svg('check')}<span>RoboDK is installed.</span></div>`;
+    const busy = ins.state === 'downloading' || ins.state === 'installing';
+    return `<button class="oc-btn oc-btn--primary oc-btn--lg ml-yes" data-act="robodk" ${busy ? 'disabled' : ''}>${busy ? 'Installing…' : ins.state === 'failed' ? 'Try again' : 'Yes, install it'}</button>
+      ${ins.message ? `<p class="ml-faint">${esc(ins.message)}</p>` : ''}`;
   }
   if (q.kind === 'confirm') {
     return `<div class="oc-list">${q.items.map((t, i) => `<div class="ml-toggle-row"><span class="oc-li__icon">${svg('shield')}</span>
@@ -144,7 +155,7 @@ function bindInputs(q) {
   };
   const f = $('f');
   if (f && q.kind === 'range') {
-    f.oninput = () => { q.set(c, f.value); f.style.setProperty('--v', `${((f.value - q.min) / (q.max - q.min)) * 100}%`); $('rv').textContent = `${f.value}%`; };
+    f.oninput = () => { q.set(c, f.value); f.style.setProperty('--v', `${((f.value - q.min) / (q.max - q.min)) * 100}%`); $('rv').textContent = `${f.value}%`; Anim.bump($('rv')); };
   } else if (f) f.oninput = () => { q.set(c, f.value); recheck(); };
   const num = (el, key) => { if (el) el.oninput = () => { const t = el.value.trim().replace(',', '.'); c.gripper[key] = t === '' ? null : Number(t); recheck(); }; };
   num($('mass'), 'mass_kg');
@@ -154,7 +165,8 @@ function bindInputs(q) {
 function renderSummary() {
   const qs = visible();
   S.reached = qs.length;
-  const size = S.cfg.mode !== 'app' ? 'About 3 GB download.' : 'About 500 MB download.';
+  const size = (S.cfg.mode !== 'app' ? 'About 3 GB download.' : 'About 500 MB download.')
+    + (S.cfg.mode !== 'app' && !S.det.robodk ? ' Needs RoboDK (robodk.com).' : '');
   $('screen').innerHTML = `<div class="ml-inner ml-q">
     <h1 class="gk-h1">Ready</h1>
     <div class="oc-list ml-review">${qs.map((q) => `<button class="oc-li ml-review-row" data-go="#q/${q.id}">
@@ -229,7 +241,7 @@ function renderHome() {
   }).join('') : `<div class="oc-li"><div class="oc-li__main oc-faint" style="font-size:12px">Nothing is running. Press Start.</div></div>`;
   const kv = (k, v) => `<div class="gk-kv"><span>${esc(k)}</span><b title="${esc(v)}">${esc(v)}</b></div>`;
   const q = (id) => QUESTIONS.find((x) => x.id === id);
-  const setup = [kv('Robot', robotName(S.cfg, S.det)), kv('Runs as', q('mode').summary(S.cfg)),
+  const setup = [kv('Robot', robotName(S.cfg, S.det)), kv('Runs on', runsOn()),
     ...(S.cfg.mode !== 'app' ? [kv('Camera', q('camera').summary(S.cfg, S.det)), kv('Speed limit', `${S.cfg.speed_percent}%`)] : []),
     kv('AI', q('ai').summary(S.cfg))].join('');
   const phone = st.running && st.phone_url ? `<div class="oc-card"><div class="ml-card-head"><h3 class="oc-card__title">Open on your phone</h3></div>
@@ -241,7 +253,7 @@ function renderHome() {
   const err = st.job && st.job.state === 'failed' ? `<div class="ml-error"><div class="oc-card__title">Last start failed</div>
     <div style="font-size:13px;color:var(--ink-2)">${esc(st.job.error.split('\n')[0])}</div></div>` : '';
   $('screen').innerHTML = `<div class="ml-inner" style="max-width:820px">
-    <h1 class="gk-h1">${title}</h1><p class="gk-sub">${esc(robotName(S.cfg, S.det))} · ${esc(q('mode').summary(S.cfg))}</p>
+    <h1 class="gk-h1">${title}</h1><p class="gk-sub">${esc(robotName(S.cfg, S.det))} · ${esc(runsOn())}</p>
     ${demo}${err}
     <div class="ml-home-grid"><div class="oc-card"><div class="ml-card-head"><h3 class="oc-card__title">Services</h3></div>
       <div class="ml-svc">${services}</div></div>
@@ -259,7 +271,7 @@ function renderHome() {
 }
 
 const GROUPS = [['Robot', ['robot', 'mode', 'robot_ip', 'ur_jog', 'real_ack', 'gripper', 'tool_size', 'speed']],
-  ['Camera', ['camera', 'camera_mount']], ['Voice and AI', ['ai', 'key', 'language']], ['Device', ['client']]];
+  ['Camera', ['camera', 'camera_pick']], ['Voice and AI', ['ai', 'key', 'language']], ['Device', ['client']]];
 
 function renderSettings() {
   const vis = visible();
@@ -308,6 +320,14 @@ function render() {
   else if (r.name === 'settings') renderSettings();
   else if (r.name === 'home') renderHome();
   else renderWelcome();
+  Anim.after(r, order(r));
+}
+
+/* position of a screen in the wizard, so animations know whether you went forward or back */
+function order(r) {
+  if (r.name === 'welcome') return 0;
+  if (r.name === 'q') return 1 + Math.max(0, visible().findIndex((q) => q.id === r.id));
+  return { summary: 100, install: 101, home: 102, settings: 103, edit: 104 }[r.name] || 0;
 }
 
 function step(dir) {
@@ -337,9 +357,11 @@ async function act(name) {
   } else if (name === 'stop') { await api('/api/stop'); await refresh(); render(); }
   else if (name === 'open') api('/api/open');
   else if (name === 'quit') { await api('/api/quit'); window.close(); }
-  else if (name === 'finish' || name === 'redo') { S.cfg.demo = false; if (S.cfg.mode === 'app' && name === 'finish') S.cfg.mode = 'sim'; S.reached = 0; go(`#q/${visible()[0].id}`); }
+  else if (name === 'finish' || name === 'redo') { S.cfg.demo = false; if (S.cfg.mode === 'app' && name === 'finish') S.cfg.mode = 'robodk'; S.reached = 0; go(`#q/${visible()[0].id}`); }
   else if (name === 'log') { S.showLog = !S.showLog; render(); }
   else if (name === 'answers') go('#summary');
+  else if (name === 'rescan') { S.scanning = true; render(); await refresh(true); S.scanning = false; render(); }
+  else if (name === 'robodk') { await api('/api/robodk', {}); await refresh(); render(); }
   else if (name === 'home') go('#home');
   else if (name === 'browse') {
     const res = await api('/api/browse', { title: 'Choose ur_jog.py' });
@@ -356,7 +378,7 @@ document.addEventListener('click', (e) => {
   else if (t.dataset.act) act(t.dataset.act);
   else if (t.dataset.pick !== undefined) {
     const q = QUESTIONS.find((x) => x.id === route().id);
-    q.set(S.cfg, t.dataset.pick);
+    q.set(S.cfg, t.dataset.pick, S.det);
     const scroll = $('screen').scrollTop;
     render();
     $('screen').scrollTop = scroll;
@@ -387,7 +409,7 @@ async function poll() {
   try {
     await refresh();
     const r = route().name;
-    if (r === 'install' || r === 'home') {
+    if (r === 'install' || r === 'home' || ((r === 'q' || r === 'edit') && route().id === 'robodk')) {
       if (r === 'install' && S.st.job && S.st.job.state === 'done') setTimeout(() => go('#home'), 1200);
       render();
     }

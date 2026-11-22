@@ -28,6 +28,17 @@ button{font-family:var(--font-sans)}
 .ml-arrow:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .ml-actions .ml-err{text-align:center;font-size:12px;color:var(--ink-3)}
 .ml-wizard .ml-actions .oc-btn--primary{height:48px;border-radius:999px;padding:0 26px}
+.ml-yes{border-radius:999px}
+
+/* animations (anim.js): gliding selection highlight, smooth progress bar */
+.ml-choices{position:relative}
+.ml-choices .ml-choice{position:relative;z-index:1}
+.ml-ind{position:absolute;z-index:0;border-radius:var(--radius-md);background:var(--accent-soft);pointer-events:none;will-change:transform}
+.ml-choices.has-ind .ml-choice[aria-checked=true]{background:transparent}
+.ml-choices.has-ind .ml-choice[aria-checked=true]:hover{background:transparent}
+.ml-progress > i{transition:width .5s cubic-bezier(.22,1,.36,1)}
+.ml-word{display:inline-block}
+#rv{display:inline-block}
 .ml-faint{font-size:12px;color:var(--ink-3);margin:14px 0 0}
 
 /* review rows: the whole row opens that question */

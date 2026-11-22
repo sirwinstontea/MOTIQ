@@ -37,15 +37,14 @@ const I = {
 };
 const svg = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${I[name] || I.info}</svg>`;
 
+/* every setup runs on RoboDK; 'real' adds the UR arm whenever it is switched on and reachable */
 const MODES = {
-  app: { title: 'Just the app', sub: 'Quickest. Nothing else runs.', icon: 'sim' },
-  sim: { title: 'Simulation', sub: 'Full stack, simulated arm.', icon: 'cube' },
-  robodk: { title: 'RoboDK', sub: 'Simulated arm in 3D.', icon: 'cube' },
-  real: { title: 'Real arm', sub: 'Moves your UR arm.', icon: 'bolt' },
+  robodk: { title: 'No, RoboDK only', icon: 'cube' },
+  real: { title: 'Yes, a UR arm', sub: 'Used when it is connected.', icon: 'bolt' },
+  app: { title: 'In-app demo', icon: 'sim' },
 };
 const AIS = {
   xai: { title: 'xAI', sub: 'Voice and vision.', icon: 'key' },
-  openrouter: { title: 'OpenRouter', sub: 'Vision only.', icon: 'globe' },
   none: { title: 'No key yet', sub: 'Runs offline.', icon: 'none' },
 };
 const GRIPPERS = {
@@ -68,18 +67,25 @@ const isApp = (c) => c.mode === 'app';
 const webcams = (d) => (d.cameras || []).filter((c) => !c.realsense);
 const robotName = (c, d) => ((d.robots || []).find((r) => r.id === c.robot) || {}).name || c.robot;
 
-function cameraOptions(c, d) {
-  const rs = (d.cameras || []).find((x) => x.realsense);
-  const opts = [
-    { value: 'auto', title: 'Automatic', icon: 'auto' },
-    { value: 'realsense', title: 'Intel RealSense', sub: rs ? 'Found' : '', icon: 'depth' },
-  ];
-  webcams(d).forEach((w, i) => opts.push({ value: `webcam:${i}`, title: w.name, icon: 'cam' }));
-  if (!webcams(d).length) opts.push({ value: 'webcam:0', title: 'Webcam', icon: 'cam' });
-  opts.push({ value: 'none', title: 'No camera', icon: 'none' });
-  return opts;
+/* cameras: "this computer's camera" (the built-in one) or "connect a camera" (any other one: USB webcam,
+   Intel RealSense, ...). Webcam device numbers are the position among the non-RealSense cameras. */
+const BUILTIN = /integrated|built-?in|hd (web)?cam|facetime|truevision|front|laptop|user.?facing/i;
+function localCam(d) {
+  const w = webcams(d);
+  const i = Math.max(0, w.findIndex((x) => BUILTIN.test(x.name)));
+  return w.length ? { device: String(i), name: w[i].name } : null;
+}
+function externalCams(d) {
+  const local = localCam(d);
+  const out = [];
+  (d.cameras || []).filter((x) => x.realsense).forEach((x) => out.push({ value: 'realsense', title: x.name, icon: 'depth' }));
+  webcams(d).forEach((w, i) => { if (!local || String(i) !== local.device) out.push({ value: `webcam:${i}`, title: w.name, icon: 'cam' }); });
+  return out;
 }
 const cameraValue = (c) => (c.camera.type === 'webcam' ? `webcam:${c.camera.device || 0}` : c.camera.type);
+const setCamera = (c, v) => {
+  if (v.startsWith('webcam:')) { c.camera.type = 'webcam'; c.camera.device = v.split(':')[1]; } else c.camera.type = v;
+};
 
 const QUESTIONS = [
   {
@@ -89,19 +95,23 @@ const QUESTIONS = [
       sub: [r.dof && `${r.dof} axes`, r.nominal_reach_m && `${Math.round(r.nominal_reach_m * 1000)} mm`,
         r.nominal_payload_kg && `${r.nominal_payload_kg} kg`].filter(Boolean).join(' · '),
     })),
-    get: (c) => c.robot, set: (c, v) => { c.robot = v; },
+    get: (c) => c.robot,
+    set: (c, v) => { c.robot = v; if (c.mode !== 'app' && !v.startsWith('ur_')) c.mode = 'robodk'; },
     summary: (c, d) => robotName(c, d),
   },
   {
-    id: 'mode', nav: 'How it runs', title: 'How should it run?', kind: 'choice', show: () => true,
-    options: (c, d) => Object.entries(MODES).map(([v, m]) => ({
-      value: v, ...m,
-      ...(v === 'robodk' && !d.robodk ? { sub: 'Not installed.' } : {}),
-      ...(v === 'real' && !String(c.robot).startsWith('ur_') ? { disabled: true, sub: 'UR arms only.' } : {}),
-    })),
-    get: (c) => c.mode, set: (c, v) => { c.mode = v; },
-    valid: (c, d) => (c.mode === 'robodk' && !d.robodk ? 'Install RoboDK first' : ''),
-    summary: (c) => MODES[c.mode].title,
+    /* MOTIQ runs on RoboDK: offer to install it when it is missing (stays visible while/after installing) */
+    id: 'robodk', nav: 'RoboDK', title: 'Install RoboDK?', kind: 'robodk',
+    show: (c, d) => !isApp(c) && (!d.robodk || ((d.robodk_install || {}).state || 'idle') !== 'idle'),
+    get: () => '', set: () => {},
+    summary: (c, d) => (d.robodk ? 'Installed' : 'Not installed'),
+  },
+  {
+    id: 'mode', nav: 'Real arm', title: 'Do you have the real arm?', kind: 'choice',
+    show: (c) => String(c.robot).startsWith('ur_'),   // only UR arms have a real-arm driver
+    options: () => ['robodk', 'real'].map((v) => ({ value: v, ...MODES[v] })),
+    get: (c) => (c.mode === 'real' ? 'real' : 'robodk'), set: (c, v) => { c.mode = v; },
+    summary: (c) => (c.mode === 'real' ? 'Yes, used when connected' : 'No, RoboDK only'),
   },
   {
     id: 'robot_ip', nav: 'Robot address', title: "Robot's IP address", kind: 'text',
@@ -144,19 +154,37 @@ const QUESTIONS = [
       c.gripper.tcp_mm ? `${c.gripper.tcp_mm} mm` : 'length unknown'].join(' · '),
   },
   {
-    id: 'camera', nav: 'Camera', title: 'Which camera?', kind: 'choice',
-    show: (c) => !isApp(c), options: cameraOptions, get: cameraValue,
-    set: (c, v) => {
-      if (v.startsWith('webcam:')) { c.camera.type = 'webcam'; c.camera.device = v.split(':')[1]; } else c.camera.type = v;
+    id: 'camera', nav: 'Camera', title: 'Which camera?', kind: 'choice', show: (c) => !isApp(c),
+    options: (c, d) => {
+      const local = localCam(d);
+      return [
+        { value: 'external', title: 'Connect a camera', sub: 'USB camera, Intel RealSense, …', icon: 'plus' },
+        { value: 'local', title: "This computer's camera", sub: local ? local.name : 'None found.', icon: 'cam', disabled: !local },
+      ];
     },
-    summary: (c, d) => {
-      const o = cameraOptions(c, d).find((x) => x.value === cameraValue(c));
-      return o ? o.title : c.camera.type;
+    get: (c) => c.camera.source || '',
+    set: (c, v, d) => {
+      c.camera.source = v;
+      if (v === 'local') { const l = localCam(d || {}); if (l) setCamera(c, `webcam:${l.device}`); }
+      else if (c.camera.type === 'auto' || c.camera.type === 'none') c.camera.type = '';
     },
+    valid: (c) => (c.camera.source ? '' : 'Pick one'),
+    summary: (c, d) => (c.camera.source === 'local' ? "This computer's camera"
+      : ((externalCams(d).find((x) => x.value === cameraValue(c)) || {}).title || 'Connect a camera')),
+  },
+  {
+    id: 'camera_pick', nav: 'Your camera', title: 'Plug in your camera', kind: 'choice',
+    show: (c) => !isApp(c) && c.camera.source === 'external',
+    options: (c, d) => externalCams(d),
+    empty: 'No camera found yet. Plug it in, then refresh.',
+    refresh: true,
+    get: cameraValue, set: (c, v) => setCamera(c, v),
+    valid: (c, d) => (externalCams(d).some((x) => x.value === cameraValue(c)) ? '' : 'Pick your camera'),
+    summary: (c, d) => (externalCams(d).find((x) => x.value === cameraValue(c)) || {}).title || 'not connected',
   },
   {
     id: 'camera_mount', nav: 'Camera position', title: 'Where is the camera?', kind: 'choice',
-    show: (c) => !isApp(c) && c.camera.type !== 'none',
+    show: () => false,   // not asked: MOTIQ uses the default (fixed camera); still in config.json if ever needed
     options: () => [
       { value: 'cell', title: 'Above the table', icon: 'table' },
       { value: 'arm', title: 'On the arm', icon: 'wrist' },
@@ -168,12 +196,12 @@ const QUESTIONS = [
     id: 'ai', nav: 'AI key', title: 'Which AI key?', kind: 'choice', show: () => true,
     options: () => Object.entries(AIS).map(([v, a]) => ({ value: v, ...a })),
     get: (c) => c.ai.provider, set: (c, v) => { c.ai.provider = v; },
-    summary: (c) => AIS[c.ai.provider].title + (c.ai.key ? ' · added' : ''),
+    summary: (c) => (AIS[c.ai.provider] || AIS.xai).title + (c.ai.key ? ' · added' : ''),
   },
   {
     id: 'key', nav: 'Paste key', title: 'Paste your key', kind: 'secret',
     show: (c) => c.ai.provider !== 'none',
-    placeholder: (c) => (c.ai.provider === 'xai' ? 'xai-…' : 'sk-or-…'),
+    placeholder: () => 'xai-…',
     get: (c) => c.ai.key, set: (c, v) => { c.ai.key = v.trim(); },
     valid: (c) => (c.ai.key && c.ai.key.length > 10 ? '' : 'Paste the whole key'),
     later: (c) => { c.ai.provider = 'none'; c.ai.key = ''; },

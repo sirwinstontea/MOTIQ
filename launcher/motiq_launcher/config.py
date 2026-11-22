@@ -13,12 +13,12 @@ DEFAULTS: dict = {
     "configured": False,
     "demo": False,
     "robot": "ur_ur5e",                 # robot-chooser catalog id
-    "mode": "sim",                      # app | sim | robodk | real
+    "mode": "robodk",                   # app (demo) | robodk | real (= RoboDK, plus the UR arm whenever it is reachable)
     "robot_ip": "",                     # real mode: the UR's IP (URScript port 30002)
     "ur_jog": "",                       # real mode: path to ur_jog.py (the physical UR driver, not in the repo)
     "real_ack": False,                  # real mode: operator confirmed E-stop / safety config
     "gripper": {"kind": "rigid", "mass_kg": None, "tcp_mm": None},
-    "camera": {"type": "auto", "device": "0", "mount": "cell"},
+    "camera": {"source": "", "type": "auto", "device": "0", "mount": "cell"},   # source: external | local
     "ai": {"provider": "xai", "key": ""},   # xai | openrouter | none
     "language": "",                     # BCP-47 hint for speech recognition, "" = auto-detect
     "client": "pc",                     # pc | phone | both
@@ -79,17 +79,26 @@ def lan_ip() -> str:
         s.close()
 
 
-def plan(cfg: dict, robodk_found: bool = False) -> dict:
-    """What a config turns into: which services run, on which backend, reachable at which address."""
+def arm_reachable(ip: str, port: int = 30002, timeout: float = 1.5) -> bool:
+    """True when the UR controller answers on its URScript port, i.e. the real arm is switched on and connected."""
+    if not ip:
+        return False
+    try:
+        with socket.create_connection((ip, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def plan(cfg: dict, robodk_found: bool = False, probe: bool = True) -> dict:
+    """What a config turns into: which services run, on which backend, reachable at which address.
+    Every non-demo setup runs on RoboDK; a configured real arm is added on top whenever it is reachable."""
     mode = cfg["mode"]
     phone = cfg["client"] in ("phone", "both")
     host = lan_ip() if phone else "127.0.0.1"
-    if mode == "robodk":
-        backend = "robodk_sim"
-    elif mode == "real":
-        backend = "robodk_sim" if robodk_found else "mock"
-    else:
-        backend = "mock"
+    backend = "mock" if mode == "app" else "robodk_sim"
+    real_arm = (mode == "real" and bool(cfg.get("real_ack")) and bool(cfg.get("ur_jog"))
+                and probe and arm_reachable(cfg.get("robot_ip") or ""))
     services = ["expo"]
     if mode != "app":
         services = ["chooser", "vision", "teach", "controller", "bridge", "expo"]
@@ -102,6 +111,6 @@ def plan(cfg: dict, robodk_found: bool = False) -> dict:
         "host": host,                                  # what the app uses to reach the services
         "bind": "0.0.0.0" if phone else "127.0.0.1",   # where the services listen
         "vision_mode": {"none": "synthetic"}.get(cam, cam),
-        "real_arm": mode == "real",
+        "real_arm": real_arm,
         "robodk": backend == "robodk_sim",
     }

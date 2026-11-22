@@ -175,8 +175,8 @@ class Stack:
     def _start_robodk(self, log) -> None:
         exe = detect.robodk()
         if not exe:
-            raise RuntimeError("RoboDK was selected but isn't installed. Install it from robodk.com or pick "
-                               "'Simulation on this PC' in Settings.")
+            raise RuntimeError("MOTIQ runs on RoboDK, which isn't installed. Install it from robodk.com, "
+                               "then press Try again.")
         if not port_open(20500):
             log("starting RoboDK")
             subprocess.Popen([exe], cwd=str(paths.RC), creationflags=NO_WINDOW if paths.WIN else 0)

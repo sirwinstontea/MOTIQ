@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from . import config, configure, detect, paths, provision, window
+from .robodk_setup import RoboDKInstall
 from .stack import Stack
 
 VERSION = "1.0.0"
@@ -21,6 +22,7 @@ class Launcher:
     def __init__(self):
         self.stack = Stack()
         self.job: provision.Job | None = None
+        self.robodk = RoboDKInstall()
         self.detected: dict = {}
         self.detected_at = 0.0
         self.last_seen = time.time()
@@ -36,7 +38,11 @@ class Launcher:
     def state(self, refresh: bool = False) -> dict:
         cfg = config.load()
         det = self.detect(refresh)
-        plan = config.plan(cfg, bool(det.get("robodk")))
+        if self.robodk.state != "idle":      # cheap re-check while RoboDK is being installed
+            det["robodk"] = detect.robodk()
+        det["robodk_install"] = self.robodk.snapshot()
+        plan = config.plan(cfg, bool(det.get("robodk")), probe=False)   # polled often: no network probe here
+        plan["real_arm"] = bool(self.stack.running() and self.stack.plan.get("real_arm"))
         return {"version": VERSION, "config": cfg, "detected": det, "plan": plan,
                 "job": self.job.snapshot() if self.job else None,
                 "running": self.stack.running(), "services": self.stack.status(),
@@ -172,6 +178,8 @@ def make_handler(launcher: Launcher):
             if p == "/api/open":
                 window.open_app(launcher.stack.app_url or f"http://localhost:{config.load()['ports']['expo']}")
                 return self._json({"ok": True})
+            if p == "/api/robodk":
+                return self._json(launcher.robodk.start())
             if p == "/api/browse":
                 return self._json({"path": browse_file(b.get("title") or "Choose a file")})
             if p == "/api/quit":
