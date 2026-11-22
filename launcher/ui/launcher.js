@@ -333,6 +333,7 @@ function render() {
   else if (r.name === 'teach') renderTeach();
   else renderWelcome();
   Anim.after(r, order(r));
+  Busy.sync(r);
 }
 
 /* position of a screen in the wizard, so animations know whether you went forward or back */

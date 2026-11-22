@@ -39,6 +39,31 @@ button{font-family:var(--font-sans)}
 .ml-progress > i{transition:width .5s cubic-bezier(.22,1,.36,1)}
 .ml-word{display:inline-block}
 
+/* full-screen installing overlay (busy.js) */
+.ml-busy{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:32px 16px;text-align:center;background:var(--bg-100);opacity:0;transition:opacity .35s cubic-bezier(.22,1,.36,1)}
+.ml-busy.on{opacity:1}
+.ml-busy__art{position:relative;width:168px;height:168px;margin-bottom:36px}
+.ml-busy__ring{position:absolute;inset:0;border-radius:50%;border:2px solid var(--accent);opacity:0;animation:ml-ripple 3s cubic-bezier(.22,1,.36,1) infinite}
+.ml-busy__ring.r2{animation-delay:1s}
+.ml-busy__ring.r3{animation-delay:2s}
+.ml-busy__arc{position:absolute;inset:22px;border-radius:50%;border:3px solid var(--bg-300);border-top-color:var(--accent);animation:ml-spin 1.1s linear infinite}
+.ml-busy__core{position:absolute;inset:52px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 8px var(--accent-soft);animation:ml-pulse 2.2s ease-in-out infinite}
+.ml-busy__title{font:600 26px/1.2 var(--font-sans);letter-spacing:-.02em;margin:0 0 8px}
+.ml-busy__step{font-size:15px;color:var(--ink-2);margin:0 0 20px;min-height:1.4em;max-width:520px}
+.ml-busy__bar{position:relative;width:min(420px,100%);height:6px;border-radius:999px;background:var(--bg-300);overflow:hidden}
+.ml-busy__bar i{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:var(--accent);transition:width .8s cubic-bezier(.22,1,.36,1);overflow:hidden}
+.ml-busy__bar i::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.45),transparent);animation:ml-shimmer 1.6s linear infinite}
+.ml-busy__meta{font:500 12px var(--font-mono);color:var(--ink-3);margin:12px 0 0}
+.ml-busy__log{font:500 11px var(--font-mono);color:var(--ink-3);opacity:.75;margin:6px 0 0;max-width:560px;min-height:1.4em;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.ml-busy__hint{font-size:12px;color:var(--ink-3);max-width:420px;margin:28px 0 0}
+.ml-busy__cancel{margin-top:10px}
+@keyframes ml-ripple{0%{transform:scale(.45);opacity:.55}100%{transform:scale(1);opacity:0}}
+@keyframes ml-spin{to{transform:rotate(360deg)}}
+@keyframes ml-pulse{0%,100%{transform:scale(1)}50%{transform:scale(.88)}}
+@keyframes ml-shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+@media (prefers-reduced-motion:reduce){.ml-busy__ring,.ml-busy__core,.ml-busy__bar i::after{animation:none}.ml-busy__arc{animation-duration:3s}}
+
 /* teach your objects */
 .ml-add{margin-top:14px;border-radius:999px}
 .ml-add svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2}
