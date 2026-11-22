@@ -95,15 +95,21 @@ print(json.dumps({"status": rep.get("status"), "label": rep.get("label"), "notes
 """
 
 
+PLACEHOLDER_MASS_KG = 1.0       # the repo's own placeholders for an unmeasured tool (robot-chooser/hardware.yaml)
+PLACEHOLDER_TCP_M = 0.15
+
+
 def tool_patch(cfg: dict) -> dict:
     g = cfg["gripper"]
     kind = g.get("kind") or "rigid"
     spec: dict = {"kind": kind, "actuated": False, "sim_gripper": "symbolic"}   # no real gripper driver exists yet
-    if g.get("mass_kg") not in (None, ""):
-        spec["mass_kg"] = float(g["mass_kg"])
-    if g.get("tcp_mm") not in (None, ""):
-        spec["tcp_offset_m_rad"] = [0.0, 0.0, round(float(g["tcp_mm"]) / 1000.0, 4), 0.0, 0.0, 0.0]
-    measured = "mass_kg" in spec and "tcp_offset_m_rad" in spec
+    # robot-chooser merges this into hardware.yaml, so a blank answer must write the placeholder explicitly,
+    # otherwise a value from an earlier setup (e.g. 6.7 kg) silently stays and can block the arm's payload check
+    has_mass, has_tcp = g.get("mass_kg") not in (None, ""), g.get("tcp_mm") not in (None, "")
+    spec["mass_kg"] = float(g["mass_kg"]) if has_mass else PLACEHOLDER_MASS_KG
+    tcp = round(float(g["tcp_mm"]) / 1000.0, 4) if has_tcp else PLACEHOLDER_TCP_M
+    spec["tcp_offset_m_rad"] = [0.0, 0.0, tcp, 0.0, 0.0, 0.0]
+    measured = has_mass and has_tcp
     names = {"rigid": "Fixed tool (non-actuated)", "parallel": "Parallel gripper", "vacuum": "Vacuum gripper",
              "magnetic": "Magnetic gripper", "angular": "Angular gripper", "other": "Custom tool"}
     return {"name": names.get(kind, "Tool"), "spec": spec, "status": "measured" if measured else "placeholder"}
