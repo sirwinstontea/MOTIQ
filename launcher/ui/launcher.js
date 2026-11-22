@@ -31,7 +31,7 @@ const invalid = (q) => (q.valid ? q.valid(S.cfg, S.det) : '');
 const go = (h) => { if (location.hash === h) render(); else location.hash = h; };
 
 /* ------------------------------------------------------------------ chrome */
-const WIZARD = ['welcome', 'q', 'summary', 'install'];
+const WIZARD = ['welcome', 'q', 'summary', 'install', 'objects', 'teach'];
 
 function sidebar(route) {
   /* the setup wizard is full width with no side menu; Home and Settings keep it */
@@ -298,6 +298,9 @@ function renderSettings() {
     ${missing.length ? 'Answer the questions marked above, then restart.' : 'Changes saved. Restart MOTIQ to use them.'}</div></div>` : '';
   $('screen').innerHTML = `<div class="ml-inner ml-q"><div class="gk-overline">Settings</div><h1 class="gk-h1">Settings</h1>
     <p class="gk-sub">Change any answer. MOTIQ rewrites its configuration and restarts with it.</p>${banner}${groups}
+    ${S.cfg.mode !== 'app' ? `<h2 class="gk-overline">Objects</h2><div class="oc-list ml-settings"><div class="oc-li"><div class="oc-li__main">
+      <div class="oc-li__t">Your objects</div><div class="oc-li__s">${(S.st.objects?.list || []).length} taught${S.st.objects?.trained_model ? ' · model trained' : ''}</div></div>
+      <button class="oc-btn oc-btn--sm oc-btn--secondary" data-go="#objects">Change</button></div></div>` : ''}
     <h2 class="gk-overline">Advanced</h2><div class="oc-card">
       <div class="gk-kv"><span>MOTIQ folder</span><b title="${esc(S.st.root)}">${esc(S.st.root)}</b></div>
       <div class="gk-kv"><span>Ports</span><b>app ${p.expo} · bridge ${p.bridge} · vision ${p.vision} · controller ${p.controller}</b></div>
@@ -326,6 +329,8 @@ function render() {
   else if (r.name === 'install') renderInstall();
   else if (r.name === 'settings') renderSettings();
   else if (r.name === 'home') renderHome();
+  else if (r.name === 'objects') renderObjects();
+  else if (r.name === 'teach') renderTeach();
   else renderWelcome();
   Anim.after(r, order(r));
 }
@@ -334,7 +339,7 @@ function render() {
 function order(r) {
   if (r.name === 'welcome') return 0;
   if (r.name === 'q') return 1 + Math.max(0, visible().findIndex((q) => q.id === r.id));
-  return { summary: 100, install: 101, home: 102, settings: 103, edit: 104 }[r.name] || 0;
+  return { summary: 100, install: 101, objects: 101.5, teach: 101.7, home: 102, settings: 103, edit: 104 }[r.name] || 0;
 }
 
 function step(dir) {
@@ -345,7 +350,8 @@ function step(dir) {
   else go(i >= qs.length - 1 ? '#summary' : `#q/${qs[i + 1].id}`);
 }
 
-async function act(name) {
+async function act(name, el) {
+  if (name.startsWith('obj')) return objectsAct(name, el);
   const r = route();
   const q = QUESTIONS.find((x) => x.id === r.id);
   if (name === 'begin') { S.cfg.demo = false; go(`#q/${visible()[0].id}`); }
@@ -382,7 +388,7 @@ document.addEventListener('click', (e) => {
   const t = e.target.closest('[data-go],[data-act],[data-pick],[data-ack]');
   if (!t || t.disabled) return;
   if (t.dataset.go) go(t.dataset.go);
-  else if (t.dataset.act) act(t.dataset.act);
+  else if (t.dataset.act) act(t.dataset.act, t);
   else if (t.dataset.pick !== undefined) {
     const q = QUESTIONS.find((x) => x.id === route().id);
     q.set(S.cfg, t.dataset.pick, S.det);
@@ -417,12 +423,15 @@ async function poll() {
     await refresh();
     const r = route().name;
     if (r === 'install' || r === 'home' || ((r === 'q' || r === 'edit') && route().id === 'robodk')) {
-      if (r === 'install' && S.st.job && S.st.job.state === 'done') setTimeout(() => go('#home'), 1200);
+      if (r === 'install' && S.st.job && S.st.job.state === 'done') setTimeout(() => go(needsObjects() ? '#objects' : '#home'), 1200);
       render();
-    }
+    } else if (r === 'objects' || r === 'teach') objectsTick();
   } catch (e) { /* launcher restarting */ }
-  setTimeout(poll, route().name === 'install' ? 1000 : 2500);
+  setTimeout(poll, ['install', 'objects', 'teach'].includes(route().name) ? 1000 : 2500);
 }
+
+/* after the first install: offer "Teach your objects" once (not for the in-app demo, which has no vision server) */
+const needsObjects = () => !S.cfg.objects_done && S.cfg.mode !== 'app';
 
 (async () => {
   await refresh(true);

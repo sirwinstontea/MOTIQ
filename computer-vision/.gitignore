@@ -6,3 +6,7 @@ logs/
 *.pt
 .DS_Store
 data/skills/learned/
+
+# taught objects and the model trained from them (vision.teach_objects): user data, not source
+data/objects/
+data/models/motiq_objects.onnx

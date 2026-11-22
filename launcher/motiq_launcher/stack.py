@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from . import configure, detect, paths
+from . import configure, detect, objects, paths
 from .xai_proxy import XaiProxy
 
 NO_WINDOW = detect.NO_WINDOW
@@ -111,6 +111,7 @@ class Stack:
                 vcmd += ["--device", cfg["camera"].get("device") or "0"]
             # no --robot-ip: its read-only UR telemetry needs ur_rtde, which the vision requirements don't install
             senv = dict(os.environ, **configure.secret_env(cfg))   # the xAI key only in these processes' memory
+            senv.update(objects.vision_env())                      # the user's taught objects / trained model
             out.append(Service("vision", vcmd, paths.CV, f"http://127.0.0.1:{p['vision']}/health", env=senv,
                                port=p["vision"]))
             out.append(Service("teach", [cv, paths.TEACH, "--host", bind, "--port", p["teach"]], paths.CV,

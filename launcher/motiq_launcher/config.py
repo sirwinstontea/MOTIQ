@@ -23,6 +23,7 @@ DEFAULTS: dict = {
     "language": "",                     # BCP-47 hint for speech recognition, "" = auto-detect
     "client": "pc",                     # pc | phone | both
     "speed_percent": 10,
+    "objects_done": False,              # the "Teach your objects" setup step was finished or skipped
     "bridge_key": "",
     "ports": {"vision": 8000, "teach": 8001, "bridge": 8080, "controller": 8765, "chooser": 8771,
               "expo": 8081, "launcher": 8790, "xai_proxy": 8791},

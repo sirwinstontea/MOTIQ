@@ -214,8 +214,11 @@ class EyePipeline:
             import os
             from ..grok.open_vocab import DESK_CLASSES, OpenVocab
             world_conf = float(os.getenv("WORLD_CONF", "0.2"))
-            open_vocab = OpenVocab(conf=world_conf, base=DESK_CLASSES)
-            print(f"[Pipeline] YOLO-World (OpenVocab) inizializzato per '{source}' con {len(DESK_CLASSES)} classi base.")
+            # oggetti insegnati dall'utente che YOLO-World trova già senza addestramento (vision.teach_objects)
+            taught = [x.strip() for x in os.getenv("MOTIQ_OBJECTS", "").split(",") if x.strip()]
+            base = list(DESK_CLASSES) + taught
+            open_vocab = OpenVocab(conf=world_conf, base=base)
+            print(f"[Pipeline] YOLO-World (OpenVocab) inizializzato per '{source}' con {len(base)} classi base.")
         except Exception as exc:
             print(f"[Pipeline] Avviso: OpenVocab non disponibile per '{source}': {exc}")
 

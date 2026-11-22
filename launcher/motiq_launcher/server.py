@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import config, configure, detect, paths, provision, window
+from . import config, configure, detect, objects, paths, provision, window
 from .robodk_setup import RoboDKInstall
 from .stack import Stack
 
@@ -23,6 +23,7 @@ class Launcher:
         self.stack = Stack()
         self.job: provision.Job | None = None
         self.robodk = RoboDKInstall()
+        self.teach = objects.ObjectsJob()
         self.detected: dict = {}
         self.detected_at = 0.0
         self.last_seen = time.time()
@@ -47,7 +48,9 @@ class Launcher:
                 "job": self.job.snapshot() if self.job else None,
                 "running": self.stack.running(), "services": self.stack.status(),
                 "app_url": self.stack.app_url, "phone_url": self.stack.phone_url,
-                "lan_ip": config.lan_ip(), "root": str(paths.ROOT)}
+                "lan_ip": config.lan_ip(), "root": str(paths.ROOT),
+                "objects": {"list": objects.list_objects(), "job": self.teach.snapshot(),
+                            "trained_model": objects.TRAINED.exists()}}
 
     # -------------------------------------------------------------- setup + start
     def start(self) -> dict:
@@ -93,6 +96,7 @@ class Launcher:
     def stop(self) -> None:
         if self.job and self.job.state == "running":
             self.job.cancel.set()
+        self.teach.stop()
         self.stack.stop()
 
 
@@ -143,6 +147,17 @@ def make_handler(launcher: Launcher):
             if u.path == "/api/logs":
                 name = u.query.split("name=")[-1] if "name=" in u.query else "setup"
                 return self._json({"lines": launcher.stack.logs(name)})
+            if u.path.startswith("/objects/"):        # labelled thumbnails for the review grid
+                parts = u.path.split("/")
+                f = objects.preview_file(parts[2], parts[3]) if len(parts) == 4 else None
+                if not f:
+                    return self._json({"error": "not found"}, 404)
+                data = f.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                return self.wfile.write(data)
             rel = "index.html" if u.path in ("/", "") else u.path.lstrip("/")
             f = (paths.UI / rel).resolve()
             if paths.UI.resolve() not in f.parents or not f.is_file():
@@ -177,6 +192,28 @@ def make_handler(launcher: Launcher):
                 return self._json({"ok": True})
             if p == "/api/open":
                 window.open_app(launcher.stack.app_url or f"http://localhost:{config.load()['ports']['expo']}")
+                return self._json({"ok": True})
+            if p == "/api/objects/capture":
+                name = str(b.get("name") or "").strip()[:60]
+                if not name or not launcher.stack.running():
+                    return self._json({"ok": False, "error": "MOTIQ must be running, and the object needs a name."}, 400)
+                url = f"http://127.0.0.1:{config.load()['ports']['vision']}/frame/webcam.jpg?raw=true"
+                return self._json(launcher.teach.run("capture", ["--name", name, "--url", url]))
+            if p == "/api/objects/train":
+                return self._json(launcher.teach.run("train", []))
+            if p == "/api/objects/stop":
+                launcher.teach.stop()
+                return self._json({"ok": True})
+            if p == "/api/objects/remove":
+                slug = str(b.get("slug") or "")
+                if not objects.SLUG.fullmatch(slug):
+                    return self._json({"ok": False, "error": "bad request"}, 400)
+                return self._json(launcher.teach.run("remove", ["--slug", slug]))
+            if p == "/api/objects/drop":
+                try:
+                    objects.set_dropped(str(b.get("slug")), str(b.get("frame")), bool(b.get("dropped")))
+                except (ValueError, OSError):
+                    return self._json({"ok": False, "error": "bad request"}, 400)
                 return self._json({"ok": True})
             if p == "/api/robodk":
                 return self._json(launcher.robodk.start())

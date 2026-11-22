@@ -38,6 +38,20 @@ button{font-family:var(--font-sans)}
 .ml-choices.has-ind .ml-choice[aria-checked=true]:hover{background:transparent}
 .ml-progress > i{transition:width .5s cubic-bezier(.22,1,.36,1)}
 .ml-word{display:inline-block}
+
+/* teach your objects */
+.ml-add{margin-top:14px;border-radius:999px}
+.ml-add svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2}
+.ml-obj{padding:10px 12px}
+.ml-train{margin-top:18px}
+.ml-train .ml-faint{margin:0 0 8px}
+.ml-live{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:var(--radius-lg);background:var(--bg-200);margin:4px 0 16px}
+.ml-tprog{margin-top:4px}
+.ml-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:6px;margin-top:16px;max-height:340px;overflow:auto}
+.ml-thumb{border:0;padding:0;border-radius:var(--radius-md);overflow:hidden;cursor:pointer;background:var(--bg-200);transition:opacity .15s}
+.ml-thumb img{display:block;width:100%}
+.ml-thumb.off{opacity:.25}
+.ml-teach .ml-note{margin-top:0}
 #rv{display:inline-block}
 .ml-faint{font-size:12px;color:var(--ink-3);margin:14px 0 0}
 
