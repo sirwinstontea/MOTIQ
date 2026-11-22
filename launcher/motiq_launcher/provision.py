@@ -37,6 +37,7 @@ class Job:
         self.steps = [{"id": i, "label": l, "status": "pending", "detail": ""} for i, l in steps]
         self.lines: list[str] = []
         self.state = "running"        # running | done | failed
+        self.started = time.time()
         self.error = ""
         self.lock = threading.Lock()
         self.cancel = threading.Event()
@@ -66,7 +67,7 @@ class Job:
 
     def snapshot(self) -> dict:
         with self.lock:
-            return {"steps": [dict(s) for s in self.steps], "lines": self.lines[-60:], "state": self.state,
+            return {"steps": [dict(s) for s in self.steps], "lines": self.lines[-60:], "state": self.state, "elapsed": round(time.time() - self.started),
                     "error": self.error}
 
     def run(self, cmd: list, cwd: Path | None = None, env: dict | None = None) -> None:

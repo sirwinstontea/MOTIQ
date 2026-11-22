@@ -328,6 +328,7 @@ function render() {
   else if (r.name === 'home') renderHome();
   else renderWelcome();
   Anim.after(r, order(r));
+  Busy.sync(r);
 }
 
 /* position of a screen in the wizard, so animations know whether you went forward or back */
