@@ -45,10 +45,16 @@ function pythonCandidates() {
 
 function findPython() {
   for (const c of pythonCandidates()) {
-    if (c === 'python3' || c === 'python') return c;
+    if (c === 'python3' || c === 'python') continue;
     if (fs.existsSync(c)) return c;
   }
-  return 'python3';
+  // PATH fallback only for unpackaged/dev machines
+  if (!app.isPackaged) {
+    for (const c of ['python3', 'python']) {
+      return c;
+    }
+  }
+  return null;
 }
 
 function startStack() {
@@ -59,6 +65,17 @@ function startStack() {
     ? path.join(root, 'start_stack.py')
     : path.join(__dirname, '..', 'scripts', 'start_stack.py');
   const py = findPython();
+  if (!py) {
+    dialog.showErrorBox(
+      'MOTIQ',
+      'Python venv not found. Build the installer after creating robot_controller/.venv and computer-vision/.venv, or install Python 3.10+ and those venvs under the Motiq install folder.',
+    );
+    return;
+  }
+  if (!fs.existsSync(script)) {
+    dialog.showErrorBox('MOTIQ', `Stack launcher missing: ${script}`);
+    return;
+  }
   const backend = store.get('backend', 'robodk_sim');
   const visionMode = store.get('visionMode', 'synthetic');
   const env = {
@@ -79,6 +96,11 @@ function startStack() {
   stackProc = proc;
   proc.stdout.on('data', (d) => console.log(String(d).trimEnd()));
   proc.stderr.on('data', (d) => console.error(String(d).trimEnd()));
+  proc.on('error', (err) => {
+    console.error('[stack] spawn error', err);
+    if (stackProc === proc) stackProc = null;
+    dialog.showErrorBox('MOTIQ', `Failed to start the local stack: ${err.message}`);
+  });
   proc.on('exit', (code) => {
     console.log('[stack] exited', code);
     // Only clear if this is still the active handle (avoids wiping a replacement process).
@@ -244,19 +266,28 @@ ipcMain.handle('motiq:open-external', (_e, url) => {
   if (typeof url === 'string' && /^https?:/i.test(url)) shell.openExternal(url);
 });
 
+let quitting = false;
+
 app.whenReady().then(async () => {
   startStack();
   await createWindow();
   app.on('activate', () => {
+    // macOS: window was closed but app stayed alive — ensure backends are up again.
+    startStack();
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 app.on('window-all-closed', () => {
-  stopStack();
+  // Keep the stack running on macOS while the app stays in the Dock.
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
-  stopStack();
+app.on('before-quit', (e) => {
+  if (quitting) return;
+  e.preventDefault();
+  quitting = true;
+  stopStack().finally(() => {
+    app.exit(0);
+  });
 });

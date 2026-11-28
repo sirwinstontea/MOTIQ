@@ -725,6 +725,9 @@ class Chooser:
             raise ChooserError("VALIDATION_ERROR", str(e))
         except RuntimeError as e:
             raise ChooserError("LAYOUT_FAILED", str(e), 422)
+        except SystemExit as e:
+            # build_arm_stations helpers raise SystemExit — must not kill the HTTP worker thread
+            raise ChooserError("IMPORT_FAILED", str(getattr(e, "code", None) or e or "import aborted"), 502)
         except Exception as e:
             raise ChooserError("IMPORT_FAILED", f"{e.__class__.__name__}: {e}", 502)
 
@@ -804,24 +807,25 @@ class Chooser:
             labels = sorted({name.lower(), oid.lower(), *[a.lower() for a in aliases]})
             cleaned.append({"id": oid, "name": name, "aliases": aliases, "role": role, "class_labels": labels})
 
-        path = self.objects_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"objects": cleaned}, indent=2) + "\n", encoding="utf-8")
+        with self._lock:
+            path = self.objects_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"objects": cleaned}, indent=2) + "\n", encoding="utf-8")
 
-        # YOLO-World vocab for open-vocab tracking
-        vocab_path = self.vocab_path()
-        vocab = {}
-        for o in cleaned:
-            for lab in o["class_labels"]:
-                vocab[lab] = {"name": o["name"], "color": None, "tags": [o["role"]], "size_cm": None}
-        try:
-            vocab_path.parent.mkdir(parents=True, exist_ok=True)
-            vocab_path.write_text(json.dumps(vocab, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        except OSError:
-            pass
+            # YOLO-World vocab for open-vocab tracking
+            vocab_path = self.vocab_path()
+            vocab = {}
+            for o in cleaned:
+                for lab in o["class_labels"]:
+                    vocab[lab] = {"name": o["name"], "color": None, "tags": [o["role"]], "size_cm": None}
+            try:
+                vocab_path.parent.mkdir(parents=True, exist_ok=True)
+                vocab_path.write_text(json.dumps(vocab, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            except OSError:
+                pass
 
-        merged_into = self._merge_object_labels_into_scenes(cleaned)
-        return {"objects": cleaned, "scenes_updated": merged_into, "vocab_path": str(vocab_path)}
+            merged_into = self._merge_object_labels_into_scenes(cleaned)
+            return {"objects": cleaned, "scenes_updated": merged_into, "vocab_path": str(vocab_path)}
 
     def _merge_object_labels_into_scenes(self, objects: list[dict]) -> list[str]:
         """Attach class_labels to matching scene object ids, or add placeholder pickable entries."""

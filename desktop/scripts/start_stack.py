@@ -51,10 +51,8 @@ def spawn(name: str, argv: list[str], cwd: Path, env: dict | None = None) -> sub
     if env:
         e.update(env)
     print(f"[stack] {name}: {' '.join(argv)}", flush=True)
-    kw: dict = {"cwd": str(cwd), "env": e}
-    if sys.platform != "win32":
-        kw["start_new_session"] = True
-    p = subprocess.Popen(argv, **kw)
+    # Stay in this process group so Electron can SIGTERM the whole tree (no start_new_session).
+    p = subprocess.Popen(argv, cwd=str(cwd), env=e)
     children.append(p)
     return p
 

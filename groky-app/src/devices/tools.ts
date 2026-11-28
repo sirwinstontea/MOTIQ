@@ -168,8 +168,20 @@ const armTools: Tool[] = [
 ];
 
 export const devices: Record<DeviceId, { label: string; url: string; tools: Tool[] }> = {
-  dog: { label: 'Dog', url: env.dogUrl, tools: dogTools },
-  arm: { label: 'Arm', url: env.armUrl, tools: armTools },
+  dog: {
+    label: 'Dog',
+    get url() {
+      return env.dogUrl;
+    },
+    tools: dogTools,
+  },
+  arm: {
+    label: 'Arm',
+    get url() {
+      return env.armUrl;
+    },
+    tools: armTools,
+  },
 };
 
 export const deviceIds = Object.keys(devices) as DeviceId[];

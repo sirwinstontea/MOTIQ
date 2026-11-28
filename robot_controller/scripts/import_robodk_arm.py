@@ -83,62 +83,68 @@ def import_arm(
     source = resolve_source(source)
     model_name = safe_model_name(model)
     item_name = model_name
-    robot_file = RC / "stations" / f"{model_name}.robot"
+    # Never clobber bundled catalog models (e.g. UR5e.robot); namespace imports by robot_id.
+    file_stem = f"imported_{robot_id}"
+    robot_file = RC / "stations" / f"{file_stem}.robot"
     robot_file.parent.mkdir(parents=True, exist_ok=True)
 
     rl, rm = _import_robodk()
     RDK = rl.Robolink(port=port)
     RDK.setRunMode(rl.RUNMODE_SIMULATE)
 
-    if source.suffix.lower() == ".robot":
-        shutil.copy2(source, robot_file)
-        # open a scratch station to read JointLimits
-        keep = RDK.ActiveStation()
-        st = RDK.AddStation("MOTIQ import probe limits")
-        try:
-            robot = RDK.AddFile(str(robot_file), st)
-            lo, hi, _ = robot.JointLimits()
-            home_lib = robot.Joints().list()
-            lo, hi = lo.list(), hi.list()
-        finally:
-            RDK.setActiveStation(st)
-            RDK.CloseStation()
-            if keep.Valid():
-                RDK.setActiveStation(keep)
-    else:
-        home_lib, lo, hi = extract_robot(RDK, rl, source, robot_file)
-
-    dof = len(lo)
-    if dof < 1 or dof > 12:
-        raise RuntimeError(f"unsupported DOF {dof} (need 1-12)")
-
-    base = yaml.safe_load(BASE_SCENE.read_text(encoding="utf-8"))
-    SceneConfig.model_validate(base)
-
-    probe = Probe(RDK, rl, rm, robot_file, home_lib)
     try:
-        found = find_layout(probe, base)
-        home_pose = probe.fk(found[3]) if found else None
-    finally:
-        probe.close()
+        if source.suffix.lower() == ".robot":
+            shutil.copy2(source, robot_file)
+            # open a scratch station to read JointLimits
+            keep = RDK.ActiveStation()
+            st = RDK.AddStation("MOTIQ import probe limits")
+            try:
+                robot = RDK.AddFile(str(robot_file), st)
+                lo, hi, _ = robot.JointLimits()
+                home_lib = robot.Joints().list()
+                lo, hi = lo.list(), hi.list()
+            finally:
+                RDK.setActiveStation(st)
+                RDK.CloseStation()
+                if keep.Valid():
+                    RDK.setActiveStation(keep)
+        else:
+            home_lib, lo, hi = extract_robot(RDK, rl, source, robot_file)
 
-    if not found:
-        raise RuntimeError(
-            "could not fit the MOTIQ demo cell within this arm's reach (IK/collision probe failed). "
-            "Try a longer-reach serial arm, or teach targets manually in RoboDK."
-        )
+        dof = len(lo)
+        if dof < 1 or dof > 12:
+            raise RuntimeError(f"unsupported DOF {dof} (need 1-12)")
 
-    scene, dx, kz, home = found
-    scene["targets"][scene["home_target"]] = {
-        "joints_rad": [round(math.radians(q), 5) for q in home],
-        "pose_m_rad": home_pose,
-        "description": f"safe home posture (tool down above the table, solved by RoboDK IK for the {model_name})",
-    }
-    scene_path = RC / "config" / "scenes" / f"{robot_id}.yaml"
-    write_scene(scene_path, scene, robot_id, model_name, dx, kz)
-    SceneConfig.model_validate(yaml.safe_load(scene_path.read_text(encoding="utf-8")))
+        base = yaml.safe_load(BASE_SCENE.read_text(encoding="utf-8"))
+        SceneConfig.model_validate(base)
 
-    station = build_station(RDK, rl, rm, robot_id, model_name, item_name, dof, robot_file, scene_path, dx)
+        probe = Probe(RDK, rl, rm, robot_file, home_lib)
+        try:
+            found = find_layout(probe, base)
+            home_pose = probe.fk(found[3]) if found else None
+        finally:
+            probe.close()
+
+        if not found:
+            raise RuntimeError(
+                "could not fit the MOTIQ demo cell within this arm's reach (IK/collision probe failed). "
+                "Try a longer-reach serial arm, or teach targets manually in RoboDK."
+            )
+
+        scene, dx, kz, home = found
+        scene["targets"][scene["home_target"]] = {
+            "joints_rad": [round(math.radians(q), 5) for q in home],
+            "pose_m_rad": home_pose,
+            "description": f"safe home posture (tool down above the table, solved by RoboDK IK for the {model_name})",
+        }
+        scene_path = RC / "config" / "scenes" / f"{robot_id}.yaml"
+        write_scene(scene_path, scene, robot_id, model_name, dx, kz)
+        SceneConfig.model_validate(yaml.safe_load(scene_path.read_text(encoding="utf-8")))
+
+        # file_stem keeps demo .rdk unique; item_name is the RoboDK robot item inside the station
+        station = build_station(RDK, rl, rm, robot_id, file_stem, item_name, dof, robot_file, scene_path, dx)
+    except SystemExit as e:
+        raise RuntimeError(str(getattr(e, "code", None) or e or "import aborted")) from e
 
     # conservative sim caps — not datasheet-certified
     reach = float(nominal_reach_m) if nominal_reach_m and nominal_reach_m > 0 else max(
@@ -157,7 +163,7 @@ def import_arm(
         "nominal_payload_kg": round(payload, 3),
         "library_url": library_url.strip() or f"https://robodk.com/robot",
         "robodk_item_name": item_name,
-        "station_name": f"{model_name} Controller Demo",
+        "station_name": f"{file_stem} Controller Demo",
         "library_file": robot_file.name,
         "scene_file": f"{robot_id}.yaml",
         "default_workspace": ws,

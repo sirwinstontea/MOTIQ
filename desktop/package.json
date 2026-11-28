@@ -36,7 +36,7 @@
       {
         "from": "../robot_controller",
         "to": "motiq/robot_controller",
-        "filter": ["**/*", "!**/.venv/**", "!**/__pycache__/**", "!**/runs/**", "!**/.env", "!**/.env.*"]
+        "filter": ["**/*", "!**/__pycache__/**", "!**/runs/**", "!**/.env", "!**/.env.*"]
       },
       {
         "from": "../robot-chooser",
@@ -49,7 +49,6 @@
         "filter": [
           "**/*",
           "!**/training/**",
-          "!**/.venv/**",
           "!**/__pycache__/**",
           "!**/logs/**",
           "!**/.env",
