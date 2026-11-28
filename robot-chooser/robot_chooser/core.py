@@ -494,15 +494,18 @@ class Chooser:
         tooling = _analyse(self.load_types(), hw.components)
         kind = tooling["gripper_kind"]
         caps = ["named_targets", "path_check"] + (["symbolic_gripper"] if kind == "symbolic" else [])
+        # Station file + base frame follow the .robot stem (build_arm_stations / import_arm),
+        # not the display model — imports use stations/imported_{id}.robot + imported_{id} Base.
+        file_stem = Path(r.library_file).stem if r.library_file else r.model
         return {
             "model": r.model,
             "dof": r.dof,
             "backend": hw.backend,
-            "station_name": r.station_name or f"MOTIQ {r.model} Demo",
-            "station_path": f"stations/{r.model}_demo.rdk",
+            "station_name": r.station_name or f"{file_stem} Controller Demo",
+            "station_path": f"stations/{file_stem}_demo.rdk",
             "robot_library_file": f"stations/{r.library_file}" if r.library_file else None,
             "robot_item_name": r.robodk_item_name,
-            "base_frame": f"{r.model} Base",
+            "base_frame": f"{file_stem} Base",
             "tool_frame": "Gripper TCP",
             "gripper_kind": kind,
             "tcp_offset_m_rad": list(tooling["tcp_offset_m_rad"]),

@@ -5,7 +5,7 @@ Given a .robot file or a library .rdk containing one robot:
   1. copy/extract -> robot_controller/stations/<Model>.robot
   2. read DOF + JointLimits() from RoboDK
   3. auto-fit the MOTIQ demo cell within reach (same probe as build_arm_stations.py)
-  4. write config/scenes/<robot_id>.yaml + stations/<Model>_demo.rdk
+  4. write config/scenes/<robot_id>.yaml + stations/imported_<robot_id>_demo.rdk
   5. return a catalog-ready payload (limits verified for sim-only)
 
     cd robot_controller && .venv/bin/python scripts/import_robodk_arm.py \\
