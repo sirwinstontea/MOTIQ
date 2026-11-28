@@ -42,10 +42,16 @@ type Res<T> = (T & { ok: true }) | Fail;
 
 export const robotCatalogReady = () => !!env.armUrl;
 
-async function call<T>(method: 'GET' | 'POST', action: string, body?: object): Promise<Res<T>> {
+async function call<T>(
+  method: 'GET' | 'POST',
+  action: string,
+  body?: object,
+  opts?: { timeoutMs?: number },
+): Promise<Res<T>> {
   if (!env.armUrl) return { ok: false, code: 'NOT_CONFIGURED', message: 'EXPO_PUBLIC_ARM_URL is not set' };
   const ctl = new AbortController();
-  const t = setTimeout(() => ctl.abort(), 20000);
+  // RoboDK import probes layouts and can take several minutes; other calls stay snappy.
+  const t = setTimeout(() => ctl.abort(), opts?.timeoutMs ?? 20_000);
   try {
     const r = await fetch(`${env.armUrl}/robots/${action}`, {
       method,
@@ -102,6 +108,7 @@ export const robotCatalog = {
       'POST',
       'import',
       body,
+      { timeoutMs: 600_000 },
     ),
   listObjects: () => call<{ objects: UserObject[] }>('GET', 'objects'),
   registerObjects: (objects: UserObject[]) => call<{ objects: UserObject[]; scenes_updated?: string[] }>('POST', 'objects', { objects }),

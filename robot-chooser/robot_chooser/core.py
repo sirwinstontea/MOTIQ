@@ -830,19 +830,19 @@ class Chooser:
         cat = self.load_catalog()
         active = cat.get(hw.active_robot)
         candidates: list[Path] = []
-        # active generated scene
+        # Only mutate generated/active scene files — never scene.example.yaml (BASE_SCENE for arm import).
         for p in (self.ctrl_cfg / "scene.yaml",):
             if p.is_file():
                 candidates.append(p)
         if active and active.scene_file:
             for root in (self.ctrl_cfg / "scenes", self.ctrl_cfg):
                 p = root / active.scene_file
-                if p.is_file():
+                if p.is_file() and p.name != "scene.example.yaml":
                     candidates.append(p)
-        # also scene.example for mock/default
-        ex = self.ctrl_cfg / "scene.example.yaml"
-        if ex.is_file():
-            candidates.append(ex)
+
+        # ObjectDef forbids unknown keys (no "description"); keep only schema fields when cloning.
+        _OBJ_KEYS = {"dimensions_m", "mass_kg", "approach_target", "grasp_target", "lift_target",
+                     "class_labels", "station_item", "push"}
 
         seen = set()
         for path in candidates:
@@ -865,16 +865,13 @@ class Chooser:
                     changed = True
                 elif o["role"] == "pickable" and objs:
                     # clone first pickable object's targets as placeholders for the new name
-                    donor_id, donor = next(iter(objs.items()))
-                    if not isinstance(donor, dict):
+                    donor = next((v for v in objs.values() if isinstance(v, dict)), None)
+                    if donor is None or o["id"] in objs:
                         continue
-                    if o["id"] not in objs:
-                        objs[o["id"]] = {
-                            **{k: v for k, v in donor.items() if k != "class_labels"},
-                            "class_labels": o["class_labels"],
-                            "description": f"User object '{o['name']}' (taught targets cloned from {donor_id}; re-teach in RoboDK for a real cell)",
-                        }
-                        changed = True
+                    clone = {k: v for k, v in donor.items() if k in _OBJ_KEYS and k != "class_labels"}
+                    clone["class_labels"] = list(o["class_labels"])
+                    objs[o["id"]] = clone
+                    changed = True
             if changed:
                 try:
                     # preserve generated header if present

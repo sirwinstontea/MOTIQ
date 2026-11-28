@@ -11,7 +11,9 @@ const Store = require('electron-store');
 
 const store = new Store({ name: 'motiq-config' });
 let mainWindow = null;
+/** @type {import('child_process').ChildProcess | null} */
 let stackProc = null;
+let stackStopping = null; // Promise while a stop is in flight
 
 function motiqRoot() {
   if (app.isPackaged) {
@@ -50,7 +52,7 @@ function findPython() {
 }
 
 function startStack() {
-  if (stackProc) return;
+  if (stackProc || stackStopping) return;
   const root = motiqRoot();
   const key = ensureBridgeKey();
   const script = app.isPackaged
@@ -73,33 +75,72 @@ function startStack() {
     env.EXPO_PUBLIC_XAI_API_KEY = xai;
   }
 
-  stackProc = spawn(py, [script], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
-  stackProc.stdout.on('data', (d) => console.log(String(d).trimEnd()));
-  stackProc.stderr.on('data', (d) => console.error(String(d).trimEnd()));
-  stackProc.on('exit', (code) => {
+  const proc = spawn(py, [script], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  stackProc = proc;
+  proc.stdout.on('data', (d) => console.log(String(d).trimEnd()));
+  proc.stderr.on('data', (d) => console.error(String(d).trimEnd()));
+  proc.on('exit', (code) => {
     console.log('[stack] exited', code);
-    stackProc = null;
+    // Only clear if this is still the active handle (avoids wiping a replacement process).
+    if (stackProc === proc) stackProc = null;
   });
 }
 
 function stopStack() {
-  if (!stackProc) return;
-  try {
-    if (process.platform === 'win32') {
-      spawn('taskkill', ['/pid', String(stackProc.pid), '/T', '/F']);
-    } else {
-      process.kill(-stackProc.pid, 'SIGTERM');
+  const proc = stackProc;
+  if (!proc && !stackStopping) return Promise.resolve();
+  if (stackStopping) return stackStopping;
+
+  stackStopping = new Promise((resolve) => {
+    const finish = () => {
+      if (stackProc === proc) stackProc = null;
+      stackStopping = null;
+      resolve();
+    };
+    if (!proc) {
+      finish();
+      return;
     }
-  } catch (_) {
+    const onExit = () => {
+      clearTimeout(timer);
+      finish();
+    };
+    const timer = setTimeout(() => {
+      try {
+        proc.kill('SIGKILL');
+      } catch (_) {}
+      finish();
+    }, 8000);
+    proc.once('exit', onExit);
     try {
-      stackProc.kill('SIGTERM');
-    } catch (__) {}
-  }
-  stackProc = null;
+      if (process.platform === 'win32') {
+        spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F']);
+      } else {
+        try {
+          process.kill(-proc.pid, 'SIGTERM');
+        } catch (_) {
+          proc.kill('SIGTERM');
+        }
+      }
+    } catch (_) {
+      try {
+        proc.kill('SIGTERM');
+      } catch (__) {
+        finish();
+      }
+    }
+  });
+  return stackStopping;
+}
+
+async function restartStack() {
+  await stopStack();
+  // Let loopback ports release before rebinding.
+  await new Promise((r) => setTimeout(r, 750));
+  startStack();
 }
 
 function uiUrl() {
-  // Packaged: load exported Expo web. Dev: prefer built renderer, else Expo web if running.
   const renderer = path.join(__dirname, '..', 'renderer', 'index.html');
   if (fs.existsSync(renderer)) {
     return { type: 'file', path: renderer };
@@ -122,6 +163,15 @@ function injectDesktopConfig() {
   };
 }
 
+function pushConfigToRenderer() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const cfg = injectDesktopConfig();
+  return mainWindow.webContents.executeJavaScript(
+    `window.__MOTIQ_DESKTOP__ = ${JSON.stringify(cfg)};
+     window.dispatchEvent(new Event('motiq-desktop-config'));`,
+  );
+}
+
 async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -135,6 +185,11 @@ async function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  // Register BEFORE load so the first paint receives config (did-finish-load can fire during await).
+  mainWindow.webContents.on('did-finish-load', () => {
+    pushConfigToRenderer();
   });
 
   const target = uiUrl();
@@ -153,14 +208,7 @@ async function createWindow() {
       await mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
     }
   }
-
-  mainWindow.webContents.on('did-finish-load', () => {
-    const cfg = injectDesktopConfig();
-    mainWindow.webContents.executeJavaScript(
-      `window.__MOTIQ_DESKTOP__ = ${JSON.stringify(cfg)};
-       window.dispatchEvent(new Event('motiq-desktop-config'));`,
-    );
-  });
+  await pushConfigToRenderer();
 }
 
 ipcMain.handle('motiq:get-config', () => ({
@@ -171,15 +219,15 @@ ipcMain.handle('motiq:get-config', () => ({
   robodkHint: 'Install RoboDK separately and leave it running (API port 20500) for robodk_sim.',
 }));
 
-ipcMain.handle('motiq:save-first-run', (_e, payload) => {
+ipcMain.handle('motiq:save-first-run', async (_e, payload) => {
   if (payload?.xaiApiKey) store.set('xaiApiKey', String(payload.xaiApiKey).trim());
   if (payload?.backend) store.set('backend', payload.backend === 'mock' ? 'mock' : 'robodk_sim');
   if (payload?.visionMode) store.set('visionMode', payload.visionMode);
   store.set('firstRunComplete', true);
-  // restart stack with new env
-  stopStack();
-  startStack();
-  return injectDesktopConfig();
+  await restartStack();
+  const cfg = injectDesktopConfig();
+  await pushConfigToRenderer();
+  return cfg;
 });
 
 ipcMain.handle('motiq:pick-robot-file', async () => {
@@ -209,4 +257,6 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => stopStack());
+app.on('before-quit', () => {
+  stopStack();
+});

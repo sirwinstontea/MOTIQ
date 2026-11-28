@@ -31,7 +31,11 @@ export default function FirstRunDesktop() {
 
   const save = async () => {
     setBusy(true);
-    await window.motiqDesktop?.saveFirstRun({ xaiApiKey: key.trim(), backend, visionMode });
+    const cfg = await window.motiqDesktop?.saveFirstRun({ xaiApiKey: key.trim(), backend, visionMode });
+    if (cfg && typeof window !== 'undefined') {
+      window.__MOTIQ_DESKTOP__ = { ...window.__MOTIQ_DESKTOP__, ...cfg, MOTIQ_DESKTOP: '1' };
+      window.dispatchEvent(new Event('motiq-desktop-config'));
+    }
     setBusy(false);
     setOpen(false);
   };
