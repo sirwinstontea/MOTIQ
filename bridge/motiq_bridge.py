@@ -1663,10 +1663,14 @@ class RobotChooserProxy:
     regenerate the (simulation-only) controller config files."""
 
     ROUTES = {("GET", "catalog"): "/robots/catalog", ("GET", "active"): "/robots/active",
-              ("POST", "select"): "/robots/select", ("POST", "add"): "/api/robots"}
+              ("GET", "objects"): "/robots/objects",
+              ("POST", "select"): "/robots/select", ("POST", "add"): "/api/robots",
+              ("POST", "import"): "/robots/import", ("POST", "objects"): "/robots/objects"}
     # fields the app may set when adding an arm; limits / scene / workspace stay in the chooser UI or catalog.yaml
     ADD_FIELDS = {"id", "brand", "model", "dof", "nominal_reach_m", "nominal_payload_kg", "library_url",
                   "library_file", "robodk_item_name", "notes"}
+    IMPORT_FIELDS = {"source", "robot_id", "brand", "model", "library_url", "reach", "payload", "select", "port"}
+    OBJECTS_FIELDS = {"objects"}
 
     def __init__(self, url: str, client: Optional[httpx.Client] = None):
         url = (url or "").rstrip("/")
@@ -1686,6 +1690,18 @@ class RobotChooserProxy:
             extra = set(body) - cls.ADD_FIELDS
             if extra:
                 raise ValueError(f"unknown field(s) {sorted(extra)}; allowed: {sorted(cls.ADD_FIELDS)}")
+        elif action == "import":
+            extra = set(body) - cls.IMPORT_FIELDS
+            if extra:
+                raise ValueError(f"unknown field(s) {sorted(extra)}; allowed: {sorted(cls.IMPORT_FIELDS)}")
+            if not isinstance(body.get("source"), str) or not body["source"].strip():
+                raise ValueError('body must include "source": path to a .robot or .rdk file')
+        elif action == "objects":
+            extra = set(body) - cls.OBJECTS_FIELDS
+            if extra:
+                raise ValueError(f"unknown field(s) {sorted(extra)}; allowed: {sorted(cls.OBJECTS_FIELDS)}")
+            if not isinstance(body.get("objects"), list):
+                raise ValueError('body must be {"objects": [...]}')
         return body
 
     def call(self, method: str, action: str, body: Optional[dict] = None) -> tuple[int, dict]:
@@ -1695,8 +1711,10 @@ class RobotChooserProxy:
         if not self.url:
             return 503, {"ok": False, "error": {"code": "NOT_CONFIGURED",
                                                  "message": "bridge started without --robot-chooser"}}
+        # RoboDK import can take several minutes while the layout probe runs
+        timeout = 600.0 if action == "import" else 15.0
         try:
-            r = self.http.request(method, f"{self.url}{path}", json=body)
+            r = self.http.request(method, f"{self.url}{path}", json=body, timeout=timeout)
             try:
                 data = r.json()
             except ValueError:
@@ -1705,10 +1723,11 @@ class RobotChooserProxy:
             return 503, {"ok": False, "error": {"code": "SERVICE_UNAVAILABLE", "message":
                          "robot-chooser not running (cd robot-chooser && ../robot_controller/.venv/bin/python "
                          f"-m robot_chooser serve): {e.__class__.__name__}"}}
-        if r.status_code == 200 and action in ("select", "add"):
+        if r.status_code == 200 and action in ("select", "add", "import"):
             # a mutation returns the chooser's full state; the app only needs the catalog + active report
             data = {"ok": True, "robots": data.get("catalog", []), "report": data.get("report"),
-                    "selection": data.get("selection"), "restart_required": True}
+                    "selection": data.get("selection"), "restart_required": True,
+                    "import": data.get("import")}
         return r.status_code, data
 
 

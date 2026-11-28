@@ -72,11 +72,39 @@ async function call<T>(method: 'GET' | 'POST', action: string, body?: object): P
 
 type Mutation = { robots: CatalogArm[]; report: ActiveReport; restart_required: true };
 
+export type ImportArmBody = {
+  source: string;
+  robot_id?: string;
+  brand?: string;
+  model?: string;
+  library_url?: string;
+  reach?: number;
+  payload?: number;
+  select?: boolean;
+};
+
+export type UserObject = {
+  id: string;
+  name: string;
+  aliases?: string[];
+  role?: string;
+  class_labels?: string[];
+};
+
 export const robotCatalog = {
   list: () => call<{ robots: CatalogArm[] }>('GET', 'catalog'),
   active: () => call<{ report: ActiveReport }>('GET', 'active'),
   select: (robot_id: string) => call<Mutation>('POST', 'select', { robot_id }),
   add: (arm: NewArm) => call<Mutation>('POST', 'add', { ...arm, robodk_item_name: arm.model }),
+  /** One-gesture RoboDK import — needs RoboDK running; may take minutes. */
+  importArm: (body: ImportArmBody) =>
+    call<Mutation & { import?: { station_path?: string; layout?: { dx_m: number; height_scale: number } } }>(
+      'POST',
+      'import',
+      body,
+    ),
+  listObjects: () => call<{ objects: UserObject[] }>('GET', 'objects'),
+  registerObjects: (objects: UserObject[]) => call<{ objects: UserObject[]; scenes_updated?: string[] }>('POST', 'objects', { objects }),
 };
 
 // same rule as robot-chooser's RobotEntry.id

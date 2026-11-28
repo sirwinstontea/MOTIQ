@@ -8,9 +8,11 @@
   POST /api/components/<id>   partial update, e.g. {"spec": {"mass_kg": 0.3}}
   POST /api/components/<id>/delete
   POST /api/robots            add a robot {"id","brand","model","dof","nominal_reach_m","nominal_payload_kg","library_url"}
+  POST /api/robots/import     import any RoboDK .robot/.rdk into robodk_sim {"source", ...}
   POST /api/robots/<id>/delete remove a robot (not the active one)
   POST /api/robots/<id>       {"limits": {...}} | {"library_file": "UR3e.robot"} | {"scene_file": ...} | ...
   POST /api/apply             re-check + regenerate after editing the YAML by hand
+  POST /api/objects           register custom object names -> scene class_labels + vocab file
 
 Aliases matching the MOTIQ multi-robot contract: GET /robots/catalog, GET /robots/active, POST /robots/select.
 Every change rewrites hardware.yaml (requirements block) and the controller config files.
@@ -86,6 +88,8 @@ def make_handler(ch: Chooser):
                 if p == "/robots/active":
                     s = ch.state()
                     return self._send(200, {"ok": True, "selection": s["selection"], "report": s["report"]})
+                if p in ("/api/objects", "/robots/objects", "/api/objects/list", "/robots/objects/list"):
+                    return self._send(200, {"ok": True, **ch.list_objects()})
                 self._send(404, {"ok": False, "error": {"code": "NOT_FOUND", "message": p}})
             except ChooserError as e:
                 self._err(e)
@@ -106,12 +110,18 @@ def make_handler(ch: Chooser):
                     s = ch.update_component(p.rsplit("/", 1)[1], body)
                 elif p == "/api/robots":
                     s = ch.add_robot(body)
+                elif p in ("/api/robots/import", "/robots/import"):
+                    s = ch.import_from_robodk(body)
                 elif p.startswith("/api/robots/") and p.endswith("/delete"):
                     s = ch.remove_robot(p.split("/")[3])
                 elif p.startswith("/api/robots/"):
                     s = ch.update_robot(p.rsplit("/", 1)[1], body)
                 elif p == "/api/apply":
                     s = ch.apply()
+                elif p in ("/api/objects", "/robots/objects"):
+                    s = ch.register_objects(body)
+                elif p in ("/api/objects/list", "/robots/objects/list"):
+                    s = ch.list_objects()
                 else:
                     return self._send(404, {"ok": False, "error": {"code": "NOT_FOUND", "message": p}})
                 self._send(200, {"ok": True, **s})

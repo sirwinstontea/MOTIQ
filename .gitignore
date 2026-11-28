@@ -1,1 +1,9 @@
 .venv/
+desktop/node_modules/
+desktop/dist/
+desktop/renderer/
+**/__pycache__/
+*.pyc
+.DS_Store
+computer-vision/data/user_objects.json
+computer-vision/logs/

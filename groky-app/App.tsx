@@ -14,6 +14,7 @@ import { JetBrainsMono_500Medium } from '@expo-google-fonts/jetbrains-mono';
 import BottomNav from './src/components/BottomNav';
 import CameraPanel from './src/components/CameraPanel';
 import Notifications from './src/components/Notifications';
+import FirstRunDesktop from './src/components/FirstRunDesktop';
 import Settings from './src/components/Settings';
 import Sidebar, { Tab } from './src/components/Sidebar';
 import StopButton from './src/components/StopButton';
@@ -53,6 +54,7 @@ export default function App() {
         <NotifyProvider>
           <DevicesProvider>
             <Main />
+            <FirstRunDesktop />
           </DevicesProvider>
         </NotifyProvider>
       </ThemeProvider>
