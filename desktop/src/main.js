@@ -1,0 +1,293 @@
+/**
+ * MOTIQ desktop shell: starts the local Python stack, then loads the Expo web UI.
+ * Unsigned Electron build — SmartScreen / Gatekeeper may warn.
+ */
+const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+const { spawn } = require('child_process');
+const Store = require('electron-store');
+
+const store = new Store({ name: 'motiq-config' });
+let mainWindow = null;
+/** @type {import('child_process').ChildProcess | null} */
+let stackProc = null;
+let stackStopping = null; // Promise while a stop is in flight
+
+function motiqRoot() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'motiq');
+  }
+  return path.resolve(__dirname, '..', '..');
+}
+
+function ensureBridgeKey() {
+  let key = store.get('bridgeKey');
+  if (!key || String(key).length < 8) {
+    key = crypto.randomBytes(16).toString('hex');
+    store.set('bridgeKey', key);
+  }
+  return key;
+}
+
+function pythonCandidates() {
+  const root = motiqRoot();
+  const win = process.platform === 'win32';
+  const venvRc = win
+    ? path.join(root, 'robot_controller', '.venv', 'Scripts', 'python.exe')
+    : path.join(root, 'robot_controller', '.venv', 'bin', 'python');
+  const venvCv = win
+    ? path.join(root, 'computer-vision', '.venv', 'Scripts', 'python.exe')
+    : path.join(root, 'computer-vision', '.venv', 'bin', 'python');
+  return [venvRc, venvCv, process.env.MOTIQ_PYTHON, 'python3', 'python'].filter(Boolean);
+}
+
+function findPython() {
+  for (const c of pythonCandidates()) {
+    if (c === 'python3' || c === 'python') continue;
+    if (fs.existsSync(c)) return c;
+  }
+  // PATH fallback only for unpackaged/dev machines
+  if (!app.isPackaged) {
+    for (const c of ['python3', 'python']) {
+      return c;
+    }
+  }
+  return null;
+}
+
+function startStack() {
+  if (stackProc || stackStopping) return;
+  const root = motiqRoot();
+  const key = ensureBridgeKey();
+  const script = app.isPackaged
+    ? path.join(root, 'start_stack.py')
+    : path.join(__dirname, '..', 'scripts', 'start_stack.py');
+  const py = findPython();
+  if (!py) {
+    dialog.showErrorBox(
+      'MOTIQ',
+      'Python venv not found. Build the installer after creating robot_controller/.venv and computer-vision/.venv, or install Python 3.10+ and those venvs under the Motiq install folder.',
+    );
+    return;
+  }
+  if (!fs.existsSync(script)) {
+    dialog.showErrorBox('MOTIQ', `Stack launcher missing: ${script}`);
+    return;
+  }
+  const backend = store.get('backend', 'robodk_sim');
+  const visionMode = store.get('visionMode', 'synthetic');
+  const env = {
+    ...process.env,
+    MOTIQ_ROOT: root,
+    BRIDGE_KEY: key,
+    BACKEND: backend === 'mock' ? 'mock' : 'robodk_sim',
+    VISION_MODE: visionMode,
+    PYTHONUNBUFFERED: '1',
+  };
+  const xai = store.get('xaiApiKey', '');
+  if (xai) {
+    env.XAI_API_KEY = xai;
+    env.EXPO_PUBLIC_XAI_API_KEY = xai;
+  }
+
+  const proc = spawn(py, [script], { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  stackProc = proc;
+  proc.stdout.on('data', (d) => console.log(String(d).trimEnd()));
+  proc.stderr.on('data', (d) => console.error(String(d).trimEnd()));
+  proc.on('error', (err) => {
+    console.error('[stack] spawn error', err);
+    if (stackProc === proc) stackProc = null;
+    dialog.showErrorBox('MOTIQ', `Failed to start the local stack: ${err.message}`);
+  });
+  proc.on('exit', (code) => {
+    console.log('[stack] exited', code);
+    // Only clear if this is still the active handle (avoids wiping a replacement process).
+    if (stackProc === proc) stackProc = null;
+  });
+}
+
+function stopStack() {
+  const proc = stackProc;
+  if (!proc && !stackStopping) return Promise.resolve();
+  if (stackStopping) return stackStopping;
+
+  stackStopping = new Promise((resolve) => {
+    const finish = () => {
+      if (stackProc === proc) stackProc = null;
+      stackStopping = null;
+      resolve();
+    };
+    if (!proc) {
+      finish();
+      return;
+    }
+    const onExit = () => {
+      clearTimeout(timer);
+      finish();
+    };
+    const timer = setTimeout(() => {
+      try {
+        proc.kill('SIGKILL');
+      } catch (_) {}
+      finish();
+    }, 8000);
+    proc.once('exit', onExit);
+    try {
+      if (process.platform === 'win32') {
+        spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F']);
+      } else {
+        try {
+          process.kill(-proc.pid, 'SIGTERM');
+        } catch (_) {
+          proc.kill('SIGTERM');
+        }
+      }
+    } catch (_) {
+      try {
+        proc.kill('SIGTERM');
+      } catch (__) {
+        finish();
+      }
+    }
+  });
+  return stackStopping;
+}
+
+async function restartStack() {
+  await stopStack();
+  // Let loopback ports release before rebinding.
+  await new Promise((r) => setTimeout(r, 750));
+  startStack();
+}
+
+function uiUrl() {
+  const renderer = path.join(__dirname, '..', 'renderer', 'index.html');
+  if (fs.existsSync(renderer)) {
+    return { type: 'file', path: renderer };
+  }
+  return { type: 'url', path: process.env.MOTIQ_UI_URL || 'http://127.0.0.1:8081' };
+}
+
+function injectDesktopConfig() {
+  const key = ensureBridgeKey();
+  const xai = store.get('xaiApiKey', '') || '';
+  return {
+    EXPO_PUBLIC_ARM_URL: 'http://127.0.0.1:8080',
+    EXPO_PUBLIC_BRIDGE_KEY: key,
+    EXPO_PUBLIC_VISION_SERVER: 'http://127.0.0.1:8000',
+    EXPO_PUBLIC_TEACH_SERVER: 'http://127.0.0.1:8001',
+    EXPO_PUBLIC_CHOOSER_URL: 'http://127.0.0.1:8771',
+    EXPO_PUBLIC_XAI_API_KEY: xai,
+    EXPO_PUBLIC_VISION_SOURCES: 'arm,webcam',
+    MOTIQ_DESKTOP: '1',
+  };
+}
+
+function pushConfigToRenderer() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const cfg = injectDesktopConfig();
+  return mainWindow.webContents.executeJavaScript(
+    `window.__MOTIQ_DESKTOP__ = ${JSON.stringify(cfg)};
+     window.dispatchEvent(new Event('motiq-desktop-config'));`,
+  );
+}
+
+async function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    minWidth: 960,
+    minHeight: 640,
+    title: 'MOTIQ',
+    backgroundColor: '#04112b',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  // Register BEFORE load so the first paint receives config (did-finish-load can fire during await).
+  mainWindow.webContents.on('did-finish-load', () => {
+    pushConfigToRenderer();
+  });
+
+  const target = uiUrl();
+  if (target.type === 'file') {
+    await mainWindow.loadFile(target.path);
+  } else {
+    try {
+      await mainWindow.loadURL(target.path);
+    } catch (e) {
+      const html = `<html><body style="font-family:system-ui;padding:2rem;background:#04112b;color:#e8eefc">
+        <h1>MOTIQ</h1>
+        <p>UI bundle not built yet. Run <code>npm run build:web</code> in desktop/, or start Expo web on :8081.</p>
+        <p>${String(e.message || e)}</p>
+        <p>Local stack is starting with loopback backends. Configure your API key in the first-run wizard.</p>
+      </body></html>`;
+      await mainWindow.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    }
+  }
+  await pushConfigToRenderer();
+}
+
+ipcMain.handle('motiq:get-config', () => ({
+  ...injectDesktopConfig(),
+  firstRunComplete: !!store.get('firstRunComplete'),
+  backend: store.get('backend', 'robodk_sim'),
+  visionMode: store.get('visionMode', 'synthetic'),
+  robodkHint: 'Install RoboDK separately and leave it running (API port 20500) for robodk_sim.',
+}));
+
+ipcMain.handle('motiq:save-first-run', async (_e, payload) => {
+  if (payload?.xaiApiKey) store.set('xaiApiKey', String(payload.xaiApiKey).trim());
+  if (payload?.backend) store.set('backend', payload.backend === 'mock' ? 'mock' : 'robodk_sim');
+  if (payload?.visionMode) store.set('visionMode', payload.visionMode);
+  store.set('firstRunComplete', true);
+  await restartStack();
+  const cfg = injectDesktopConfig();
+  await pushConfigToRenderer();
+  return cfg;
+});
+
+ipcMain.handle('motiq:pick-robot-file', async () => {
+  const r = await dialog.showOpenDialog(mainWindow, {
+    title: 'Import RoboDK robot',
+    filters: [{ name: 'RoboDK', extensions: ['robot', 'rdk'] }],
+    properties: ['openFile'],
+  });
+  if (r.canceled || !r.filePaths[0]) return null;
+  return r.filePaths[0];
+});
+
+ipcMain.handle('motiq:open-external', (_e, url) => {
+  if (typeof url === 'string' && /^https?:/i.test(url)) shell.openExternal(url);
+});
+
+let quitting = false;
+
+app.whenReady().then(async () => {
+  startStack();
+  await createWindow();
+  app.on('activate', () => {
+    // macOS: window was closed but app stayed alive — ensure backends are up again.
+    startStack();
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  // Keep the stack running on macOS while the app stays in the Dock.
+  if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', (e) => {
+  if (quitting) return;
+  e.preventDefault();
+  quitting = true;
+  stopStack().finally(() => {
+    app.exit(0);
+  });
+});

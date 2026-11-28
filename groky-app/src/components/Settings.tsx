@@ -24,7 +24,9 @@ import {
 import { setFullAccess, useFullAccess } from '../lib/fullAccess';
 import { devices } from '../devices';
 import { Colors, Mode, radius, shadowFloat, type, useStyles, useTheme } from '../theme';
+import ObjectsWizard from './ObjectsWizard';
 import { Button, IconButton, Segmented } from './ui';
+import { isMotiqDesktop } from '../lib/desktopConfig';
 
 const modes: { id: Mode; label: string }[] = [
   { id: 'system', label: 'System' },
@@ -149,7 +151,18 @@ export default function Settings({ open, onClose }: Props) {
             {Object.values(devices).map((d, i, all) => (
               <Row key={d.label} label={d.label} value={d.url || 'simulated'} last={i === all.length - 1} />
             ))}
-            <Text style={s.hint}>Edit .env and restart Expo to change bridge / vision URLs.</Text>
+            <Text style={s.hint}>
+              {isMotiqDesktop()
+                ? 'Desktop uses loopback backends started with the app.'
+                : 'Edit .env and restart Expo to change bridge / vision URLs.'}
+            </Text>
+
+            <Text style={s.overline}>Objects</Text>
+            <ObjectsWizard />
+            <Text style={s.hint}>
+              Improve detection later (optional): train ONNX in Colab notebooks under computer-vision/training/, then
+              copy the .onnx into computer-vision/data/models/ and set YOLO_MODEL. Training is never part of install.
+            </Text>
 
             <Text style={s.overline}>Hardware</Text>
             <Text style={s.sectionHint}>

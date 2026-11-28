@@ -1,4 +1,5 @@
-// Robot profile and its action primitives: the UR5e arm, straight from the skill template (one source of truth).
+// Robot profile and its action primitives: defaults from the skill template (kinematic sketch is UR-shaped;
+// RoboDK is the reach authority for other imported arms in simulation).
 import template from '../skills/templates/pick_place_ur5e.json';
 import type { Device, OperationalLimits, Primitive, Robot } from '../skills/schema';
 

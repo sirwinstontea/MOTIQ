@@ -377,7 +377,7 @@ export function normalizeSkill(raw: unknown): SkillDoc {
   const r = raw as Partial<SkillDoc>;
   if (!r.skill || !Array.isArray(r.steps)) throw new Error('Not a skill: it needs "skill" and "steps".');
   const other = foreignRobot(r);
-  if (other) throw new Error(`This skill is for the robot ${other}; MOTIQ only runs skills for the UR5e arm.`);
+  if (other) throw new Error(`This skill is for the robot ${other}; MOTIQ only runs arm skills (not ${other}).`);
   const device = deviceOf(r as SkillDoc);
   const base = makeSkill({
     id: r.skill.id || newSkillId(),
