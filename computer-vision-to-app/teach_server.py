@@ -70,6 +70,21 @@ def skill_file(sid: str) -> Path | None:
     return SKILLS_DIR / f"{sid}.json" if re.fullmatch(r"[A-Za-z0-9_\-]{1,80}", sid) else None
 
 
+def registered_object_names() -> str:
+    """Demo defaults plus any custom names from user_objects.json."""
+    names = ["orange screw", "blue bucket", "green ring", "white bucket lid"]
+    path = CV / "data" / "user_objects.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for o in data.get("objects") or []:
+            n = (o.get("name") or o.get("id") or "").strip()
+            if n and n.lower() not in {x.lower() for x in names}:
+                names.append(n)
+    except (OSError, ValueError, TypeError):
+        pass
+    return ", ".join(names)
+
+
 def summarize(vt: VideoTokens) -> str:
     """Plain-language version of the tokens, the same shape the app's Learn-from-camera summary uses."""
     lines = []
@@ -92,10 +107,10 @@ def summarize(vt: VideoTokens) -> str:
         "Actions, in order:\n" + "\n".join(lines) if lines else "No actions were recognised.",
         f'What they said: "{vt.transcript.strip()}"' if vt.transcript.strip() else "",
         "Write a skill that makes the robot arm reproduce this task: detect each object first, pick, place at the "
-        "same destination, verify, then go home. Keep the same order. The arm's camera is on its head and it knows "
-        "four objects: orange screw, blue bucket, green ring, white bucket lid; map what the person handled to the "
-        "closest of these. Putting something in a cup/bucket/container means into the blue bucket; putting it to one "
-        "side or on a pad means the delivery zone.",
+        "same destination, verify, then go home. Keep the same order. The arm's camera is on its head. Map what the "
+        f"person handled to the closest of these registered objects: {registered_object_names()}. Putting something in a "
+        "cup/bucket/container means into the matching container; putting it to one side or on a pad means the "
+        "delivery zone.",
     ]))
 
 

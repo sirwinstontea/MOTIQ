@@ -58,7 +58,18 @@ def _parser() -> argparse.ArgumentParser:
     ar.add_argument("--payload", type=float, required=True, help="nominal payload in kg")
     ar.add_argument("--url", required=True, help="https:// RoboDK library or manufacturer page")
     ar.add_argument("--robot-file", default=None, help="<name>.robot in robot_controller/stations/")
+    ir = sub.add_parser("import-robot", help="import any RoboDK .robot/.rdk into robodk_sim (needs RoboDK running)")
+    ir.add_argument("--source", required=True, help="path to .robot or library .rdk")
+    ir.add_argument("--id", default="", help="catalog id (default from brand+model)")
+    ir.add_argument("--brand", default="Custom")
+    ir.add_argument("--model", default="", help="display name (default: file stem)")
+    ir.add_argument("--url", default="https://robodk.com/robot")
+    ir.add_argument("--select", action="store_true")
+    ir.add_argument("--port", type=int, default=20500)
     sub.add_parser("remove-robot").add_argument("robot_id")
+    sub.add_parser("objects", help="list registered custom objects")
+    ao = sub.add_parser("set-objects", help='JSON list: \'[{"name":"red mug","aliases":["mug"]}]\'')
+    ao.add_argument("json")
     sub.add_parser("types", help="hardware types (hardware_types/*.yaml) with their fields and drivers")
     sub.add_parser("components", help="every device, what it is attached to and how it is connected")
     ac = sub.add_parser("add-component", help="add any device; spec values as key=value (parsed as YAML)")
@@ -123,6 +134,25 @@ def main(argv=None) -> int:
                                   "nominal_reach_m": args.reach, "nominal_payload_kg": args.payload,
                                   "library_url": args.url, "library_file": args.robot_file})
             print(f"added {args.id} (blocked until limits, scene and workspace are set)")
+        elif args.cmd == "import-robot":
+            body = {"source": args.source, "brand": args.brand, "library_url": args.url,
+                    "select": bool(args.select), "port": args.port}
+            if args.id:
+                body["robot_id"] = args.id
+            if args.model:
+                body["model"] = args.model
+            state = ch.import_from_robodk(body)
+            imp = state.get("import") or {}
+            print(f"imported -> {imp.get('station_path', '?')} (sim only; restart stack to use)")
+        elif args.cmd == "objects":
+            for o in ch.list_objects().get("objects", []):
+                print(f"{o.get('id'):<20} {o.get('name')}  aliases={o.get('aliases')}  role={o.get('role')}")
+            return 0
+        elif args.cmd == "set-objects":
+            objs = json.loads(args.json)
+            state = ch.register_objects({"objects": objs})
+            print(f"saved {len(state.get('objects', []))} object(s); scenes={state.get('scenes_updated')}")
+            return 0
         elif args.cmd == "remove-robot":
             state = ch.remove_robot(args.robot_id)
         elif args.cmd == "add-component":

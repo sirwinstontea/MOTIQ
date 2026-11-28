@@ -17,6 +17,7 @@ Simulation only: the chooser can select the ``mock`` or ``robodk_sim`` backend, 
 from __future__ import annotations
 
 import datetime as _dt
+import json
 import math
 import re
 import sys
@@ -682,6 +683,214 @@ class Chooser:
                 raise ChooserError("VALIDATION_ERROR", _pydantic_msg(e))
             self._save_catalog(new_cat)
             return self._commit(new_cat, self.load_hardware())
+
+    def import_from_robodk(self, body: dict) -> dict:
+        """One-gesture import: .robot/.rdk -> demo station + scene + READY catalog entry (robodk_sim only).
+
+        Body: {source, robot_id?, brand?, model?, library_url?, reach?, payload?, select?, port?}
+        Requires a running RoboDK API. Simulation only — never enables physical backends.
+        """
+        if not isinstance(body, dict):
+            raise ChooserError("VALIDATION_ERROR", "body must be a JSON object")
+        source = body.get("source")
+        if not source or not isinstance(source, str):
+            raise ChooserError("VALIDATION_ERROR", 'body needs "source": path to a .robot or .rdk file')
+
+        scripts = REPO_ROOT / "robot_controller" / "scripts"
+        if str(scripts) not in sys.path:
+            sys.path.insert(0, str(scripts))
+        try:
+            from import_robodk_arm import import_arm, suggest_id, safe_model_name
+        except Exception as e:
+            raise ChooserError("IMPORT_UNAVAILABLE", f"import script not loadable: {e}", 503)
+
+        brand = str(body.get("brand") or "Custom").strip() or "Custom"
+        model = str(body.get("model") or Path(source).stem).strip() or "Arm"
+        robot_id = str(body.get("robot_id") or suggest_id(brand, model)).strip()
+        try:
+            meta = import_arm(
+                Path(source),
+                robot_id=robot_id,
+                brand=brand,
+                model=safe_model_name(model),
+                library_url=str(body.get("library_url") or ""),
+                port=int(body.get("port") or 20500),
+                select=bool(body.get("select")),
+                nominal_reach_m=float(body["reach"]) if body.get("reach") else None,
+                nominal_payload_kg=float(body["payload"]) if body.get("payload") else None,
+            )
+        except FileNotFoundError as e:
+            raise ChooserError("SOURCE_NOT_FOUND", str(e), 404)
+        except ValueError as e:
+            raise ChooserError("VALIDATION_ERROR", str(e))
+        except RuntimeError as e:
+            raise ChooserError("LAYOUT_FAILED", str(e), 422)
+        except Exception as e:
+            raise ChooserError("IMPORT_FAILED", f"{e.__class__.__name__}: {e}", 502)
+
+        entry = meta["robot"]
+        with self._lock:
+            cat = self.load_catalog()
+            existing = cat.get(entry["id"])
+            try:
+                new_r = RobotEntry.model_validate({"robodk_item_name": entry.get("robodk_item_name") or entry.get("model"), **entry})
+            except ValidationError as e:
+                raise ChooserError("VALIDATION_ERROR", _pydantic_msg(e))
+            if existing is None:
+                new_cat = Catalog.model_validate({"schema": cat.schema_, "robots": [*cat.robots, new_r]})
+            else:
+                new_cat = Catalog.model_validate({
+                    "schema": cat.schema_,
+                    "robots": [new_r if x.id == entry["id"] else x for x in cat.robots],
+                })
+            self._save_catalog(new_cat)
+            hw = self.load_hardware()
+            if body.get("select"):
+                hw = Hardware.model_validate({**hw.model_dump(mode="json"),
+                                              "active_robot": entry["id"], "backend": "robodk_sim"})
+            state = self._commit(new_cat, hw)
+
+        state = {**state, "import": {
+            "station_path": meta["station_path"],
+            "scene_path": meta["scene_path"],
+            "robot_file": meta["robot_file"],
+            "layout": meta["layout"],
+            "simulation_only": True,
+            "restart_required": True,
+        }}
+        return state
+
+    # ---- custom objects (class_labels + YOLO-World vocab); taught targets stay from the demo scene
+
+    def objects_path(self) -> Path:
+        return self.root / "computer-vision" / "data" / "user_objects.json"
+
+    def vocab_path(self) -> Path:
+        return self.root / "computer-vision" / "logs" / "vocab.json"
+
+    def list_objects(self) -> dict:
+        path = self.objects_path()
+        objects = []
+        if path.is_file():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                objects = data.get("objects") if isinstance(data, dict) else []
+            except (OSError, ValueError):
+                objects = []
+        return {"objects": objects if isinstance(objects, list) else []}
+
+    def register_objects(self, body: dict) -> dict:
+        """Register user object names for vision + scene matching.
+
+        Body: {"objects": [{"id", "name", "aliases": [...], "role": "pickable"|"container"|...}]}
+        Updates computer-vision/data/user_objects.json, YOLO-World vocab, and merges class_labels
+        into the active scene YAML (and the robot's scene_file when present).
+        """
+        if not isinstance(body, dict) or not isinstance(body.get("objects"), list):
+            raise ChooserError("VALIDATION_ERROR", 'body must be {"objects": [...]}')
+        cleaned = []
+        for i, raw in enumerate(body["objects"]):
+            if not isinstance(raw, dict):
+                raise ChooserError("VALIDATION_ERROR", f"objects[{i}] must be an object")
+            name = str(raw.get("name") or "").strip()
+            oid = str(raw.get("id") or "").strip() or re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+            if not oid or not name:
+                raise ChooserError("VALIDATION_ERROR", f"objects[{i}] needs id and name")
+            aliases = raw.get("aliases") or []
+            if not isinstance(aliases, list):
+                raise ChooserError("VALIDATION_ERROR", f"objects[{i}].aliases must be a list")
+            aliases = [str(a).strip() for a in aliases if str(a).strip()]
+            role = str(raw.get("role") or "pickable").strip() or "pickable"
+            labels = sorted({name.lower(), oid.lower(), *[a.lower() for a in aliases]})
+            cleaned.append({"id": oid, "name": name, "aliases": aliases, "role": role, "class_labels": labels})
+
+        path = self.objects_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"objects": cleaned}, indent=2) + "\n", encoding="utf-8")
+
+        # YOLO-World vocab for open-vocab tracking
+        vocab_path = self.vocab_path()
+        vocab = {}
+        for o in cleaned:
+            for lab in o["class_labels"]:
+                vocab[lab] = {"name": o["name"], "color": None, "tags": [o["role"]], "size_cm": None}
+        try:
+            vocab_path.parent.mkdir(parents=True, exist_ok=True)
+            vocab_path.write_text(json.dumps(vocab, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        except OSError:
+            pass
+
+        merged_into = self._merge_object_labels_into_scenes(cleaned)
+        return {"objects": cleaned, "scenes_updated": merged_into, "vocab_path": str(vocab_path)}
+
+    def _merge_object_labels_into_scenes(self, objects: list[dict]) -> list[str]:
+        """Attach class_labels to matching scene object ids, or add placeholder pickable entries."""
+        updated = []
+        hw = self.load_hardware()
+        cat = self.load_catalog()
+        active = cat.get(hw.active_robot)
+        candidates: list[Path] = []
+        # active generated scene
+        for p in (self.ctrl_cfg / "scene.yaml",):
+            if p.is_file():
+                candidates.append(p)
+        if active and active.scene_file:
+            for root in (self.ctrl_cfg / "scenes", self.ctrl_cfg):
+                p = root / active.scene_file
+                if p.is_file():
+                    candidates.append(p)
+        # also scene.example for mock/default
+        ex = self.ctrl_cfg / "scene.example.yaml"
+        if ex.is_file():
+            candidates.append(ex)
+
+        seen = set()
+        for path in candidates:
+            key = str(path.resolve())
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            except (OSError, yaml.YAMLError):
+                continue
+            objs = data.get("objects")
+            if not isinstance(objs, dict):
+                continue
+            changed = False
+            for o in objects:
+                if o["id"] in objs and isinstance(objs[o["id"]], dict):
+                    labels = list(dict.fromkeys([*(objs[o["id"]].get("class_labels") or []), *o["class_labels"]]))
+                    objs[o["id"]]["class_labels"] = labels
+                    changed = True
+                elif o["role"] == "pickable" and objs:
+                    # clone first pickable object's targets as placeholders for the new name
+                    donor_id, donor = next(iter(objs.items()))
+                    if not isinstance(donor, dict):
+                        continue
+                    if o["id"] not in objs:
+                        objs[o["id"]] = {
+                            **{k: v for k, v in donor.items() if k != "class_labels"},
+                            "class_labels": o["class_labels"],
+                            "description": f"User object '{o['name']}' (taught targets cloned from {donor_id}; re-teach in RoboDK for a real cell)",
+                        }
+                        changed = True
+            if changed:
+                try:
+                    # preserve generated header if present
+                    text = path.read_text(encoding="utf-8")
+                    head = ""
+                    if text.lstrip().startswith("#"):
+                        lines = text.splitlines(keepends=True)
+                        i = 0
+                        while i < len(lines) and lines[i].startswith("#"):
+                            head += lines[i]
+                            i += 1
+                    path.write_text(head + yaml.safe_dump(data, sort_keys=False, width=120), encoding="utf-8")
+                    updated.append(str(path))
+                except OSError:
+                    pass
+        return updated
 
     def remove_robot(self, robot_id: str) -> dict:
         with self._lock:

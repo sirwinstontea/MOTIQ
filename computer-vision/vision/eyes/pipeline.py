@@ -212,9 +212,16 @@ class EyePipeline:
         open_vocab = None
         try:
             import os
-            from ..grok.open_vocab import DESK_CLASSES, OpenVocab
+            from pathlib import Path as _P
+            from ..grok.open_vocab import DESK_CLASSES, OpenVocab, load_vocab
             world_conf = float(os.getenv("WORLD_CONF", "0.2"))
             open_vocab = OpenVocab(conf=world_conf, base=DESK_CLASSES)
+            # User-registered objects (Motiq Objects wizard / robot-chooser set-objects)
+            vocab_path = _P(__file__).resolve().parents[2] / "logs" / "vocab.json"
+            user_vocab = load_vocab(vocab_path)
+            if user_vocab:
+                open_vocab.set_classes(list(user_vocab.keys()))
+                print(f"[Pipeline] YOLO-World: loaded {len(user_vocab)} user class(es) from {vocab_path.name}")
             print(f"[Pipeline] YOLO-World (OpenVocab) inizializzato per '{source}' con {len(DESK_CLASSES)} classi base.")
         except Exception as exc:
             print(f"[Pipeline] Avviso: OpenVocab non disponibile per '{source}': {exc}")
