@@ -57,7 +57,7 @@ npm run dist:mac     # .dmg
 npm run dist:linux   # AppImage
 ```
 
-Installer extracts runtimes into the app directory and does not leave training notebooks or Metro on the machine.
+Installer extracts runtimes into the app directory and does not leave training notebooks or Metro on the machine. Packaged trees **exclude** `.env` / `.env.*` so local API keys are never baked into the installer. The desktop stack binds vision, teach, chooser, controller and bridge to **127.0.0.1** only.
 
 ## Import any RoboDK arm (CLI)
 

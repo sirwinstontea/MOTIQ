@@ -31,17 +31,17 @@
       {
         "from": "../bridge",
         "to": "motiq/bridge",
-        "filter": ["**/*", "!**/__pycache__/**"]
+        "filter": ["**/*", "!**/__pycache__/**", "!**/.env", "!**/.env.*"]
       },
       {
         "from": "../robot_controller",
         "to": "motiq/robot_controller",
-        "filter": ["**/*", "!**/.venv/**", "!**/__pycache__/**", "!**/runs/**"]
+        "filter": ["**/*", "!**/.venv/**", "!**/__pycache__/**", "!**/runs/**", "!**/.env", "!**/.env.*"]
       },
       {
         "from": "../robot-chooser",
         "to": "motiq/robot-chooser",
-        "filter": ["**/*", "!**/__pycache__/**"]
+        "filter": ["**/*", "!**/__pycache__/**", "!**/.env", "!**/.env.*"]
       },
       {
         "from": "../computer-vision",
@@ -51,13 +51,15 @@
           "!**/training/**",
           "!**/.venv/**",
           "!**/__pycache__/**",
-          "!**/logs/**"
+          "!**/logs/**",
+          "!**/.env",
+          "!**/.env.*"
         ]
       },
       {
         "from": "../computer-vision-to-app",
         "to": "motiq/computer-vision-to-app",
-        "filter": ["**/*", "!**/__pycache__/**"]
+        "filter": ["**/*", "!**/__pycache__/**", "!**/.env", "!**/.env.*"]
       },
       {
         "from": "scripts/start_stack.py",

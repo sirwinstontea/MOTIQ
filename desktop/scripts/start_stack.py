@@ -91,17 +91,19 @@ def main() -> int:
     py_rc = pick_python(venv_python(RC))
     py_cv = pick_python(venv_python(CV), Path(py_rc))
 
+    # Desktop binds every service to loopback. Vision/teach CLIs default to 0.0.0.0 and have no auth —
+    # never expose them on the LAN from this launcher (camera frames + API key spend).
     vision_url = ""
     if os.environ.get("VISION", "1") != "0" and (CV / "vision").is_dir():
         spawn(
             "vision",
-            [py_cv, "-m", "vision.eyes.cli", "run", "--port", "8000", "--mode", VISION_MODE],
+            [py_cv, "-m", "vision.eyes.cli", "run", "--host", "127.0.0.1", "--port", "8000", "--mode", VISION_MODE],
             CV,
         )
         vision_url = "http://127.0.0.1:8000"
         teach = CV_APP / "teach_server.py"
         if teach.is_file():
-            spawn("teach", [py_cv, str(teach), "--port", str(TEACH_PORT)], CV)
+            spawn("teach", [py_cv, str(teach), "--host", "127.0.0.1", "--port", str(TEACH_PORT)], CV)
 
     if os.environ.get("CHOOSER", "1") != "0":
         spawn("chooser", [py_rc, "-m", "robot_chooser", "serve", "--host", "127.0.0.1", "--port", "8771"], CHOOSER)
