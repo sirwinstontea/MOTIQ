@@ -42,6 +42,8 @@ function ArmCatalog() {
   const [msg, setMsg] = useState<{ text: string; bad?: boolean } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [imp, setImp] = useState({ source: '', brand: 'Custom', model: '', id: '', select: true });
   const [f, setF] = useState(EMPTY_FORM);
   const [idTouched, setIdTouched] = useState(false);
 
@@ -130,19 +132,117 @@ function ArmCatalog() {
         <View style={{ flex: 1 }} />
         <Button label="Refresh" icon="refresh" size="sm" variant="ghost" onPress={load} />
         <Button
+          label={importing ? 'Cancel' : 'Import RoboDK'}
+          icon={importing ? 'close' : 'download-outline'}
+          size="sm"
+          variant={importing ? 'secondary' : 'primary'}
+          onPress={() => {
+            setImporting((x) => !x);
+            setAdding(false);
+          }}
+        />
+        <Button
           label={adding ? 'Cancel' : 'Add arm'}
           icon={adding ? 'close' : 'add'}
           size="sm"
-          variant={adding ? 'secondary' : 'primary'}
-          onPress={() => setAdding((x) => !x)}
+          variant={adding ? 'secondary' : 'ghost'}
+          onPress={() => {
+            setAdding((x) => !x);
+            setImporting(false);
+          }}
         />
       </View>
       <Text style={s.speedHint}>
-        One active arm per controller. Changes rewrite the config files (simulation only) and apply after a restart.
+        One active arm per controller. Import any RoboDK .robot/.rdk for simulation, or add catalog facts by hand.
+        Changes apply after a stack restart.
       </Text>
 
       {error && <Text style={[s.speedHint, { color: c.bad }]}>{error}</Text>}
       {msg && <Text style={[s.speedHint, { color: msg.bad ? c.bad : c.ok }]}>{msg.text}</Text>}
+
+      {importing && (
+        <View style={s.speedBox}>
+          <Text style={s.speedHint}>
+            Needs RoboDK running (API :20500). Motiq reads JointLimits, fits the demo cell, and marks the arm READY
+            for robodk_sim only. May take a minute.
+          </Text>
+          <Field
+            label="path to .robot or .rdk"
+            value={imp.source}
+            onChange={(v) => setImp((o) => ({ ...o, source: v }))}
+            placeholder="/path/to/UR3e.rdk"
+          />
+          <View style={s.formRow}>
+            <Field
+              label="brand"
+              value={imp.brand}
+              onChange={(v) => setImp((o) => ({ ...o, brand: v, id: o.id || suggestArmId(v, o.model) }))}
+              placeholder="Universal Robots"
+            />
+            <Field
+              label="model"
+              value={imp.model}
+              onChange={(v) => setImp((o) => ({ ...o, model: v, id: o.id || suggestArmId(o.brand, v) }))}
+              placeholder="UR3e"
+            />
+          </View>
+          <Field
+            label="id (optional)"
+            value={imp.id}
+            onChange={(v) => setImp((o) => ({ ...o, id: v }))}
+            placeholder={suggestArmId(imp.brand, imp.model) || 'custom_arm'}
+          />
+          <Button
+            label="Browse…"
+            icon="folder-open-outline"
+            size="sm"
+            variant="secondary"
+            onPress={async () => {
+              const pick = await (typeof window !== 'undefined' ? window.motiqDesktop?.pickRobotFile?.() : null);
+              if (pick) {
+                const stem = pick.split(/[/\\]/).pop()?.replace(/\.(robot|rdk)$/i, '') || '';
+                setImp((o) => ({
+                  ...o,
+                  source: pick,
+                  model: o.model || stem,
+                  id: o.id || suggestArmId(o.brand, o.model || stem),
+                }));
+              }
+            }}
+          />
+          <Button
+            label="Import into simulation"
+            icon="checkmark"
+            variant="primary"
+            loading={busy === 'import'}
+            disabled={!imp.source.trim() || !!busy}
+            onPress={async () => {
+              Haptics.selectionAsync();
+              setBusy('import');
+              setMsg({ text: 'Importing… keep RoboDK open.' });
+              const r = await robotCatalog.importArm({
+                source: imp.source.trim(),
+                brand: imp.brand.trim() || 'Custom',
+                model: imp.model.trim() || undefined,
+                robot_id: imp.id.trim() || undefined,
+                select: imp.select,
+                library_url: 'https://robodk.com/robot',
+              });
+              setBusy(null);
+              if (r.ok) {
+                setArms(r.robots);
+                setImporting(false);
+                const layout = r.import?.layout;
+                setMsg({
+                  text: `Imported. ${r.report?.status === 'READY' ? 'READY for robodk_sim.' : r.report?.status || ''} ${
+                    layout ? `Cell shift ${(layout.dx_m * 1000).toFixed(0)} mm.` : ''
+                  } Restart the stack to drive this arm.`,
+                });
+              } else setMsg({ text: r.message, bad: true });
+            }}
+          />
+        </View>
+      )}
 
       {adding && (
         <View style={s.speedBox}>

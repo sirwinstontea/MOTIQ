@@ -253,6 +253,20 @@ Every folder has its own README with a file-level guide.
 
 `bridge/start_stack.sh` is written for Linux. On Windows, start each service with the commands in [Full simulated stack](#3-full-simulated-stack). The first time the vision server loads YOLO-World it downloads the model weights, including a CLIP model of about 340 MB.
 
+## Desktop app (Windows / macOS / Linux)
+
+For a full-control workstation on **your PC** (UI + local backends, RoboDK sim by default, no Expo Go required), see [`desktop/README.md`](desktop/README.md).
+
+- Unsigned installers via Electron (`MotiqSetup.exe`, `.dmg`, AppImage).
+- **Objects** wizard: register your own item names (YOLO-World; training stays optional in Colab).
+- **Import RoboDK**: bring any library `.robot` / `.rdk` into `robodk_sim` with one gesture.
+- Voice / video skills execute as named moves in RoboDK. Physical multi-brand control is out of scope for the desktop path.
+
+```bash
+cd desktop && npm install && npm start
+# or build: npm run dist:win | dist:mac | dist:linux
+```
+
 ## Quick start
 
 ### 1. App only (simulated robots)

@@ -1,0 +1,96 @@
+{
+  "name": "motiq-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MOTIQ desktop workstation — UI + local robot stack (RoboDK sim)",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win nsis",
+    "dist:mac": "electron-builder --mac dmg",
+    "dist:linux": "electron-builder --linux AppImage",
+    "build:web": "node scripts/build-web.mjs",
+    "build": "npm run build:web && electron-builder"
+  },
+  "build": {
+    "appId": "com.motiq.desktop",
+    "productName": "MOTIQ",
+    "copyright": "Copyright © MOTIQ",
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "src/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../bridge",
+        "to": "motiq/bridge",
+        "filter": ["**/*", "!**/__pycache__/**", "!**/.env", "!**/.env.*"]
+      },
+      {
+        "from": "../robot_controller",
+        "to": "motiq/robot_controller",
+        "filter": ["**/*", "!**/.venv/**", "!**/__pycache__/**", "!**/runs/**", "!**/.env", "!**/.env.*"]
+      },
+      {
+        "from": "../robot-chooser",
+        "to": "motiq/robot-chooser",
+        "filter": ["**/*", "!**/__pycache__/**", "!**/.env", "!**/.env.*"]
+      },
+      {
+        "from": "../computer-vision",
+        "to": "motiq/computer-vision",
+        "filter": [
+          "**/*",
+          "!**/training/**",
+          "!**/.venv/**",
+          "!**/__pycache__/**",
+          "!**/logs/**",
+          "!**/.env",
+          "!**/.env.*"
+        ]
+      },
+      {
+        "from": "../computer-vision-to-app",
+        "to": "motiq/computer-vision-to-app",
+        "filter": ["**/*", "!**/__pycache__/**", "!**/.env", "!**/.env.*"]
+      },
+      {
+        "from": "scripts/start_stack.py",
+        "to": "motiq/start_stack.py"
+      }
+    ],
+    "asar": true,
+    "win": {
+      "target": ["nsis"],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "MotiqSetup-${version}.${ext}"
+    },
+    "mac": {
+      "target": ["dmg"],
+      "identity": null
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "category": "Science"
+    }
+  },
+  "dependencies": {
+    "electron-store": "^8.2.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  }
+}

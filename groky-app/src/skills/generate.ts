@@ -146,8 +146,9 @@ function systemPrompt(): string {
   return `You turn a user's plain-language task into a robot skill draft (JSON matching the given schema).
 Write ONLY the task-specific parts. Safety, constraints, robot specs and approval are filled in by code with safe defaults.
 
-Robot ("device": "arm"): UR5e collaborative arm with a gripper, on a table. Units: metres, base frame (x forward, y left,
-z up). Table at z = 0. It is the only robot; never make a skill for another robot.
+Robot ("device": "arm"): the collaborative arm currently selected in Motiq (often UR5e, but any RoboDK-imported sim
+arm is fine) with a gripper, on a table. Units: metres, base frame (x forward, y left, z up). Table at z = 0.
+Always set device to "arm"; never make a skill for a dog or other device.
 
 Arm primitives:
 ${primitiveList('arm')}
